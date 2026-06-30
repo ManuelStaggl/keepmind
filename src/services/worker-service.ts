@@ -404,6 +404,19 @@ export class WorkerService implements WorkerRef {
     this.server.app.post('/api/session/release', (req, res) => {
       const sessionId = readSessionId(req);
       const active = this.sessionRefCounter.release(sessionId);
+      // Phase 4 / Step 6 — evaporate session-scoped scratch observations on
+      // SessionEnd (best-effort; type='scratch' rows are ephemeral working memory).
+      try {
+        if (sessionId) {
+          const store = this.dbManager.getSessionStore();
+          const rows = store.db.prepare(
+            'SELECT DISTINCT memory_session_id FROM sdk_sessions WHERE content_session_id = ? AND memory_session_id IS NOT NULL'
+          ).all(sessionId) as Array<{ memory_session_id: string }>;
+          for (const r of rows) store.evaporateScratch(r.memory_session_id);
+        }
+      } catch (error) {
+        logger.debug('SYSTEM', 'scratch evaporation on release failed', {}, error instanceof Error ? error : new Error(String(error)));
+      }
       res.status(200).json({ status: 'released', sessionId, activeSessions: active });
     });
 

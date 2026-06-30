@@ -46,6 +46,7 @@ export function queryObservations(
     FROM observations o
     LEFT JOIN sdk_sessions s ON o.memory_session_id = s.memory_session_id
     WHERE (o.project = ? OR o.merged_into_project = ? OR o.type = 'global')
+      AND (o.valid_to IS NULL)
       AND (? IS NULL OR s.platform_source = ?)
       AND (
         o.type = 'global'
@@ -139,6 +140,7 @@ export function queryObservationsMulti(
     WHERE (o.project IN (${projectPlaceholders})
            OR o.merged_into_project IN (${projectPlaceholders})
            OR o.type = 'global')
+      AND (o.valid_to IS NULL)
       AND (? IS NULL OR s.platform_source = ?)
       AND (
         o.type = 'global'

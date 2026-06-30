@@ -216,6 +216,12 @@ export async function generateContextWithStats(
       ? querySummariesMulti(db, projects, config, platformSource)
       : querySummaries(db, project, config, platformSource);
 
+    // Phase 4 / Step 6 — "timer reset on use": bump last_used_at for the rows we
+    // actually inject so the expiry TTL restarts. Only when expiry is enabled.
+    if (mq.expiry.enabled && observations.length > 0) {
+      db.markObservationsUsed(observations.map(o => o.id));
+    }
+
     if (observations.length === 0 && summaries.length === 0) {
       return { text: renderEmptyState(project, forHuman), stats: null };
     }

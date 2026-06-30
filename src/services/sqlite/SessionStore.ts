@@ -15,8 +15,10 @@ import type { ObservationSearchResult, SessionSummarySearchResult } from './type
 import { computeObservationContentHash } from './observations/store.js';
 import { parseFileList } from './observations/files.js';
 import { redactSecrets, redactSecretsDeep, type RedactOptions } from '../redaction/redact-secrets.js';
-import { loadMemoryQualityConfig } from '../config/memory-quality.js';
+import { loadMemoryQualityConfig, MEMORY_QUALITY_DEFAULTS, type MemoryQualityConfig } from '../config/memory-quality.js';
 import { defaultImportance } from '../scoring/importance.js';
+import { reconcile as reconcileObservation, type ReconcileCandidate } from '../reconcile/reconciler.js';
+import { subjectKey } from '../reconcile/subject-key.js';
 import { DEFAULT_PLATFORM_SOURCE, normalizePlatformSource, sortPlatformSources } from '../../shared/platform-source.js';
 import { findRecentDuplicateUserPrompt as findRecentDuplicateUserPromptRecord } from './prompts/get.js';
 import { normalizeStoredPromptText } from './prompt-storage.js';
@@ -43,6 +45,8 @@ export class SessionStore {
   // Phase 4 / Step 1 — secret-scrubbing on write. Computed once at construction.
   private redactEnabled: boolean;
   private redactOpts: RedactOptions;
+  // Phase 4 — full memoryQuality config (reconcile/supersession/expiry gates).
+  private mq: MemoryQualityConfig;
 
   /** Redact a single nullable text field if redaction is enabled. */
   private rt(text: string | null | undefined): string | null | undefined {
@@ -56,11 +60,13 @@ export class SessionStore {
 
   constructor(dbPathOrDb: string | Database = DB_PATH) {
     try {
-      const rc = loadMemoryQualityConfig().redactSecrets;
+      this.mq = loadMemoryQualityConfig();
+      const rc = this.mq.redactSecrets;
       this.redactEnabled = rc.enabled;
       this.redactOpts = { entropySweep: rc.entropySweep, entropyThreshold: rc.entropyThreshold };
     } catch {
       // Fail-safe: redaction ON by defaults if config can't load.
+      this.mq = MEMORY_QUALITY_DEFAULTS;
       this.redactEnabled = process.env.CLAUDE_MEM_REDACT_SECRETS !== '0' && process.env.CLAUDE_MEM_REDACT_SECRETS !== 'false';
       this.redactOpts = { entropySweep: true, entropyThreshold: 4.0 };
     }
@@ -107,6 +113,42 @@ export class SessionStore {
     this.ensureUserPromptsSessionDbId();
     this.ensurePendingMessagesSessionToolUniqueIndex();
     this.addObservationImportanceColumn();
+    this.addObservationBitemporalColumns();
+    this.addObservationLastUsedColumn();
+  }
+
+  // Phase 4 / Step 5 — bi-temporal supersession columns. Additive + idempotent.
+  // valid_from backfills to created_at_epoch; valid_to NULL = currently valid.
+  private addObservationBitemporalColumns(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(35) as SchemaVersion | undefined;
+    const cols = this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[];
+    const has = (n: string) => cols.some(c => c.name === n);
+    if (applied && has('valid_from') && has('valid_to') && has('subject_key')) return;
+
+    if (!has('valid_from')) this.db.run('ALTER TABLE observations ADD COLUMN valid_from INTEGER');
+    if (!has('valid_to')) this.db.run('ALTER TABLE observations ADD COLUMN valid_to INTEGER');
+    if (!has('subject_key')) this.db.run('ALTER TABLE observations ADD COLUMN subject_key TEXT');
+    this.db.run('UPDATE observations SET valid_from = created_at_epoch WHERE valid_from IS NULL');
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_obs_subject_valid ON observations(project, subject_key, valid_to)');
+
+    if (!applied) {
+      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(35, new Date().toISOString());
+    }
+  }
+
+  // Phase 4 / Step 6 — auto-expiry: last_used_at (reset-on-use timer). Additive.
+  private addObservationLastUsedColumn(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(36) as SchemaVersion | undefined;
+    const cols = this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[];
+    const hasColumn = cols.some(c => c.name === 'last_used_at');
+    if (applied && hasColumn) return;
+
+    if (!hasColumn) this.db.run('ALTER TABLE observations ADD COLUMN last_used_at INTEGER');
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_obs_last_used ON observations(last_used_at)');
+
+    if (!applied) {
+      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(36, new Date().toISOString());
+    }
   }
 
   // Phase 4 / Step 3 — importance scoring. Additive, idempotent: NULL = unscored
@@ -2233,12 +2275,25 @@ export class SessionStore {
     // Phase 4 / Step 3 — heuristic importance computed over redacted content.
     const importance = defaultImportance({ type: observation.type, narrative: rNarrative, files_modified: observation.files_modified });
 
+    // Phase 4 / Step 4 — optional near-dup reconciliation (default OFF). On NOOP
+    // we reuse the existing row; on UPDATE we insert then close the old window.
+    let pendingSupersedeId: number | undefined;
+    if (this.mq.reconcile.enabled) {
+      const decision = this.reconcileBeforeInsert(project, observation.type, rTitle ?? null, rNarrative ?? null);
+      if (decision.action === 'NOOP' && decision.candidateId) {
+        const existing = this.db.prepare('SELECT id, created_at_epoch FROM observations WHERE id = ?').get(decision.candidateId) as { id: number; created_at_epoch: number } | undefined;
+        if (existing) return { id: existing.id, createdAtEpoch: existing.created_at_epoch };
+      } else if (decision.action === 'UPDATE') {
+        pendingSupersedeId = decision.candidateId;
+      }
+    }
+
     const stmt = this.db.prepare(`
       INSERT INTO observations
       (memory_session_id, project, type, title, subtitle, facts, narrative, concepts,
        files_read, files_modified, prompt_number, discovery_tokens, agent_type, agent_id, content_hash, created_at, created_at_epoch,
-       generated_by_model, metadata, importance)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       generated_by_model, metadata, importance, valid_from, subject_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(memory_session_id, content_hash) DO NOTHING
       RETURNING id, created_at_epoch
     `);
@@ -2263,10 +2318,16 @@ export class SessionStore {
       timestampEpoch,
       generatedByModel || null,
       rMetadata,
-      importance
+      importance,
+      timestampEpoch,
+      subjectKey({ title: rTitle ?? null, facts: rFacts, narrative: rNarrative ?? null })
     ) as { id: number; created_at_epoch: number } | null;
 
     if (inserted) {
+      // Phase 4 / Step 5 — close the superseded row's validity window (soft).
+      if (pendingSupersedeId !== undefined && this.mq.supersession.enabled) {
+        this.supersedeObservation(pendingSupersedeId, inserted.id, timestampEpoch);
+      }
       return { id: inserted.id, createdAtEpoch: inserted.created_at_epoch };
     }
 
@@ -2366,8 +2427,8 @@ export class SessionStore {
         INSERT INTO observations
         (memory_session_id, project, type, title, subtitle, facts, narrative, concepts,
          files_read, files_modified, prompt_number, discovery_tokens, agent_type, agent_id, content_hash, created_at, created_at_epoch,
-         generated_by_model, importance)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         generated_by_model, importance, valid_from, subject_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(memory_session_id, content_hash) DO NOTHING
         RETURNING id
       `);
@@ -2401,7 +2462,9 @@ export class SessionStore {
           timestampIso,
           timestampEpoch,
           generatedByModel || null,
-          defaultImportance({ type: observation.type, narrative: rNarrative, files_modified: observation.files_modified })
+          defaultImportance({ type: observation.type, narrative: rNarrative, files_modified: observation.files_modified }),
+          timestampEpoch,
+          subjectKey({ title: rTitle ?? null, facts: rFacts, narrative: rNarrative ?? null })
         ) as { id: number } | null;
 
         if (inserted) {
@@ -2448,6 +2511,116 @@ export class SessionStore {
     });
 
     return storeTx();
+  }
+
+  /**
+   * Phase 4 / Step 6 — "timer reset on use": bump last_used_at for injected/
+   * returned observations so the expiry TTL restarts. Idempotent + bounded.
+   */
+  markObservationsUsed(ids: number[], now: number = Date.now()): void {
+    if (ids.length === 0) return;
+    try {
+      const cols = this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[];
+      if (!cols.some(c => c.name === 'last_used_at')) return;
+      const placeholders = ids.map(() => '?').join(',');
+      this.db.prepare(`UPDATE observations SET last_used_at = ? WHERE id IN (${placeholders})`).run(now, ...ids);
+    } catch (error) {
+      logger.debug('DB', 'markObservationsUsed failed', { count: ids.length }, error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  /**
+   * Phase 4 / Step 6 — evaporate session-scoped scratch observations at
+   * SessionEnd. Returns the number removed.
+   */
+  evaporateScratch(memorySessionId: string): number {
+    try {
+      const res = this.db.prepare("DELETE FROM observations WHERE memory_session_id = ? AND type = 'scratch'").run(memorySessionId);
+      const n = Number(res.changes ?? 0);
+      if (n > 0) logger.info('DB', 'Evaporated scratch observations at SessionEnd', { memorySessionId, count: n });
+      return n;
+    } catch (error) {
+      logger.warn('DB', 'evaporateScratch failed', { memorySessionId }, error instanceof Error ? error : new Error(String(error)));
+      return 0;
+    }
+  }
+
+  /**
+   * Phase 4 / Step 4 — heuristic near-dup reconciliation on the write path.
+   * Returns a decision against same-project recent candidates. NEVER deletes.
+   * Only consulted when memoryQuality.reconcile.enabled. On NOOP the caller
+   * skips the insert and reuses the candidate row.
+   */
+  private reconcileBeforeInsert(
+    project: string,
+    type: string,
+    title: string | null,
+    narrative: string | null
+  ): { action: 'ADD' | 'NOOP' | 'UPDATE'; candidateId?: number } {
+    try {
+      const ninetyDaysAgo = Date.now() - 90 * 86_400_000;
+      // Only consider currently-valid rows when the supersession window column
+      // exists; otherwise fall back to all recent same-project rows.
+      const hasValidTo = (this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[]).some(c => c.name === 'valid_to');
+      const validClause = hasValidTo ? 'AND valid_to IS NULL' : '';
+      const candidates = this.db.prepare(`
+        SELECT id, title, narrative, importance
+        FROM observations
+        WHERE project = ? AND type = ? AND created_at_epoch >= ? ${validClause}
+        ORDER BY created_at_epoch DESC
+        LIMIT 20
+      `).all(project, type, ninetyDaysAgo) as ReconcileCandidate[];
+
+      if (candidates.length === 0) return { action: 'ADD' };
+
+      const supersessionEnabled = this.mq.supersession.enabled && hasValidTo;
+      const decision = reconcileObservation(
+        { title, narrative },
+        candidates,
+        {
+          noopThreshold: this.mq.reconcile.noopThreshold,
+          updateBand: this.mq.reconcile.updateBand,
+          supersessionEnabled,
+        }
+      );
+      return decision;
+    } catch (error) {
+      logger.warn('DB', 'reconcileBeforeInsert failed; defaulting to ADD', { project, type }, error instanceof Error ? error : new Error(String(error)));
+      return { action: 'ADD' };
+    }
+  }
+
+  /**
+   * Phase 4 / Step 5 — close the validity window of a superseded observation
+   * instead of deleting it (bi-temporal). Records the superseding row id.
+   */
+  private supersedeObservation(oldId: number, newId: number, now: number): void {
+    try {
+      this.db.prepare(`
+        UPDATE observations
+           SET valid_to = ?,
+               metadata = json_set(COALESCE(metadata, '{}'), '$.superseded_by', ?)
+         WHERE id = ? AND valid_to IS NULL
+      `).run(now, newId, oldId);
+    } catch (error) {
+      logger.warn('DB', 'supersedeObservation failed', { oldId, newId }, error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  /**
+   * Phase 4 / Step 5 — point-in-time query: observations valid at `asOfEpoch`.
+   */
+  getObservationsAsOf(project: string, asOfEpoch: number): ObservationRecord[] {
+    const hasValidFrom = (this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[]).some(c => c.name === 'valid_from');
+    if (!hasValidFrom) {
+      return this.db.prepare('SELECT * FROM observations WHERE project = ?').all(project) as ObservationRecord[];
+    }
+    return this.db.prepare(`
+      SELECT * FROM observations
+      WHERE project = ?
+        AND COALESCE(valid_from, created_at_epoch) <= ?
+        AND (valid_to IS NULL OR valid_to > ?)
+    `).all(project, asOfEpoch, asOfEpoch) as ObservationRecord[];
   }
 
   /**
