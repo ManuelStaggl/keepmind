@@ -41,7 +41,8 @@ export function queryObservations(
       o.files_modified,
       o.discovery_tokens,
       o.created_at,
-      o.created_at_epoch
+      o.created_at_epoch,
+      o.importance
     FROM observations o
     LEFT JOIN sdk_sessions s ON o.memory_session_id = s.memory_session_id
     WHERE (o.project = ? OR o.merged_into_project = ? OR o.type = 'global')
@@ -131,7 +132,8 @@ export function queryObservationsMulti(
       o.discovery_tokens,
       o.created_at,
       o.created_at_epoch,
-      o.project
+      o.project,
+      o.importance
     FROM observations o
     LEFT JOIN sdk_sessions s ON o.memory_session_id = s.memory_session_id
     WHERE (o.project IN (${projectPlaceholders})

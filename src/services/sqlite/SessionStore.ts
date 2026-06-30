@@ -16,6 +16,7 @@ import { computeObservationContentHash } from './observations/store.js';
 import { parseFileList } from './observations/files.js';
 import { redactSecrets, redactSecretsDeep, type RedactOptions } from '../redaction/redact-secrets.js';
 import { loadMemoryQualityConfig } from '../config/memory-quality.js';
+import { defaultImportance } from '../scoring/importance.js';
 import { DEFAULT_PLATFORM_SOURCE, normalizePlatformSource, sortPlatformSources } from '../../shared/platform-source.js';
 import { findRecentDuplicateUserPrompt as findRecentDuplicateUserPromptRecord } from './prompts/get.js';
 import { normalizeStoredPromptText } from './prompt-storage.js';
@@ -105,6 +106,25 @@ export class SessionStore {
     this.ensureSDKSessionsPlatformContentIdentity();
     this.ensureUserPromptsSessionDbId();
     this.ensurePendingMessagesSessionToolUniqueIndex();
+    this.addObservationImportanceColumn();
+  }
+
+  // Phase 4 / Step 3 — importance scoring. Additive, idempotent: NULL = unscored
+  // (ranked as the neutral mid-score via COALESCE in the inject path).
+  private addObservationImportanceColumn(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(34) as SchemaVersion | undefined;
+    const cols = this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[];
+    const hasColumn = cols.some(c => c.name === 'importance');
+    if (applied && hasColumn) return;
+
+    if (!hasColumn) {
+      this.db.run('ALTER TABLE observations ADD COLUMN importance INTEGER');
+    }
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_observations_importance ON observations(importance)');
+
+    if (!applied) {
+      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(34, new Date().toISOString());
+    }
   }
 
   private getIndexColumns(indexName: string): string[] {
@@ -2210,12 +2230,15 @@ export class SessionStore {
 
     const contentHash = computeObservationContentHash(memorySessionId, rTitle ?? null, rNarrative ?? null);
 
+    // Phase 4 / Step 3 — heuristic importance computed over redacted content.
+    const importance = defaultImportance({ type: observation.type, narrative: rNarrative, files_modified: observation.files_modified });
+
     const stmt = this.db.prepare(`
       INSERT INTO observations
       (memory_session_id, project, type, title, subtitle, facts, narrative, concepts,
        files_read, files_modified, prompt_number, discovery_tokens, agent_type, agent_id, content_hash, created_at, created_at_epoch,
-       generated_by_model, metadata)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       generated_by_model, metadata, importance)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(memory_session_id, content_hash) DO NOTHING
       RETURNING id, created_at_epoch
     `);
@@ -2239,7 +2262,8 @@ export class SessionStore {
       timestampIso,
       timestampEpoch,
       generatedByModel || null,
-      rMetadata
+      rMetadata,
+      importance
     ) as { id: number; created_at_epoch: number } | null;
 
     if (inserted) {
@@ -2342,8 +2366,8 @@ export class SessionStore {
         INSERT INTO observations
         (memory_session_id, project, type, title, subtitle, facts, narrative, concepts,
          files_read, files_modified, prompt_number, discovery_tokens, agent_type, agent_id, content_hash, created_at, created_at_epoch,
-         generated_by_model)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         generated_by_model, importance)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(memory_session_id, content_hash) DO NOTHING
         RETURNING id
       `);
@@ -2376,7 +2400,8 @@ export class SessionStore {
           contentHash,
           timestampIso,
           timestampEpoch,
-          generatedByModel || null
+          generatedByModel || null,
+          defaultImportance({ type: observation.type, narrative: rNarrative, files_modified: observation.files_modified })
         ) as { id: number } | null;
 
         if (inserted) {

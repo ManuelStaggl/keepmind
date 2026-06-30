@@ -10,6 +10,8 @@ import { normalizePlatformSource } from '../../shared/platform-source.js';
 import type { ContextInput, ContextConfig, Observation, SessionSummary } from './types.js';
 import { loadContextConfig } from './ContextConfigLoader.js';
 import { calculateTokenEconomics } from './TokenCalculator.js';
+import { loadMemoryQualityConfig } from '../config/memory-quality.js';
+import { rankAndBudget } from './budget.js';
 import {
   queryObservations,
   queryObservationsMulti,
@@ -165,11 +167,24 @@ export async function generateContextWithStats(
   forHuman: boolean = false
 ): Promise<{ text: string; stats: ContextInjectStats | null }> {
   const config = loadContextConfig();
+  const mq = loadMemoryQualityConfig();
   const cwd = input?.cwd ?? process.cwd();
   const context = getProjectContext(cwd);
 
   const projects = input?.projects?.length ? input.projects : context.allProjects;
   const project = projects[projects.length - 1] ?? context.primary;
+
+  // Phase 4 / Step 3 — when importance ranking is on, over-fetch a candidate
+  // pool (candidateMultiplier × target) so the JS re-rank has material to pick
+  // the Top-N by importance × recency within the token budget.
+  const rankingEnabled = mq.importance.enabled && !input?.full;
+  const targetObservationCount = config.totalObservationCount;
+  if (rankingEnabled) {
+    config.totalObservationCount = Math.max(
+      targetObservationCount,
+      targetObservationCount * Math.max(1, mq.injection.candidateMultiplier)
+    );
+  }
 
   if (input?.full) {
     config.totalObservationCount = 999999;
@@ -185,9 +200,18 @@ export async function generateContextWithStats(
     const platformSource = input?.platformSource
       ? normalizePlatformSource(input.platformSource)
       : undefined;
-    const observations = projects.length > 1
+    const candidateObservations = projects.length > 1
       ? queryObservationsMulti(db, projects, config, platformSource)
       : queryObservations(db, project, config, platformSource);
+    // Phase 4 / Step 3 — rank the candidate pool by importance × recency and
+    // select the Top-N under a hard token budget, replacing the naive recency cut.
+    const observations = rankingEnabled
+      ? rankAndBudget(candidateObservations, {
+          tokenBudget: mq.injection.tokenBudget,
+          halfLifeDays: mq.importance.halfLifeDays,
+          maxRows: targetObservationCount,
+        })
+      : candidateObservations;
     const summaries = projects.length > 1
       ? querySummariesMulti(db, projects, config, platformSource)
       : querySummaries(db, project, config, platformSource);
