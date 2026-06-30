@@ -11,6 +11,7 @@ import { fileEditHandler } from './file-edit.js';
 import { fileContextHandler } from './file-context.js';
 import { sessionAcquireHandler } from './session-acquire.js';
 import { sessionReleaseHandler } from './session-release.js';
+import { precompactHandler } from './precompact.js';
 
 export type EventType =
   | 'context'
@@ -21,7 +22,8 @@ export type EventType =
   | 'file-edit'
   | 'file-context'
   | 'session-acquire'
-  | 'session-release';
+  | 'session-release'
+  | 'precompact';
 
 const handlers: Record<EventType, EventHandler> = {
   'context': contextHandler,
@@ -32,7 +34,8 @@ const handlers: Record<EventType, EventHandler> = {
   'file-edit': fileEditHandler,
   'file-context': fileContextHandler,
   'session-acquire': sessionAcquireHandler,
-  'session-release': sessionReleaseHandler
+  'session-release': sessionReleaseHandler,
+  'precompact': precompactHandler
 };
 
 export function getEventHandler(eventType: string): EventHandler {
@@ -57,3 +60,4 @@ export { fileEditHandler } from './file-edit.js';
 export { fileContextHandler } from './file-context.js';
 export { sessionAcquireHandler } from './session-acquire.js';
 export { sessionReleaseHandler } from './session-release.js';
+export { precompactHandler } from './precompact.js';

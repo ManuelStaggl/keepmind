@@ -98,6 +98,7 @@ function shellTemplateManifest(buildShellCommand) {
         'PreToolUse.0.0': claudeHook(['hook', 'claude-code', 'file-context']),
         'Stop.0.0': claudeHook(['hook', 'claude-code', 'summarize']),
         'SessionEnd.0.0': claudeHook(['hook', 'claude-code', 'session-release']),
+        'PreCompact.0.0': claudeHook(['hook', 'claude-code', 'precompact']),
       },
     },
     'plugin/hooks/codex-hooks.json': {

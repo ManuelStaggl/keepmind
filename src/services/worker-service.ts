@@ -25,6 +25,8 @@ import { acquireSpawnLock, releaseSpawnLock } from '../shared/worker-spawn-gate.
 import { snapshotDependencyHealth, type DependencyHealthSnapshot } from '../shared/dependency-health.js';
 import { captureEvent, captureException, shutdownTelemetry, enableExceptionAutocaptureForWorker } from './telemetry/telemetry.js';
 import { telemetryBuffer } from './telemetry/buffer.js';
+import { MaintenanceLoop } from './optimizer/MaintenanceLoop.js';
+import { loadMemoryQualityConfig } from './config/memory-quality.js';
 import { collectInstallStats } from './telemetry/install-stats.js';
 import { runHistoricalBackfill } from './telemetry/backfill.js';
 import { runWorkerDependencyPreflight } from './worker/dependency-preflight.js';
@@ -232,6 +234,7 @@ export class WorkerService implements WorkerRef {
   // restart handoff so the successor waits on the right port.
   private boundPort: number = 0;
   private readonly sessionRefCounter: SessionRefCounter;
+  private maintenanceLoop: MaintenanceLoop | null = null;
 
   private dbManager: DatabaseManager;
   private sessionManager: SessionManager;
@@ -561,6 +564,18 @@ export class WorkerService implements WorkerRef {
     // Arm the session-refcount lifecycle (idle grace + stale sweep).
     this.sessionRefCounter.start();
 
+    // Phase 4 / Step 7 — attach the idle-gated background maintenance loop.
+    try {
+      this.maintenanceLoop = new MaintenanceLoop({
+        getStore: () => this.dbManager.getSessionStore(),
+        activeSessions: () => this.sessionRefCounter.size(),
+        getConfig: () => loadMemoryQualityConfig(true),
+      });
+      this.maintenanceLoop.start();
+    } catch (error) {
+      logger.warn('SYSTEM', 'Failed to start MaintenanceLoop', {}, error instanceof Error ? error : new Error(String(error)));
+    }
+
     logger.info('SYSTEM', 'Worker started', { host, port: this.boundPort, desiredPort, pid: process.pid });
     // worker_started telemetry fires at the end of initializeBackground, once
     // the DB is up: that lets the event carry the install's IDE (read from
@@ -879,6 +894,7 @@ export class WorkerService implements WorkerRef {
         // Stop the lifecycle timers and drop the published port mirror so no
         // stale endpoint advertisement survives this shutdown.
         this.sessionRefCounter.stop();
+        this.maintenanceLoop?.stop();
         removeWorkerPortFile();
 
         if (this.transcriptWatcher) {
