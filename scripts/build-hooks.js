@@ -12,11 +12,6 @@ const WORKER_SERVICE = {
   source: 'src/services/worker-service.ts'
 };
 
-const SERVER_SERVICE = {
-  name: 'server-service',
-  source: 'src/server/runtime/ServerService.ts'
-};
-
 const MCP_SERVER = {
   name: 'mcp-server',
   source: 'src/servers/mcp-server.ts'
@@ -303,17 +298,6 @@ async function buildHooks() {
         'ollama',
         '@chroma-core/default-embed',
         'onnxruntime-node',
-        // better-auth (~3.7MB) is only reachable through BetterAuthRoutes' request-time
-        // dynamic import('better-auth/node') / import('./auth.js'). esbuild otherwise
-        // inlines that dynamic-import target into the worker bundle, dragging in the full
-        // better-auth library (kysely, oauth, nanoid, …) even though the worker never
-        // exercises it (the dep isn't in the worker's runtime plugin/package.json deps,
-        // and the route handler already wraps the import in try/catch → graceful 500).
-        // Keeping it external strips the dead weight from worker-service.cjs. See #2584.
-        'better-auth',
-        'better-auth/node',
-        'better-auth/plugins',
-        '@better-auth/api-key',
       ],
       define: {
         '__DEFAULT_PACKAGE_VERSION__': `"${version}"`,
@@ -349,38 +333,6 @@ async function buildHooks() {
         `If this jumped unexpectedly, check whether a server-only dependency leaked into the worker bundle (see #2584).`
       );
     }
-
-    console.log(`\n🔧 Building server beta service...`);
-    await build({
-      entryPoints: [SERVER_SERVICE.source],
-      bundle: true,
-      platform: 'node',
-      target: 'node18',
-      format: 'cjs',
-      outfile: `${hooksDir}/${SERVER_SERVICE.name}.cjs`,
-      minify: true,
-      logLevel: 'error',
-      external: [
-        'node:sqlite',
-        'zod',
-      ],
-      define: {
-        '__DEFAULT_PACKAGE_VERSION__': `"${version}"`
-      },
-      banner: {
-        js: [
-          '#!/usr/bin/env node',
-          'var __filename = __filename || require("node:path").resolve(process.argv[1] || "");',
-          'var __dirname = __dirname || require("node:path").dirname(__filename);'
-        ].join('\n')
-      }
-    });
-
-    stripHardcodedDirname(`${hooksDir}/${SERVER_SERVICE.name}.cjs`);
-
-    fs.chmodSync(`${hooksDir}/${SERVER_SERVICE.name}.cjs`, 0o755);
-    const serverStats = fs.statSync(`${hooksDir}/${SERVER_SERVICE.name}.cjs`);
-    console.log(`✓ server-service built (${(serverStats.size / 1024).toFixed(2)} KB)`);
 
     console.log(`\n🔧 Building MCP server...`);
     await build({
@@ -666,7 +618,6 @@ async function buildHooks() {
     console.log('\n✅ All build targets compiled successfully!');
     console.log(`   Output: ${hooksDir}/`);
     console.log(`   - Worker: worker-service.cjs`);
-    console.log(`   - Server: server-service.cjs`);
     console.log(`   - MCP Server: mcp-server.cjs`);
     console.log(`   - Context Generator: context-generator.cjs`);
     console.log(`   - Transcript Watcher: transcript-watcher.cjs`);
