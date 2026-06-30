@@ -14,6 +14,8 @@ import {
 import type { ObservationSearchResult, SessionSummarySearchResult } from './types.js';
 import { computeObservationContentHash } from './observations/store.js';
 import { parseFileList } from './observations/files.js';
+import { redactSecrets, redactSecretsDeep, type RedactOptions } from '../redaction/redact-secrets.js';
+import { loadMemoryQualityConfig } from '../config/memory-quality.js';
 import { DEFAULT_PLATFORM_SOURCE, normalizePlatformSource, sortPlatformSources } from '../../shared/platform-source.js';
 import { findRecentDuplicateUserPrompt as findRecentDuplicateUserPromptRecord } from './prompts/get.js';
 import { normalizeStoredPromptText } from './prompt-storage.js';
@@ -37,7 +39,30 @@ function resolveCreateSessionArgs(
 export class SessionStore {
   public db: Database;
 
+  // Phase 4 / Step 1 — secret-scrubbing on write. Computed once at construction.
+  private redactEnabled: boolean;
+  private redactOpts: RedactOptions;
+
+  /** Redact a single nullable text field if redaction is enabled. */
+  private rt(text: string | null | undefined): string | null | undefined {
+    return this.redactEnabled ? redactSecrets(text, this.redactOpts) : text;
+  }
+
+  /** Redact every string in a list (facts/concepts) if redaction is enabled. */
+  private rl(list: string[]): string[] {
+    return this.redactEnabled ? redactSecretsDeep(list, this.redactOpts) : list;
+  }
+
   constructor(dbPathOrDb: string | Database = DB_PATH) {
+    try {
+      const rc = loadMemoryQualityConfig().redactSecrets;
+      this.redactEnabled = rc.enabled;
+      this.redactOpts = { entropySweep: rc.entropySweep, entropyThreshold: rc.entropyThreshold };
+    } catch {
+      // Fail-safe: redaction ON by defaults if config can't load.
+      this.redactEnabled = process.env.CLAUDE_MEM_REDACT_SECRETS !== '0' && process.env.CLAUDE_MEM_REDACT_SECRETS !== 'false';
+      this.redactOpts = { entropySweep: true, entropyThreshold: 4.0 };
+    }
     if (dbPathOrDb instanceof Database) {
       this.db = dbPathOrDb;
     } else {
@@ -2077,7 +2102,7 @@ export class SessionStore {
     const nowEpoch = now.getTime();
     const resolved = resolveCreateSessionArgs(customTitle, platformSource);
     const normalizedPlatformSource = resolved.platformSource ?? DEFAULT_PLATFORM_SOURCE;
-    const storedUserPrompt = normalizeStoredPromptText(userPrompt);
+    const storedUserPrompt = this.rt(normalizeStoredPromptText(userPrompt));
 
     const existing = this.db.prepare(`
       SELECT id, platform_source
@@ -2114,7 +2139,8 @@ export class SessionStore {
   saveUserPrompt(contentSessionId: string, promptNumber: number, promptText: string, sessionDbId?: number): number {
     const now = new Date();
     const nowEpoch = now.getTime();
-    const storedPromptText = normalizeStoredPromptText(promptText);
+    // Phase 4 / Step 1 — redact secrets from the user prompt before persistence.
+    const storedPromptText = this.rt(normalizeStoredPromptText(promptText));
     const resolvedSessionDbId = this.resolvePromptSessionDbId(contentSessionId, sessionDbId);
 
     const stmt = this.db.prepare(`
@@ -2174,7 +2200,15 @@ export class SessionStore {
     const timestampEpoch = overrideTimestampEpoch ?? Date.now();
     const timestampIso = new Date(timestampEpoch).toISOString();
 
-    const contentHash = computeObservationContentHash(memorySessionId, observation.title, observation.narrative);
+    // Phase 4 / Step 1 — redact secrets BEFORE hashing so dedup keys are stable
+    // over redacted text (no leak via hash divergence).
+    const rTitle = this.rt(observation.title);
+    const rSubtitle = this.rt(observation.subtitle);
+    const rNarrative = this.rt(observation.narrative);
+    const rFacts = this.rl(observation.facts);
+    const rMetadata = this.rt(observation.metadata ?? null);
+
+    const contentHash = computeObservationContentHash(memorySessionId, rTitle ?? null, rNarrative ?? null);
 
     const stmt = this.db.prepare(`
       INSERT INTO observations
@@ -2190,10 +2224,10 @@ export class SessionStore {
       memorySessionId,
       project,
       observation.type,
-      observation.title,
-      observation.subtitle,
-      JSON.stringify(observation.facts),
-      observation.narrative,
+      rTitle,
+      rSubtitle,
+      JSON.stringify(rFacts),
+      rNarrative,
       JSON.stringify(observation.concepts),
       JSON.stringify(observation.files_read),
       JSON.stringify(observation.files_modified),
@@ -2205,7 +2239,7 @@ export class SessionStore {
       timestampIso,
       timestampEpoch,
       generatedByModel || null,
-      observation.metadata ?? null
+      rMetadata
     ) as { id: number; created_at_epoch: number } | null;
 
     if (inserted) {
@@ -2252,12 +2286,12 @@ export class SessionStore {
     const result = stmt.run(
       memorySessionId,
       project,
-      summary.request,
-      summary.investigated,
-      summary.learned,
-      summary.completed,
-      summary.next_steps,
-      summary.notes,
+      this.rt(summary.request),
+      this.rt(summary.investigated),
+      this.rt(summary.learned),
+      this.rt(summary.completed),
+      this.rt(summary.next_steps),
+      this.rt(summary.notes),
       promptNumber || null,
       discoveryTokens,
       timestampIso,
@@ -2318,15 +2352,20 @@ export class SessionStore {
       );
 
       for (const observation of observations) {
-        const contentHash = computeObservationContentHash(memorySessionId, observation.title, observation.narrative);
+        // Phase 4 / Step 1 — redact before hashing (same chokepoint as single-obs path).
+        const rTitle = this.rt(observation.title);
+        const rSubtitle = this.rt(observation.subtitle);
+        const rNarrative = this.rt(observation.narrative);
+        const rFacts = this.rl(observation.facts);
+        const contentHash = computeObservationContentHash(memorySessionId, rTitle ?? null, rNarrative ?? null);
         const inserted = obsStmt.get(
           memorySessionId,
           project,
           observation.type,
-          observation.title,
-          observation.subtitle,
-          JSON.stringify(observation.facts),
-          observation.narrative,
+          rTitle,
+          rSubtitle,
+          JSON.stringify(rFacts),
+          rNarrative,
           JSON.stringify(observation.concepts),
           JSON.stringify(observation.files_read),
           JSON.stringify(observation.files_modified),
@@ -2366,12 +2405,12 @@ export class SessionStore {
         const result = summaryStmt.run(
           memorySessionId,
           project,
-          summary.request,
-          summary.investigated,
-          summary.learned,
-          summary.completed,
-          summary.next_steps,
-          summary.notes,
+          this.rt(summary.request),
+          this.rt(summary.investigated),
+          this.rt(summary.learned),
+          this.rt(summary.completed),
+          this.rt(summary.next_steps),
+          this.rt(summary.notes),
           promptNumber || null,
           discoveryTokens,
           timestampIso,
