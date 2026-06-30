@@ -99,8 +99,6 @@
     "test:search": "bun test tests/worker/search/",
     "test:context": "bun test tests/context/",
     "test:infra": "bun test tests/infrastructure/",
-    "test:server": "bun test tests/server/",
-    "e2e:server:docker": "bash scripts/e2e-server-docker.sh",
     "check:postinstall-allowlist": "node scripts/check-postinstall-allowlist.js",
     "smoke:clean-room": "node scripts/smoke-clean-room.cjs",
     "prepublishOnly": "npm run build && node scripts/check-postinstall-allowlist.js",
@@ -116,13 +114,10 @@
     "2fa": false
   },
   "dependencies": {
-    "@better-auth/api-key": "^1.6.16",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "better-auth": "^1.6.16",
-    "pg": "^8.20.0",
     "zod": "^4.4.3"
   },
-  "//dependencies-note": "Only deps that survive the bundler as live `import`/`require` in a shipped artifact live here — pg + zod + @modelcontextprotocol/sdk back `claude-mem/sdk`; better-auth (+ api-key) is the server-runtime auth surface. Everything else (express, bullmq, ioredis, react, react-dom, cors, dompurify, handlebars, @clack/prompts, ansi-to-html, glob, picocolors, posthog-node, shell-quote, yaml, zod-to-json-schema, @anthropic-ai/claude-agent-sdk) is esbuild-inlined into the worker/server/npx bundles, so it is a build-time devDependency and is NOT downloaded by `claude-mem/sdk` consumers. Verify with scripts/check-sdk-bundle.cjs + the dep scan before promoting anything back.",
+  "//dependencies-note": "Local-only fork: the cloud/SaaS layer (Postgres + BullMQ + better-auth) and the `claude-mem/sdk` export were removed, so pg/better-auth/@better-auth/api-key/bullmq/ioredis are gone. Only zod + @modelcontextprotocol/sdk survive the bundler as live `import`/`require` in a shipped artifact (the mcp-server bundles zod). Everything else (express, react, react-dom, cors, dompurify, handlebars, @clack/prompts, ansi-to-html, glob, picocolors, posthog-node, shell-quote, yaml, zod-to-json-schema, @anthropic-ai/claude-agent-sdk) is esbuild-inlined into the worker/npx bundles, so it is a build-time devDependency.",
   "overrides": {
     "tmp": "^0.2.7"
   },
@@ -130,13 +125,11 @@
     "@anthropic-ai/claude-agent-sdk": "^0.3.172",
     "@clack/prompts": "^1.3.0",
     "ansi-to-html": "^0.7.2",
-    "bullmq": "^5.76.6",
     "cors": "^2.8.6",
     "dompurify": "^3.4.9",
     "express": "^5.2.1",
     "glob": "^13.0.6",
     "handlebars": "^4.7.9",
-    "ioredis": "^5.10.1",
     "picocolors": "^1.1.1",
     "posthog-node": "^5.36.15",
     "react": "^19.2.6",
@@ -154,7 +147,6 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^25.9.2",
-    "@types/pg": "^8.20.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "esbuild": "^0.28.0",
