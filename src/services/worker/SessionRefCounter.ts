@@ -32,22 +32,29 @@ export class SessionRefCounter {
   private graceTimer: ReturnType<typeof setTimeout> | null = null;
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
+  // True once at least one session has ever been acquired. The idle-shutdown
+  // grace timer only arms AFTER the count has gone >0 and returned to 0 — a
+  // worker that has never served a session (e.g. a bare `start`) must stay up,
+  // never self-shutdown from a 0→idle boot state.
+  private everReferenced = false;
 
   constructor(private readonly opts: SessionRefCounterOptions) {}
 
-  /** Begin the stale-id sweep and arm the idle grace timer if we boot idle. */
+  /** Begin the stale-id sweep. Does NOT arm the idle grace timer at boot. */
   start(): void {
     if (this.opts.sweepIntervalMs > 0) {
       this.sweepTimer = setInterval(() => this.sweep(), this.opts.sweepIntervalMs);
       this.sweepTimer.unref?.();
     }
-    // A worker nobody ever acquires (e.g. an orphan started outside a session)
-    // still shuts itself down after the grace period.
-    this.armGraceIfIdle();
+    // Deliberately does NOT arm the idle grace timer here: a worker that has
+    // never served a session (a bare `start`) must stay up. The grace timer
+    // only arms after the count has been >0 and returned to 0 (release/sweep
+    // below), gated by `everReferenced`.
   }
 
   acquire(sessionId: string): number {
     if (sessionId) {
+      this.everReferenced = true;
       this.sessions.set(sessionId, Date.now());
       this.cancelGrace();
     }
@@ -95,6 +102,9 @@ export class SessionRefCounter {
 
   private armGraceIfIdle(): void {
     if (this.stopped) return;
+    // Never armed before the first acquire: a bare worker that nobody ever
+    // referenced stays up indefinitely (gate D — no premature self-shutdown).
+    if (!this.everReferenced) return;
     if (this.sessions.size > 0) {
       this.cancelGrace();
       return;

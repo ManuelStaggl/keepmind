@@ -1133,11 +1133,96 @@ function runServerApiKeyCli(args: string[]): never {
   }
 }
 
+/**
+ * Tear down Node's built-in fetch (undici) global dispatcher. The launcher
+ * commands (start/stop/restart/status) make health/handshake fetches that leave
+ * keep-alive sockets + internal async handles open. On Windows, calling
+ * process.exit() with those handles still live races libuv's teardown and
+ * aborts with `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)`
+ * (src/win/async.c:94), so the launcher exits 127 even though its work — and its
+ * machine-readable JSON on stdout — already completed. Destroying the dispatcher
+ * closes those sockets/handles cleanly BEFORE we exit. Best-effort and idempotent.
+ */
+async function destroyGlobalHttpDispatcher(): Promise<void> {
+  try {
+    const dispatcher = (globalThis as Record<symbol, unknown>)[Symbol.for('undici.globalDispatcher.1')] as
+      | { destroy?: () => Promise<void> }
+      | undefined;
+    if (dispatcher && typeof dispatcher.destroy === 'function') {
+      await dispatcher.destroy();
+    }
+  } catch {
+    // Best-effort: a teardown failure must never mask the launcher's real result.
+  }
+}
+
+/** Grace window for a natural event-loop drain before the launcher force-exits. */
+const LAUNCHER_DRAIN_FALLBACK_MS = 2000;
+
+/**
+ * Deterministic, crash-free launcher exit. Used by every launcher (non-daemon)
+ * exit path that runs AFTER worker fetches/spawns.
+ *
+ * Why not just `process.exit(code)`? With the full worker bundle loaded, calling
+ * process.exit() on Windows forces a libuv teardown that double-closes an
+ * internal async handle and aborts with
+ * `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)` (src/win/async.c:94),
+ * so the launcher dies with exit 127 even though its work — and its
+ * machine-readable JSON on stdout — already succeeded. At that point
+ * `process._getActiveHandles()` is empty, so the loop WOULD drain on its own;
+ * the crash is purely an artifact of the forced teardown. So instead: close the
+ * fetch dispatcher, set process.exitCode, and let the now-idle loop drain and
+ * exit cleanly. The returned promise NEVER resolves so callers (which used to
+ * rely on process.exit() halting) cannot fall through — an unresolved promise is
+ * not a libuv handle, so it does not keep the loop alive. An unref'd safety
+ * timer force-exits only if some unexpected handle keeps the process alive past
+ * the grace window (a forced exit, even if it 127s, beats a hung hook).
+ *
+ * The daemon (`--daemon`) never calls this — it must keep its server handles
+ * open and running.
+ */
+function launcherExit(code: number): Promise<never> {
+  process.exitCode = code;
+  // Unref'd: never keeps an otherwise-idle loop alive (so a clean drain exits
+  // immediately), but still fires if some unexpected handle outlives the grace
+  // window — force-exiting beats hanging the hook.
+  const safety = setTimeout(() => process.exit(code), LAUNCHER_DRAIN_FALLBACK_MS);
+  safety.unref?.();
+  // Close fetch keep-alive sockets so the loop can actually drain. Fire-and-forget.
+  void destroyGlobalHttpDispatcher();
+  // Never resolves: callers must not fall through (they relied on process.exit
+  // halting). An unresolved promise is not a handle, so the idle loop still drains.
+  return new Promise<never>(() => {});
+}
+
 async function main() {
   const { command, args: commandArgs } = parseWorkerServiceCommand(process.argv.slice(2));
 
-  const hookInitiatedCommands = ['start', 'hook', 'restart', '--daemon'];
-  if ((command === undefined || hookInitiatedCommands.includes(command)) && isPluginDisabledInClaudeSettings()) {
+  // Disabled-plugin gate. Scope: only the HOOK-driven entry points (`start`,
+  // `hook`, and a bare invocation) honor the user's "claude-mem disabled"
+  // toggle — those are the ones Claude Code fires automatically, so a disabled
+  // plugin must stay dormant for them. The actual worker process (`--daemon`)
+  // and explicit `restart` are NOT gated: once something deliberately asks to
+  // run/replace the daemon, silently exiting 0 is exactly the undebuggable
+  // "nothing happened" failure that masked the real lifecycle (the launcher
+  // spawned the daemon, but the daemon then re-read the global toggle and
+  // killed itself before listen()). `CLAUDE_MEM_FORCE_START=1` bypasses the
+  // gate entirely for deliberate manual/CI starts that must not depend on the
+  // developer's global plugin toggle. Whichever branch triggers, it is LOGGED
+  // (was a silent process.exit(0) — see worker-startup root-cause).
+  const gatedCommands = ['start', 'hook'];
+  const forceStart = process.env.CLAUDE_MEM_FORCE_START === '1'
+    || process.env.CLAUDE_MEM_FORCE_START === 'true';
+  if (
+    (command === undefined || gatedCommands.includes(command)) &&
+    !forceStart &&
+    isPluginDisabledInClaudeSettings()
+  ) {
+    logger.info(
+      'SYSTEM',
+      'claude-mem plugin is disabled in Claude settings — skipping worker lifecycle command (set CLAUDE_MEM_FORCE_START=1 to override)',
+      { command: command ?? '(none)', settingsKey: 'claude-mem@thedotmack' }
+    );
     process.exit(0);
   }
 
@@ -1148,7 +1233,9 @@ async function main() {
       includeSuppressOutput: process.env.CLAUDE_MEM_CODEX_HOOK !== '1',
     });
     console.log(JSON.stringify(output));
-    process.exit(0);
+    // Hardened exit: tear down the global fetch (undici) dispatcher first.
+    void launcherExit(0);
+    return undefined as never;
   }
 
   switch (command) {
@@ -1174,7 +1261,7 @@ async function main() {
       }
       removePidFileIfOwner(stoppedPid);
       logger.info('SYSTEM', 'Worker stopped successfully');
-      process.exit(0);
+      await launcherExit(0);
       break;
     }
 
@@ -1202,7 +1289,7 @@ async function main() {
         if (handoff.ok) {
           console.log(`Worker restart verified (pid: ${handoff.pid}, version: ${handoff.version})`);
           logger.info('SYSTEM', 'Worker restart verified', { pid: handoff.pid, version: handoff.version });
-          process.exit(0);
+          await launcherExit(0);
         }
         handoffDetail = `; handoff attempt: ${handoff.lastObserved}`;
         handoffSawLiveWorker = handoff.lastPollSawHealth;
@@ -1255,7 +1342,7 @@ async function main() {
             console.error('Failed to spawn worker daemon during restart.');
             // Manual release: process.exit() does not unwind to finally.
             releaseSpawnLock();
-            process.exit(1);
+            await launcherExit(1);
           }
           spawnedScript = restartScript;
           logger.info('SYSTEM', 'Worker restart spawned (CLI fallback)', { pid: restartPid, script: restartScript });
@@ -1276,11 +1363,11 @@ async function main() {
       const verification = await verifyRestartedWorker(port, oldPid, packageVersion, getPlatformTimeout(30000));
       if (!verification.ok) {
         console.error(`Worker restart verification failed (old pid: ${oldPid ?? 'none'}, expected version: ${packageVersion}, spawned script: ${spawnedScript}); ${verification.lastObserved}${handoffDetail}`);
-        process.exit(1);
+        await launcherExit(1);
       }
       console.log(`Worker restart verified (pid: ${verification.pid}, version: ${verification.version})`);
       logger.info('SYSTEM', 'Worker restart verified', { pid: verification.pid, version: verification.version });
-      process.exit(0);
+      await launcherExit(0);
       break;
     }
 
@@ -1310,17 +1397,17 @@ async function main() {
           console.log(dependencyHint);
         }
         printQueueStatusIfBullMq(health);
-        process.exit(0);
+        await launcherExit(0);
       }
       if (await isPortInUse(port)) {
         // Something owns the port but cannot answer /api/health — a wedged
         // worker mid-boot/mid-death, or a foreign process. Say so instead of
         // guessing in either direction.
         console.log(`Worker port ${port} is in use but health is unreachable (worker may be wedged or still booting)`);
-        process.exit(0);
+        await launcherExit(0);
       }
       console.log('Worker is not running');
-      process.exit(0);
+      await launcherExit(0);
       break;
     }
 
