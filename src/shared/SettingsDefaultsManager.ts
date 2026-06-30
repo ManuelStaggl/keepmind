@@ -1,8 +1,12 @@
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync, renameSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { HOOK_TIMEOUTS, getTimeout } from './hook-constants.js';
+// Atomic, BOM-free, lock-guarded JSON writer (writeSync-loop + fsync + atomic
+// rename). Used for settings.json so concurrent hook processes can't truncate
+// it to a partial/empty file.
+import { writeJsonFileAtomic } from '../npx-cli/utils/paths.js';
 
 export interface SettingsDefaults {
   CLAUDE_MEM_MODEL: string;
@@ -216,7 +220,7 @@ export class SettingsDefaultsManager {
           if (!existsSync(dir)) {
             mkdirSync(dir, { recursive: true });
           }
-          writeFileSync(settingsPath, JSON.stringify(defaults, null, 2), 'utf-8');
+          writeJsonFileAtomic(settingsPath, defaults);
           // stderr, never stdout: this fires on the first boot in a fresh data
           // dir, and CLI commands like `start` promise machine-readable JSON
           // on stdout to the hook framework.
@@ -238,7 +242,7 @@ export class SettingsDefaultsManager {
         flatSettings = settings.env;
 
         try {
-          writeFileSync(settingsPath, JSON.stringify(flatSettings, null, 2), 'utf-8');
+          writeJsonFileAtomic(settingsPath, flatSettings);
           // stderr, never stdout — same JSON-on-stdout contract as above.
           console.warn('[SETTINGS] Migrated settings file from nested to flat schema:', settingsPath);
         } catch (error: unknown) {
@@ -258,6 +262,20 @@ export class SettingsDefaultsManager {
     } catch (error: unknown) {
       console.warn('[SETTINGS] Failed to load settings, using defaults:', settingsPath, error instanceof Error ? error.message : String(error));
       const defaults = this.getAllDefaults();
+      // A corrupt/partially-written settings file must not pin the install to
+      // in-memory defaults forever. Back it up (never silently truncate user
+      // data) and atomically rewrite fresh defaults so the next load succeeds.
+      try {
+        if (existsSync(settingsPath)) {
+          const backupPath = `${settingsPath}.corrupt-${Date.now()}`;
+          renameSync(settingsPath, backupPath);
+          console.warn('[SETTINGS] Backed up corrupt settings file to:', backupPath);
+        }
+        writeJsonFileAtomic(settingsPath, defaults);
+        console.warn('[SETTINGS] Recovered settings file with defaults:', settingsPath);
+      } catch (recoverError: unknown) {
+        console.warn('[SETTINGS] Failed to recover corrupt settings file:', settingsPath, recoverError instanceof Error ? recoverError.message : String(recoverError));
+      }
       return applyEnvOverrides ? this.applyEnvOverrides(defaults) : defaults;
     }
   }

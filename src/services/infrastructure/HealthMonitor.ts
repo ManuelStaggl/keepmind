@@ -5,12 +5,22 @@ import { readFileSync } from 'fs';
 import { logger } from '../../utils/logger.js';
 import { MARKETPLACE_ROOT } from '../../shared/paths.js';
 
+// Per-request hard cap. Without it, a socket that ACCEPTS the connection but
+// never sends an HTTP response (a wedged worker mid-boot, or an orphaned/foreign
+// squatter on the port) makes fetch() hang forever — which froze the whole
+// poll loop (its outer timeout is only checked BETWEEN iterations). A bounded
+// AbortSignal turns that into a normal retry.
+const WORKER_REQUEST_TIMEOUT_MS = 2500;
+
 async function httpRequestToWorker(
   port: number,
   endpointPath: string,
   method: string = 'GET'
 ): Promise<{ ok: boolean; statusCode: number; body: string }> {
-  const response = await fetch(`http://127.0.0.1:${port}${endpointPath}`, { method });
+  const response = await fetch(`http://127.0.0.1:${port}${endpointPath}`, {
+    method,
+    signal: AbortSignal.timeout(WORKER_REQUEST_TIMEOUT_MS),
+  });
   let body = '';
   try {
     body = await response.text();

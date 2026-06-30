@@ -78,7 +78,28 @@ export async function runDoctorCommand(): Promise<void> {
   });
 
   // 5. Worker health.
-  const workerPort = SettingsDefaultsManager.get('CLAUDE_MEM_WORKER_PORT');
+  // Resolve the worker's ACTUAL bound port: a live worker records it in
+  // worker.pid (it may differ from the configured port after an ephemeral
+  // fallback). Fall back to the configured port when no live worker is found.
+  const workerPort = (() => {
+    try {
+      const pidPath = join(resolveDataDir(), 'worker.pid');
+      if (existsSync(pidPath)) {
+        const info = JSON.parse(readFileSync(pidPath, 'utf-8')) as { pid?: number; port?: number };
+        if (typeof info.pid === 'number' && typeof info.port === 'number') {
+          try {
+            process.kill(info.pid, 0);
+            return String(info.port);
+          } catch (err) {
+            if ((err as NodeJS.ErrnoException)?.code === 'EPERM') return String(info.port);
+          }
+        }
+      }
+    } catch {
+      // fall through to configured port
+    }
+    return SettingsDefaultsManager.get('CLAUDE_MEM_WORKER_PORT');
+  })();
   let workerStatus: CheckStatus = 'fail';
   let workerDetail = `no response on port ${workerPort} — start with \`npx claude-mem start\``;
   try {
