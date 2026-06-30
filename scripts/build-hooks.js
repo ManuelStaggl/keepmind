@@ -97,10 +97,12 @@ function shellTemplateManifest(buildShellCommand) {
         }),
         'SessionStart.0.0': claudeHook(['start'], { trailingJson: { continue: true, suppressOutput: true } }),
         'SessionStart.0.1': claudeHook(['hook', 'claude-code', 'context']),
+        'SessionStart.0.2': claudeHook(['hook', 'claude-code', 'session-acquire']),
         'UserPromptSubmit.0.0': claudeHook(['hook', 'claude-code', 'session-init']),
         'PostToolUse.0.0': claudeHook(['hook', 'claude-code', 'observation']),
         'PreToolUse.0.0': claudeHook(['hook', 'claude-code', 'file-context']),
         'Stop.0.0': claudeHook(['hook', 'claude-code', 'summarize']),
+        'SessionEnd.0.0': claudeHook(['hook', 'claude-code', 'session-release']),
       },
     },
     'plugin/hooks/codex-hooks.json': {

@@ -137,6 +137,16 @@ export class Server {
     return this.server;
   }
 
+  /**
+   * The actual TCP port the server is listening on. After an ephemeral-port
+   * fallback (listen(0)) this is the OS-assigned port, not the requested one.
+   * Returns null when not listening on a TCP socket.
+   */
+  getBoundPort(): number | null {
+    const address = this.server?.address();
+    return address && typeof address === 'object' ? address.port : null;
+  }
+
   async listen(port: number, host: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const server = http.createServer(this.app);

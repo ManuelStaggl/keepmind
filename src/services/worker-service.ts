@@ -5,7 +5,7 @@ import { spawn } from 'child_process';
 import { Database } from '../storage/db.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { getWorkerPort, getWorkerHost, fetchWithTimeout, resolveWorkerScriptPath } from '../shared/worker-utils.js';
+import { getWorkerPort, getConfiguredWorkerPort, getWorkerHost, fetchWithTimeout, resolveWorkerScriptPath } from '../shared/worker-utils.js';
 import { getCurrentWorkerPid, verifyRestartedWorker } from './restart-verify.js';
 import { runShutdownSequence, type WorkerShutdownReason } from './worker-shutdown.js';
 import { DATA_DIR, DB_PATH, ensureDir } from '../shared/paths.js';
@@ -44,7 +44,9 @@ import {
   cleanStalePidFile,
   verifyPidFileOwnership,
   spawnDaemon,
-  touchPidFile
+  touchPidFile,
+  writeWorkerPortFile,
+  removeWorkerPortFile
 } from './infrastructure/ProcessManager.js';
 import { runOneTimeV12_4_3Cleanup } from './infrastructure/CleanupV12_4_3.js';
 import {
@@ -78,6 +80,7 @@ import {
 
 import { DatabaseManager } from './worker/DatabaseManager.js';
 import { SessionManager } from './worker/SessionManager.js';
+import { SessionRefCounter } from './worker/SessionRefCounter.js';
 import { SSEBroadcaster } from './worker/SSEBroadcaster.js';
 import { ClaudeProvider, classifyClaudeError } from './worker/ClaudeProvider.js';
 import type { WorkerRef } from './worker/agents/types.js';
@@ -148,6 +151,29 @@ export type { WorkerShutdownReason } from './worker-shutdown.js';
 // previous run died without reaching the graceful-shutdown path (crash).
 const CLEAN_SHUTDOWN_SENTINEL_PATH = path.join(DATA_DIR, '.worker-clean-shutdown');
 
+/**
+ * Session-refcount lifecycle tuning (requirement B). Env-configurable so the
+ * idle grace and stale-sweep windows can be tuned (and shortened in tests)
+ * without a settings-schema change.
+ *   - CLAUDE_MEM_IDLE_SHUTDOWN_GRACE_MS: idle grace before self-shutdown once
+ *     the active-session count hits 0. Default 5 min. <=0 disables auto-shutdown.
+ *   - CLAUDE_MEM_SESSION_STALE_MS: a session id whose last acquire is older
+ *     than this is swept (missed-SessionEnd guard). Default 6 h.
+ *   - CLAUDE_MEM_SESSION_SWEEP_INTERVAL_MS: sweep cadence. Default 60 s.
+ */
+function readLifecycleConfig(): { graceMs: number; staleMs: number; sweepIntervalMs: number } {
+  const num = (raw: string | undefined, fallback: number): number => {
+    if (raw === undefined) return fallback;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  return {
+    graceMs: num(process.env.CLAUDE_MEM_IDLE_SHUTDOWN_GRACE_MS, 5 * 60 * 1000),
+    staleMs: num(process.env.CLAUDE_MEM_SESSION_STALE_MS, 6 * 60 * 60 * 1000),
+    sweepIntervalMs: num(process.env.CLAUDE_MEM_SESSION_SWEEP_INTERVAL_MS, 60 * 1000),
+  };
+}
+
 function writeCleanShutdownSentinel(): void {
   try {
     ensureDir(DATA_DIR);
@@ -201,6 +227,12 @@ export class WorkerService implements WorkerRef {
   private initializationCompleteFlag: boolean = false;
   private isShuttingDown: boolean = false;
 
+  // The ACTUAL port the HTTP server bound (may differ from the configured port
+  // after an ephemeral-port fallback). Recorded for the PID/port files and the
+  // restart handoff so the successor waits on the right port.
+  private boundPort: number = 0;
+  private readonly sessionRefCounter: SessionRefCounter;
+
   private dbManager: DatabaseManager;
   private sessionManager: SessionManager;
   public sseBroadcaster: SSEBroadcaster;
@@ -248,6 +280,14 @@ export class WorkerService implements WorkerRef {
       this.dbManager,
     );
     this.corpusStore = new CorpusStore();
+
+    const lifecycle = readLifecycleConfig();
+    this.sessionRefCounter = new SessionRefCounter({
+      graceMs: lifecycle.graceMs,
+      staleMs: lifecycle.staleMs,
+      sweepIntervalMs: lifecycle.sweepIntervalMs,
+      onIdleShutdown: () => { void this.idleShutdown(); },
+    });
 
     setIngestContext({
       sessionManager: this.sessionManager,
@@ -325,7 +365,11 @@ export class WorkerService implements WorkerRef {
         req.path === '/health' ||
         req.path === '/readiness' ||
         req.path === '/version' ||
-        req.path === '/settings/dependency-health'
+        req.path === '/settings/dependency-health' ||
+        // Session-lifecycle refcount is independent of DB init — it must work
+        // during the worker's warm-up window so an early SessionEnd is honored.
+        req.path === '/session/acquire' ||
+        req.path === '/session/release'
       ) {
         next();
         return;
@@ -342,6 +386,28 @@ export class WorkerService implements WorkerRef {
         message: 'Database is still initializing, please retry'
       });
       return;
+    });
+
+    // Session-lifecycle refcount endpoints (requirement B). SessionStart hooks
+    // acquire; SessionEnd hooks release. The worker self-shuts-down a short
+    // grace period after the last release. sessionId comes from the hook's
+    // body (preferred) or query string.
+    const readSessionId = (req: import('express').Request): string => {
+      const fromBody = (req.body && typeof req.body === 'object')
+        ? (req.body as Record<string, unknown>).sessionId
+        : undefined;
+      const raw = fromBody ?? req.query.sessionId;
+      return typeof raw === 'string' ? raw : (raw != null ? String(raw) : '');
+    };
+    this.server.app.post('/api/session/acquire', (req, res) => {
+      const sessionId = readSessionId(req);
+      const active = this.sessionRefCounter.acquire(sessionId);
+      res.status(200).json({ status: 'acquired', sessionId, activeSessions: active });
+    });
+    this.server.app.post('/api/session/release', (req, res) => {
+      const sessionId = readSessionId(req);
+      const active = this.sessionRefCounter.release(sessionId);
+      res.status(200).json({ status: 'released', sessionId, activeSessions: active });
     });
 
     this.server.registerRoutes(new ViewerRoutes(this.sseBroadcaster, this.dbManager, this.sessionManager));
@@ -392,8 +458,51 @@ export class WorkerService implements WorkerRef {
     }
   }
 
+  /**
+   * Bind the configured port; on EADDRINUSE/EACCES fall back to an OS-assigned
+   * free (ephemeral) port. This is the core of eliminating the fixed-port
+   * orphaned-socket deadlock: a squatted configured port can never block the
+   * worker from coming up — it routes around it and republishes the real port.
+   */
+  private async listenWithEphemeralFallback(desiredPort: number, host: string): Promise<number> {
+    try {
+      await this.server.listen(desiredPort, host);
+    } catch (error: unknown) {
+      const code = (error as NodeJS.ErrnoException)?.code;
+      if (code !== 'EADDRINUSE' && code !== 'EACCES') throw error;
+      logger.warn('SYSTEM', 'Configured worker port unavailable — falling back to an ephemeral port', {
+        desiredPort,
+        code,
+      });
+      await this.server.listen(0, host);
+    }
+    const bound = this.server.getBoundPort();
+    if (bound === null) {
+      throw new Error('Worker HTTP server reported no bound port after listen');
+    }
+    return bound;
+  }
+
+  /**
+   * Idle self-shutdown: invoked by the session refcount grace timer when no
+   * sessions remain. Runs the graceful stop sequence, releases the
+   * port/PID/owner files, and exits so the next session starts a fresh worker.
+   */
+  private async idleShutdown(): Promise<void> {
+    try {
+      await this.shutdown('stop');
+    } catch (error: unknown) {
+      logger.error('SYSTEM', 'Idle shutdown sequence failed', {}, error instanceof Error ? error : new Error(String(error)));
+    } finally {
+      removeWorkerPortFile();
+      removePidFileIfOwner(process.pid);
+      logger.info('SYSTEM', 'Idle worker exiting (no active sessions)');
+      process.exit(0);
+    }
+  }
+
   async start(): Promise<void> {
-    const port = getWorkerPort();
+    const desiredPort = getConfiguredWorkerPort();
     const host = getWorkerHost();
 
     // Phase 3 telemetry: bridge logged errors into PostHog Error Tracking
@@ -411,21 +520,38 @@ export class WorkerService implements WorkerRef {
 
     await startSupervisor();
 
-    await this.server.listen(port, host);
-
+    // Write the PID file BEFORE listen() (bug #3): a crash between here and
+    // bind still leaves an ownership record, and the duplicate-start guard can
+    // see us. The port is provisional (desiredPort) until the actual bound port
+    // is known after listen, then the file is rewritten with the real port.
+    const startedAt = new Date().toISOString();
     writePidFile({
       pid: process.pid,
-      port,
-      startedAt: new Date().toISOString()
+      port: desiredPort,
+      startedAt,
     });
+
+    this.boundPort = await this.listenWithEphemeralFallback(desiredPort, host);
+
+    // Republish the ACTUAL bound port so clients (which resolve the port from
+    // the PID file) reach the worker even after an ephemeral fallback.
+    writePidFile({
+      pid: process.pid,
+      port: this.boundPort,
+      startedAt,
+    });
+    writeWorkerPortFile(this.boundPort);
 
     getSupervisor().registerProcess('worker', {
       pid: process.pid,
       type: 'worker',
-      startedAt: new Date().toISOString()
+      startedAt,
     });
 
-    logger.info('SYSTEM', 'Worker started', { host, port, pid: process.pid });
+    // Arm the session-refcount lifecycle (idle grace + stale sweep).
+    this.sessionRefCounter.start();
+
+    logger.info('SYSTEM', 'Worker started', { host, port: this.boundPort, desiredPort, pid: process.pid });
     // worker_started telemetry fires at the end of initializeBackground, once
     // the DB is up: that lets the event carry the install's IDE (read from
     // session history) as a person property, so IDE-level DAU/retention
@@ -733,6 +859,11 @@ export class WorkerService implements WorkerRef {
       isShuttingDown: () => this.isShuttingDown,
       markShuttingDown: () => { this.isShuttingDown = true; },
       beforeGracefulShutdown: async () => {
+        // Stop the lifecycle timers and drop the published port mirror so no
+        // stale endpoint advertisement survives this shutdown.
+        this.sessionRefCounter.stop();
+        removeWorkerPortFile();
+
         if (this.transcriptWatcher) {
           this.transcriptWatcher.stop();
           this.transcriptWatcher = null;
@@ -758,7 +889,9 @@ export class WorkerService implements WorkerRef {
       }),
       gracefulDeadlineMs: getPlatformTimeout(10000),
       restartHandoff: {
-        port: getWorkerPort(),
+        // Wait on (and hand off) the ACTUAL bound port — after an ephemeral
+        // fallback this differs from the configured port.
+        port: this.boundPort || getConfiguredWorkerPort(),
         portFreeTimeoutMs: getPlatformTimeout(5000),
         // Prefer the marketplace-installed script so the successor boots the
         // freshly-synced plugin, falling back to this script for dev trees /
@@ -1369,21 +1502,12 @@ async function main() {
 
     case '--daemon':
     default: {
-      // Duplicate gate, ground truth FIRST (Phase 5): a live worker owns the
-      // port — the port cannot be faked by a stale or clobbered file. Exit 0:
-      // duplicate suppression is a success, not a failure.
-      if (await isPortInUse(port)) {
-        logger.info('SYSTEM', 'Port already in use, refusing to start duplicate', { port });
-        process.exit(0);
-      }
-
-      // PID file second, ADVISORY only: it covers a dying-but-still-alive
-      // predecessor whose port has already been released (so the port check
-      // above misses it) but whose owned PID file has not been deleted yet.
-      // It does NOT cover a just-spawned worker that hasn't bound the port:
-      // writePidFile runs after server.listen, so that worker has no file.
-      // The worker itself remains the sole writer of this file
-      // (writePidFile/touchPidFile stay as diagnostics).
+      // Duplicate guard #1 — PID file FIRST (bug #3). With an ephemeral-port
+      // fallback the configured port being occupied no longer proves a
+      // duplicate worker (a foreign squatter is routed around), so the live
+      // PID-file owner is the authoritative duplicate signal. The PID file is
+      // now written BEFORE listen() in start(), so a just-spawned predecessor
+      // is covered too. Exit 0: duplicate suppression is a success.
       const existingPidInfo = readPidFile();
       if (verifyPidFileOwnership(existingPidInfo)) {
         logger.info('SYSTEM', 'Worker already running (PID alive), refusing to start duplicate', {
@@ -1391,6 +1515,15 @@ async function main() {
           existingPort: existingPidInfo.port,
           startedAt: existingPidInfo.startedAt
         });
+        process.exit(0);
+      }
+
+      // Duplicate guard #2 — liveness: a healthy worker may answer even if its
+      // PID file was clobbered or deleted. getWorkerPort() resolves the live
+      // worker's actual (possibly ephemeral) port; a quick health probe there
+      // suppresses a duplicate without depending on the configured port.
+      if (await waitForHealth(getWorkerPort(), 1500)) {
+        logger.info('SYSTEM', 'A healthy worker already answers — refusing to start duplicate');
         process.exit(0);
       }
 
@@ -1512,8 +1645,22 @@ const isMainModule = typeof require !== 'undefined' && typeof module !== 'undefi
     || process.argv[1]?.replaceAll('\\', '/') === __filename?.replaceAll('\\', '/');
 
 if (isMainModule) {
-  main().catch((error) => {
-    logger.error('SYSTEM', 'Fatal error in main', {}, error instanceof Error ? error : undefined);
-    process.exit(0);  
+  main().catch(async (error) => {
+    // A fatal error in main() must be LOUD and non-zero — the old `exit(0)`
+    // masked startup failures as success (bug #2), so a crashing daemon looked
+    // like a clean exit and nothing retried. Log, flush logs + telemetry, then
+    // exit 1 so restart verifiers and supervising callers see a dead boot.
+    logger.failure('SYSTEM', 'Fatal error in main', {}, error instanceof Error ? error : new Error(String(error)));
+    try {
+      await logger.flush?.();
+    } catch {
+      // best-effort flush
+    }
+    try {
+      await shutdownTelemetry();
+    } catch {
+      // best-effort telemetry flush
+    }
+    process.exit(1);
   });
 }

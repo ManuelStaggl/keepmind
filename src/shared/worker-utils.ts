@@ -4,7 +4,7 @@ import { spawnHidden } from "./spawn.js";
 import { logger } from "../utils/logger.js";
 import { HOOK_TIMEOUTS, getTimeout } from "./hook-constants.js";
 import { SettingsDefaultsManager, type SettingsDefaults } from "./SettingsDefaultsManager.js";
-import { MARKETPLACE_ROOT, DATA_DIR } from "./paths.js";
+import { MARKETPLACE_ROOT, DATA_DIR, paths } from "./paths.js";
 import { loadFromFileOnce } from "./hook-settings.js";
 import { validateWorkerPidFile } from "../supervisor/index.js";
 import { emitBlockingError } from "./hook-io.js";
@@ -79,6 +79,36 @@ function getWorkerSettingsPath(): string {
   return path.join(SettingsDefaultsManager.get('CLAUDE_MEM_DATA_DIR'), 'settings.json');
 }
 
+function isPidAliveLocal(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error: unknown) {
+    return (error as NodeJS.ErrnoException)?.code === 'EPERM';
+  }
+}
+
+/**
+ * Read the ACTUAL port a live worker is bound to, from the PID file the worker
+ * writes (and keeps current after an ephemeral-port fallback). Returns null
+ * when no PID file exists, it is unreadable, or its recorded process is dead —
+ * so callers fall back to the configured port. Never cached: the spawner must
+ * discover a freshly-bound worker's ephemeral port within a single process.
+ */
+export function readActiveWorkerPort(): number | null {
+  try {
+    const pidPath = paths.workerPid();
+    if (!existsSync(pidPath)) return null;
+    const info = JSON.parse(readFileSync(pidPath, 'utf-8')) as { pid?: number; port?: number };
+    if (typeof info.pid !== 'number' || typeof info.port !== 'number') return null;
+    if (!isPidAliveLocal(info.pid)) return null;
+    return info.port;
+  } catch {
+    return null;
+  }
+}
+
 function getWorkerSettings(): SettingsDefaults {
   if (cachedSettings !== null) {
     return cachedSettings;
@@ -129,7 +159,12 @@ function readSettingsBackedTimeout(
   return defaultValue;
 }
 
-export function getWorkerPort(): number {
+/**
+ * The configured/default port the worker TRIES first when binding. Cached.
+ * The worker uses this as its desired port; clients use getWorkerPort() (which
+ * prefers the live worker's actual bound port).
+ */
+export function getConfiguredWorkerPort(): number {
   if (cachedPort !== null) {
     return cachedPort;
   }
@@ -137,6 +172,18 @@ export function getWorkerPort(): number {
   const settings = getWorkerSettings();
   cachedPort = parseInt(settings.CLAUDE_MEM_WORKER_PORT, 10);
   return cachedPort;
+}
+
+/**
+ * The port CLIENTS should connect to: the live worker's ACTUAL bound port
+ * (read fresh from the PID file, ephemeral-fallback aware), or the configured
+ * port when no live worker is recorded. Not memoized on the active-port path so
+ * a spawner discovers a freshly-bound ephemeral port without a cache flush.
+ */
+export function getWorkerPort(): number {
+  const active = readActiveWorkerPort();
+  if (active !== null) return active;
+  return getConfiguredWorkerPort();
 }
 
 export function getWorkerHost(): string {

@@ -20,25 +20,23 @@ async function httpRequestToWorker(
   return { ok: response.ok, statusCode: response.status, body };
 }
 
+/**
+ * Real liveness test: try to BIND the port. EADDRINUSE => something holds it
+ * (a healthy worker, a wedged worker mid-boot, an orphaned child that inherited
+ * the socket, or a foreign process). A successful bind (immediately closed)
+ * proves the port is free.
+ *
+ * The previous win32 branch used `fetch(/api/health)` and treated any fetch
+ * failure as "port free" — so a dead/orphaned socket that held the port but
+ * did not serve health was reported free, the next bind hit EADDRINUSE, and the
+ * daemon crashed silently. A bind test is the only correct cross-platform
+ * liveness probe; we now use it everywhere.
+ */
 export async function isPortInUse(port: number): Promise<boolean> {
-  if (process.platform === 'win32') {
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/api/health`);
-      return response.ok;
-    } catch (error) {
-      if (error instanceof Error) {
-        logger.debug('SYSTEM', 'Windows health check failed (port not in use)', {}, error);
-      } else {
-        logger.debug('SYSTEM', 'Windows health check failed (port not in use)', { error: String(error) });
-      }
-      return false;
-    }
-  }
-
   return new Promise((resolve) => {
     const server = net.createServer();
     server.once('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
+      if (err.code === 'EADDRINUSE' || err.code === 'EACCES') {
         resolve(true);
       } else {
         resolve(false);

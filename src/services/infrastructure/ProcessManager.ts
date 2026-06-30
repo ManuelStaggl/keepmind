@@ -13,6 +13,29 @@ import { paths } from '../../shared/paths.js';
 
 const DATA_DIR = paths.dataDir();
 const PID_FILE = paths.workerPid();
+const PORT_FILE = paths.workerPort();
+
+/**
+ * Publish the worker's ACTUAL bound port (ephemeral-fallback aware) as a plain
+ * mirror file. The PID file is the authoritative client source (it carries the
+ * pid for a liveness check); this mirror exists for simple/external readers.
+ */
+export function writeWorkerPortFile(port: number): void {
+  try {
+    mkdirSync(DATA_DIR, { recursive: true });
+    writeFileSync(PORT_FILE, String(port));
+  } catch (error: unknown) {
+    logger.debug('SYSTEM', 'Failed to write worker port file', { path: PORT_FILE }, toError(error));
+  }
+}
+
+export function removeWorkerPortFile(): void {
+  try {
+    if (existsSync(PORT_FILE)) unlinkSync(PORT_FILE);
+  } catch (error: unknown) {
+    logger.debug('SYSTEM', 'Failed to remove worker port file', { path: PORT_FILE }, toError(error));
+  }
+}
 
 interface RuntimeResolverOptions {
   platform?: NodeJS.Platform;
@@ -408,16 +431,23 @@ export function spawnDaemon(
   }
 
   if (process.platform === 'win32') {
-    const psScript = `Start-Process -FilePath '${runtimePath.replace(/'/g, "''")}' -ArgumentList @('${scriptPath.replace(/'/g, "''")}','--daemon') -WindowStyle Hidden`;
-    const encodedCommand = Buffer.from(psScript, 'utf16le').toString('base64');
-
+    // Spawn the worker directly under Node, detached + hidden, so we get the
+    // REAL child PID back (the old PowerShell Start-Process path returned a
+    // hardcoded 0, leaving the process untrackable/unreapable). windowsHide
+    // keeps the daemon from flashing a console window.
     try {
-      execSync(`powershell -NoProfile -EncodedCommand ${encodedCommand}`, {
+      const child = spawnHidden(runtimePath, [scriptPath, '--daemon'], {
+        detached: true,
         stdio: 'ignore',
         windowsHide: true,
         env
       });
-      return 0;
+      if (child.pid === undefined) {
+        logger.error('SYSTEM', 'Worker daemon spawn produced no PID on Windows', { runtimePath });
+        return undefined;
+      }
+      child.unref();
+      return child.pid;
     } catch (error: unknown) {
       logger.error(
         'SYSTEM',

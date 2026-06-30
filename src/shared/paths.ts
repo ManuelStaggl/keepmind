@@ -115,6 +115,11 @@ export function getPackageCommandsDir(): string {
 export const paths = {
   dataDir: () => DATA_DIR,
   workerPid: () => join(DATA_DIR, 'worker.pid'),
+  // Ephemeral-port publication: the running worker writes its ACTUAL bound
+  // port here after listen() so clients route to it even when the configured
+  // port was taken and the worker fell back to an OS-assigned free port. This
+  // eliminates the fixed-port orphaned-socket deadlock class.
+  workerPort: () => join(DATA_DIR, 'worker.port'),
   // Phase 1b: identifier renamed to `server*`; the on-disk file basenames
   // remain `.server-beta.*` so existing installations keep finding their
   // pid/port/runtime state. Plan §1d will migrate the basenames.

@@ -9,15 +9,19 @@ import { summarizeHandler } from './summarize.js';
 import { userMessageHandler } from './user-message.js';
 import { fileEditHandler } from './file-edit.js';
 import { fileContextHandler } from './file-context.js';
+import { sessionAcquireHandler } from './session-acquire.js';
+import { sessionReleaseHandler } from './session-release.js';
 
 export type EventType =
-  | 'context'           
-  | 'session-init'      
-  | 'observation'       
-  | 'summarize'         
-  | 'user-message'      
-  | 'file-edit'         
-  | 'file-context';     
+  | 'context'
+  | 'session-init'
+  | 'observation'
+  | 'summarize'
+  | 'user-message'
+  | 'file-edit'
+  | 'file-context'
+  | 'session-acquire'
+  | 'session-release';
 
 const handlers: Record<EventType, EventHandler> = {
   'context': contextHandler,
@@ -26,7 +30,9 @@ const handlers: Record<EventType, EventHandler> = {
   'summarize': summarizeHandler,
   'user-message': userMessageHandler,
   'file-edit': fileEditHandler,
-  'file-context': fileContextHandler
+  'file-context': fileContextHandler,
+  'session-acquire': sessionAcquireHandler,
+  'session-release': sessionReleaseHandler
 };
 
 export function getEventHandler(eventType: string): EventHandler {
@@ -49,3 +55,5 @@ export { summarizeHandler } from './summarize.js';
 export { userMessageHandler } from './user-message.js';
 export { fileEditHandler } from './file-edit.js';
 export { fileContextHandler } from './file-context.js';
+export { sessionAcquireHandler } from './session-acquire.js';
+export { sessionReleaseHandler } from './session-release.js';
