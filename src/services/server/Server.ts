@@ -14,7 +14,34 @@ import { flushResponseThen } from './flushResponseThen.js';
 import { getUptimeSeconds } from '../../shared/uptime.js';
 import { snapshotDependencyHealth, type DependencyHealthSnapshot } from '../../shared/dependency-health.js';
 import { globalRateLimitStore } from '../worker/RateLimitStore.js';
-import type { ObservationQueueHealth } from '../../server/queue/queue-health-types.js';
+
+// Local-only fork: the cloud observation-queue (BullMQ/Valkey) was removed.
+// The local SQLite worker never sets `getQueueHealth`, so this shape only
+// survives as an optional type for the health endpoint contract. Inlined here
+// (previously imported from the deleted src/server/queue/queue-health-types.ts).
+interface ObservationQueueHealth {
+  engine: 'bullmq';
+  redis: {
+    status: 'ok' | 'error';
+    mode: string;
+    host: string;
+    port: number;
+    prefix: string;
+    error?: string;
+  };
+  lanes?: Array<{
+    kind: string;
+    name: string;
+    waiting: number;
+    active: number;
+    completed: number;
+    failed: number;
+    delayed: number;
+    stalled: number;
+    unavailable: boolean;
+    unavailableReason?: string;
+  }>;
+}
 
 const INSTRUCTIONS_BASE_DIR: string = path.resolve(__dirname, '../skills/mem-search');
 const INSTRUCTIONS_OPERATIONS_DIR: string = path.join(INSTRUCTIONS_BASE_DIR, 'operations');

@@ -60,7 +60,6 @@ import { performGracefulShutdown } from './infrastructure/GracefulShutdown.js';
 import { adoptMergedWorktrees, adoptMergedWorktreesForAllKnownRepos } from './infrastructure/WorktreeAdoption.js';
 
 import { Server } from './server/Server.js';
-import { BetterAuthRoutes } from '../server/auth/BetterAuthRoutes.js';
 import {
   createServerApiKey,
   listServerApiKeys,
@@ -325,9 +324,6 @@ export class WorkerService implements WorkerRef {
             : null,
         };
       },
-      preBodyParserRoutes: [
-        new BetterAuthRoutes(() => this.dbManager.getConnection()),
-      ],
     });
 
     this.registerRoutes();
@@ -942,11 +938,10 @@ export function parseWorkerServiceCommand(argv: string[]): ParsedWorkerCommand {
   const [rawCommand, maybeSubCommand, ...rest] = argv;
 
   if (rawCommand === 'server') {
-    const lifecycleCommands = new Set(['start', 'stop', 'restart', 'status']);
-    if (maybeSubCommand && lifecycleCommands.has(maybeSubCommand)) {
-      return { command: `server-${maybeSubCommand}`, args: rest };
-    }
-    const serverCommands = new Set(['logs', 'doctor', 'migrate', 'export', 'import', 'api-key', 'keys', 'jobs']);
+    // Local-only fork: the cloud server runtime (Postgres + BullMQ) was removed.
+    // The only surviving `server` subcommand is `api-key`, which manages local
+    // SQLite API keys used by the local v1 routes.
+    const serverCommands = new Set(['api-key']);
     return {
       command: maybeSubCommand && serverCommands.has(maybeSubCommand) ? `server-${maybeSubCommand}` : 'server-help',
       args: rest,
@@ -967,55 +962,15 @@ export function parseWorkerServiceCommand(argv: string[]): ParsedWorkerCommand {
   };
 }
 
-function printServerCommandUnsupported(command: string): never {
-  console.error(`Server command not implemented yet: ${command}`);
-  console.error('This worker bundle accepts the CLI route, but no backend API exists for it yet.');
-  process.exit(1);
-}
-
 function printServerCommandHelp(): never {
   console.error('Usage: worker-service server <command>');
-  console.error('Commands: start, stop, restart, status, logs, doctor, migrate, export, import, api-key create|list|revoke');
+  console.error('Commands: api-key create|list|revoke|migrate-scopes');
   process.exit(1);
 }
 
 function printWorkerAliasHelp(): never {
   console.error('Usage: worker-service worker start|stop|restart|status');
   process.exit(1);
-}
-
-function runServerServiceCli(command: string, extraArgs: string[] = []): void {
-  // Plan §1c line 149: try the post-rename script first, then fall back
-  // to the legacy `server-beta-service.cjs` so users running against an
-  // already-installed plugin cache (built before the rename) continue to
-  // dispatch without a forced reinstall.
-  let serverScript = path.join(__dirname, 'server-service.cjs');
-  if (!existsSync(serverScript)) {
-    const legacyScript = path.join(__dirname, 'server-beta-service.cjs');
-    if (existsSync(legacyScript)) {
-      serverScript = legacyScript;
-    } else {
-      console.error(`Server script not found at: ${serverScript}`);
-      console.error('Rebuild or reinstall claude-mem so server-service.cjs is available.');
-      process.exit(1);
-    }
-  }
-
-  const child = spawn(process.execPath, [serverScript, command, ...extraArgs], {
-    stdio: 'inherit',
-    // Strip host CLI bleed-through (CLAUDE_CODE_*, including EFFORT_LEVEL) and
-    // Anthropic credentials before handing env to the spawned daemon. The
-    // daemon re-reads its own credentials from ~/.claude-mem/.env. See
-    // env-isolation discipline (#2357 / #2375).
-    env: sanitizeEnv(process.env),
-  });
-  child.on('error', (error) => {
-    console.error(`Failed to start server command: ${error.message}`);
-    process.exit(1);
-  });
-  child.on('close', (exitCode) => {
-    process.exit(exitCode ?? 0);
-  });
 }
 
 function parseServerApiKeyOptions(args: string[]): Record<string, string> {
@@ -1396,7 +1351,6 @@ async function main() {
         if (dependencyHint) {
           console.log(dependencyHint);
         }
-        printQueueStatusIfBullMq(health);
         await launcherExit(0);
       }
       if (await isPortInUse(port)) {
@@ -1408,23 +1362,6 @@ async function main() {
       }
       console.log('Worker is not running');
       await launcherExit(0);
-      break;
-    }
-
-    case 'server-start':
-    case 'server-stop':
-    case 'server-restart':
-    case 'server-status': {
-      runServerServiceCli(command.slice('server-'.length));
-      break;
-    }
-
-    case 'server-logs':
-    case 'server-doctor':
-    case 'server-migrate':
-    case 'server-export':
-    case 'server-import': {
-      printServerCommandUnsupported(command.replace('-', ' '));
       break;
     }
 
@@ -1440,19 +1377,6 @@ async function main() {
       console.error(`Unknown server api-key subcommand: ${apiKeyCommand ?? '(none)'}`);
       console.error('Usage: worker-service server api-key create|list|revoke|migrate-scopes');
       process.exit(1);
-      break;
-    }
-
-    // #2572 — `keys`/`jobs` are server (Postgres) operability commands.
-    // Delegate to the server script so they read the Postgres backend the
-    // server runtime actually uses, instead of the SQLite worker store.
-    case 'server-keys': {
-      runServerServiceCli('server', ['keys', ...commandArgs]);
-      break;
-    }
-
-    case 'server-jobs': {
-      runServerServiceCli('server', ['jobs', ...commandArgs]);
       break;
     }
 
@@ -1701,27 +1625,6 @@ async function fetchWorkerHealth(port: number, timeoutMs: number): Promise<Worke
   } catch {
     return null;
   }
-}
-
-/**
- * Print BullMQ queue detail from an already-fetched /api/health snapshot.
- * A degraded worker answers 503 but still includes the queue block, and
- * `status` already treats that worker as running — so this must not
- * re-fetch and bail on a non-2xx response (which hid the queue detail
- * behind "BullMQ health unavailable (HTTP 503)"). Reusing the snapshot in
- * hand keeps the output consistent with what `status` just reported.
- */
-function printQueueStatusIfBullMq(health: WorkerHealthSnapshot): void {
-  if (SettingsDefaultsManager.get('CLAUDE_MEM_QUEUE_ENGINE').trim().toLowerCase() !== 'bullmq') {
-    return;
-  }
-  const redis = health.queue?.redis;
-  if (!redis) {
-    return;
-  }
-  const target = `${redis.host ?? 'unknown'}:${redis.port ?? 'unknown'}`;
-  const suffix = redis.status === 'ok' ? '' : ` (${redis.error ?? 'unhealthy'})`;
-  console.log(`  Queue: BullMQ Redis ${redis.status ?? 'unknown'} at ${target} [${redis.mode ?? 'external'}, prefix=${redis.prefix ?? 'claude_mem'}]${suffix}`);
 }
 
 const isMainModule = typeof require !== 'undefined' && typeof module !== 'undefined'
