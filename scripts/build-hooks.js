@@ -228,6 +228,9 @@ async function buildHooks() {
       type: 'module',
       dependencies: {
         'zod': '^4.4.3',
+        // In-process vector search runtime (externalized from the worker bundle).
+        '@huggingface/transformers': '^4.2.0',
+        'sqlite-vec': '^0.1.9',
         'tree-sitter-cli': '^0.26.5',
         'tree-sitter-c': '^0.24.1',
         'tree-sitter-cpp': '^0.23.4',
@@ -294,10 +297,17 @@ async function buildHooks() {
       external: [
         'node:sqlite',
         'zod',
-        'cohere-ai',
-        'ollama',
-        '@chroma-core/default-embed',
+        // In-process vector search natives: transformers.js pulls onnxruntime-node
+        // (.node binaries) and sqlite-vec loads a per-platform .dll via
+        // getLoadablePath() — none can be inlined; they must resolve from
+        // node_modules at runtime. (Replaces the former chroma-mcp/uvx subprocess.)
+        '@huggingface/transformers',
         'onnxruntime-node',
+        'sqlite-vec',
+        'sqlite-vec-windows-x64',
+        'sqlite-vec-darwin-x64',
+        'sqlite-vec-darwin-arm64',
+        'sqlite-vec-linux-x64',
       ],
       define: {
         '__DEFAULT_PACKAGE_VERSION__': `"${version}"`,

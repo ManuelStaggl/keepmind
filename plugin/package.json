@@ -6,6 +6,8 @@
   "type": "module",
   "dependencies": {
     "zod": "^4.4.3",
+    "@huggingface/transformers": "^4.2.0",
+    "sqlite-vec": "^0.1.9",
     "tree-sitter-cli": "^0.26.5",
     "tree-sitter-c": "^0.24.1",
     "tree-sitter-cpp": "^0.23.4",

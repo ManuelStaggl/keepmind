@@ -114,10 +114,12 @@
     "2fa": false
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "sqlite-vec": "^0.1.9",
     "zod": "^4.4.3"
   },
-  "//dependencies-note": "Local-only fork: the cloud/SaaS layer (Postgres + BullMQ + better-auth) and the `claude-mem/sdk` export were removed, so pg/better-auth/@better-auth/api-key/bullmq/ioredis are gone. Only zod + @modelcontextprotocol/sdk survive the bundler as live `import`/`require` in a shipped artifact (the mcp-server bundles zod). Everything else (express, react, react-dom, cors, dompurify, handlebars, @clack/prompts, ansi-to-html, glob, picocolors, posthog-node, shell-quote, yaml, zod-to-json-schema, @anthropic-ai/claude-agent-sdk) is esbuild-inlined into the worker/npx bundles, so it is a build-time devDependency.",
+  "//dependencies-note": "Local-only fork: the cloud/SaaS layer (Postgres + BullMQ + better-auth) and the `claude-mem/sdk` export were removed, so pg/better-auth/@better-auth/api-key/bullmq/ioredis are gone. zod + @modelcontextprotocol/sdk survive the bundler as live `import`/`require` in a shipped artifact (the mcp-server bundles zod). @huggingface/transformers + sqlite-vec power the in-process vector search (Phase 2, replacing the chroma-mcp/uvx subprocess) and are intentionally EXTERNALIZED from the worker bundle — transformers pulls onnxruntime-node (.node) and sqlite-vec loads a per-platform .dll/.so via getLoadablePath(), neither of which can be esbuild-inlined; they resolve from node_modules (and the generated plugin/package.json) at runtime. Everything else (express, react, react-dom, cors, dompurify, handlebars, @clack/prompts, ansi-to-html, glob, picocolors, posthog-node, shell-quote, yaml, zod-to-json-schema, @anthropic-ai/claude-agent-sdk) is esbuild-inlined into the worker/npx bundles, so it is a build-time devDependency.",
   "overrides": {
     "tmp": "^0.2.7"
   },
