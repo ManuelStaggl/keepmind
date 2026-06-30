@@ -27,8 +27,6 @@ ${pc.bold('Install Commands')} (no Bun required):
   ${pc.cyan('npx claude-mem install --model <id>')}   Set Claude model (when provider=claude)
   ${pc.cyan('npx claude-mem install --no-auto-start')}   Skip worker auto-start at the end
   ${pc.cyan('npx claude-mem install --disable-auto-memory')}   Explicitly disable Claude Code native auto-memory
-  ${pc.cyan('npx claude-mem install --runtime worker|server')}   Select runtime non-interactively (server brings up Docker pg+redis, generates an API key, injects the IDE MCP config)
-  ${pc.cyan('npx claude-mem install --runtime server --server-url <url>')}   Point the server runtime at a specific base URL
   ${pc.cyan('npx claude-mem repair')}                Repair runtime (re-runs Bun/uv setup and bun install in plugin cache)
   ${pc.cyan('npx claude-mem update')}               Update to latest version
   ${pc.cyan('npx claude-mem uninstall')}            Remove plugin and configs
@@ -41,16 +39,7 @@ ${pc.bold('Runtime Commands')} (requires Bun, delegates to installed plugin):
   ${pc.cyan('npx claude-mem status')}               Show worker status
   ${pc.cyan('npx claude-mem doctor')}               Diagnose install/runtime health (bun, uv, worker)
   ${pc.cyan('npx claude-mem telemetry status|enable|disable')}   Manage anonymous telemetry (on by default, opt-out)
-  ${pc.cyan('npx claude-mem server start')}         Start server service
-  ${pc.cyan('npx claude-mem server stop')}          Stop server service
-  ${pc.cyan('npx claude-mem server restart')}       Restart server service
-  ${pc.cyan('npx claude-mem server status')}        Show server status
-  ${pc.cyan('npx claude-mem server logs')}          Show recent server logs
-  ${pc.cyan('npx claude-mem server doctor')}        Check server configuration (not yet implemented)
-  ${pc.cyan('npx claude-mem server migrate')}       Run server migrations (not yet implemented)
-  ${pc.cyan('npx claude-mem server export')}        Export server data (not yet implemented)
-  ${pc.cyan('npx claude-mem server import')}        Import server data (not yet implemented)
-  ${pc.cyan('npx claude-mem server api-key create|list|revoke')}   Manage API keys (not yet implemented)
+  ${pc.cyan('npx claude-mem server api-key create|list|revoke')}   Manage local SQLite API keys (for the local v1 routes)
   ${pc.cyan('npx claude-mem worker start|stop|restart|status')}    Worker compatibility aliases
   ${pc.cyan('npx claude-mem search <query>')}       Search observations
   ${pc.cyan('npx claude-mem adopt [--dry-run] [--branch <name>]')}    Stamp merged worktrees into parent project
@@ -84,9 +73,10 @@ function parseInstallOptions(argv: string[]): InstallOptions {
     process.exit(1);
   }
   const runtime = readFlag(argv, '--runtime');
-  if (runtime !== undefined && runtime !== 'worker' && runtime !== 'server' && runtime !== 'server-beta') {
-    console.error(`Unknown --runtime: ${runtime}. Allowed: worker, server`);
-    process.exit(1);
+  if (runtime !== undefined && runtime !== 'worker') {
+    // Local-only fork: only the worker runtime survives. Accept the flag but
+    // do not fail — install.ts downgrades anything non-worker to worker.
+    console.error(`Note: the "${runtime}" runtime was removed; using the worker runtime.`);
   }
   return {
     ide: readFlag(argv, '--ide'),
@@ -95,7 +85,6 @@ function parseInstallOptions(argv: string[]): InstallOptions {
     noAutoStart: argv.includes('--no-auto-start'),
     disableAutoMemory: argv.includes('--disable-auto-memory'),
     runtime: runtime as InstallOptions['runtime'],
-    serverUrl: readFlag(argv, '--server-url'),
   };
 }
 

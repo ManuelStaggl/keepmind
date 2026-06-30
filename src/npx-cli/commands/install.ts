@@ -20,7 +20,6 @@ import {
   isInstallCurrent,
 } from '../install/setup-runtime.js';
 import { playBanner } from '../banner.js';
-import { normalizeRuntimeFlag, planServerRuntimeInstall } from './server-runtime-setup.js';
 import { ErrorSeverity } from '../install/error-taxonomy.js';
 import {
   createInstallSummary,
@@ -809,120 +808,17 @@ function resolveClaudeAuthMethod(): 'subscription' | 'api-key' | 'gateway' {
   return 'subscription';
 }
 
-const DEFAULT_SERVER_RUNTIME_BASE_URL = 'http://127.0.0.1:37877';
-
 async function promptRuntime(options: InstallOptions): Promise<RuntimeId> {
-  // #2543 — non-interactive runtime selection via `--runtime`. When the flag is
-  // present we never prompt and never fall back to the worker path: we resolve
-  // the requested runtime deterministically and, for the server runtime, plan +
-  // execute the server-specific setup (Docker stack, key gen, IDE MCP config).
-  if (options.runtime !== undefined) {
-    const requested = normalizeRuntimeFlag(options.runtime);
-    if (requested === null) {
-      log.error(`Unknown --runtime: ${options.runtime}. Allowed: worker, server`);
-      process.exit(1);
-    }
-    if (requested === 'server') {
-      await setupServerRuntimeNonInteractive(options);
-      return 'server';
-    }
-    mergeSettings({ CLAUDE_MEM_RUNTIME: 'worker' });
-    return 'worker';
-  }
-
-  if (!isInteractive) {
-    mergeSettings({ CLAUDE_MEM_RUNTIME: 'worker' });
-    return 'worker';
-  }
-
-  const selected = await p.select<RuntimeId>({
-    message: 'Which runtime should claude-mem start after install?',
-    options: [
-      { value: 'worker', label: 'Worker', hint: 'stable compatibility path' },
-      { value: 'server', label: 'Server (beta)', hint: 'REST V1, API keys, team-ready storage' },
-    ],
-    initialValue: 'worker',
-  });
-
-  if (p.isCancel(selected)) {
-    p.cancel('Installation cancelled.');
-    process.exit(0);
-  }
-
-  mergeSettings({
-    CLAUDE_MEM_RUNTIME: selected,
-  });
-
-  if (selected === 'server') {
-    await maybeBootstrapServerApiKey();
-  }
-  return selected;
-}
-
-// #2543 — execute the server-runtime install plan. Pure planning lives in
-// server-runtime-setup.ts (unit-tested); this function performs the side
-// effects the plan describes. Docker stack bring-up is config-only here (we log
-// the command an operator must run / a CI provisioner executes); key generation
-// reuses the same bootstrap path as the interactive flow (createServerApiKey +
-// DEFAULT_LOCAL_API_KEY_SCOPES via server-bootstrap), and the IDE MCP
-// config target is recorded in settings so hooks resolve the server runtime.
-async function setupServerRuntimeNonInteractive(options: InstallOptions): Promise<void> {
-  const serverBaseUrl = (options.serverUrl ?? '').trim() || DEFAULT_SERVER_RUNTIME_BASE_URL;
-  const hasDatabaseUrl = Boolean((process.env.CLAUDE_MEM_SERVER_DATABASE_URL ?? '').trim());
-  const plan = planServerRuntimeInstall({ serverBaseUrl, hasDatabaseUrl });
-
-  mergeSettings(plan.settings);
-
-  if (plan.bringUpDockerStack) {
-    log.info(
-      'Server runtime selected. Bring up the bundled stack with '
-        + '`docker compose up -d postgres valkey claude-mem-server claude-mem-worker` '
-        + `(pg + redis/valkey). The server listens at ${serverBaseUrl}.`,
-    );
-  }
-
-  log.info(
-    `IDE MCP config target for the server runtime: ${plan.mcpServerConfig.type} ${plan.mcpServerConfig.url}`,
-  );
-
-  if (plan.generateApiKey) {
-    await maybeBootstrapServerApiKey();
-  }
-  for (const note of plan.notes) {
-    log.warn(note);
-  }
-}
-
-async function maybeBootstrapServerApiKey(): Promise<void> {
-  // Only attempt if Postgres is configured. Without DATABASE_URL we cannot
-  // reach the api_keys table — the operator must configure the server first
-  // and rerun `claude-mem server keys rotate`.
-  if (!process.env.CLAUDE_MEM_SERVER_DATABASE_URL) {
+  // Local-only fork: the cloud server runtime (Postgres + BullMQ + better-auth)
+  // was removed, so the worker is the only runtime. A `--runtime` value other
+  // than worker is accepted but downgraded to worker with a warning.
+  if (options.runtime !== undefined && options.runtime !== 'worker') {
     log.warn(
-      'Skipping local hook API key bootstrap: CLAUDE_MEM_SERVER_DATABASE_URL is not set. '
-        + 'Run `npx claude-mem server keys rotate` after configuring Postgres to provision a key.',
-    );
-    return;
-  }
-  try {
-    const { bootstrapServerApiKey, persistServerSettings } = await import(
-      '../../services/hooks/server-bootstrap.js'
-    );
-    const result = await bootstrapServerApiKey();
-    persistServerSettings(USER_SETTINGS_PATH, {
-      apiKey: result.rawKey,
-      projectId: result.projectId,
-    });
-    log.info(
-      `Provisioned local hook API key (project=${result.projectId.slice(0, 8)}…). `
-        + 'Settings saved with mode 0600.',
-    );
-  } catch (error: unknown) {
-    log.warn(
-      `Failed to bootstrap server API key: ${error instanceof Error ? error.message : String(error)}. `
-        + 'Hooks will fall back to the worker until you run `npx claude-mem server keys rotate`.',
+      `The "${options.runtime}" runtime was removed in this local-only build — using the worker runtime instead.`,
     );
   }
+  mergeSettings({ CLAUDE_MEM_RUNTIME: 'worker' });
+  return 'worker';
 }
 
 async function promptProvider(options: InstallOptions): Promise<ProviderId> {
