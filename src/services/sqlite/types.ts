@@ -242,6 +242,9 @@ export interface SearchFilters {
   concepts?: string | string[];
   files?: string | string[];
   dateRange?: DateRange;
+  // Phase 4 / Step 2 — when a `project` filter is set, also surface cross-project
+  // user-pinned rows (type='global'). Defaults to true; set false to scope strictly.
+  includeGlobal?: boolean;
 }
 
 export interface SearchOptions extends SearchFilters {

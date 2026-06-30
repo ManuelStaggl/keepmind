@@ -44,12 +44,17 @@ export function queryObservations(
       o.created_at_epoch
     FROM observations o
     LEFT JOIN sdk_sessions s ON o.memory_session_id = s.memory_session_id
-    WHERE (o.project = ? OR o.merged_into_project = ?)
+    WHERE (o.project = ? OR o.merged_into_project = ? OR o.type = 'global')
       AND (? IS NULL OR s.platform_source = ?)
-      AND type IN (${typePlaceholders})
-      AND EXISTS (
-        SELECT 1 FROM json_each(o.concepts)
-        WHERE value IN (${conceptPlaceholders})
+      AND (
+        o.type = 'global'
+        OR (
+          type IN (${typePlaceholders})
+          AND EXISTS (
+            SELECT 1 FROM json_each(o.concepts)
+            WHERE value IN (${conceptPlaceholders})
+          )
+        )
       )
     ORDER BY o.created_at_epoch DESC
     LIMIT ?
@@ -130,12 +135,18 @@ export function queryObservationsMulti(
     FROM observations o
     LEFT JOIN sdk_sessions s ON o.memory_session_id = s.memory_session_id
     WHERE (o.project IN (${projectPlaceholders})
-           OR o.merged_into_project IN (${projectPlaceholders}))
+           OR o.merged_into_project IN (${projectPlaceholders})
+           OR o.type = 'global')
       AND (? IS NULL OR s.platform_source = ?)
-      AND type IN (${typePlaceholders})
-      AND EXISTS (
-        SELECT 1 FROM json_each(o.concepts)
-        WHERE value IN (${conceptPlaceholders})
+      AND (
+        o.type = 'global'
+        OR (
+          type IN (${typePlaceholders})
+          AND EXISTS (
+            SELECT 1 FROM json_each(o.concepts)
+            WHERE value IN (${conceptPlaceholders})
+          )
+        )
       )
     ORDER BY o.created_at_epoch DESC
     LIMIT ?

@@ -13,6 +13,12 @@ const saveMemorySchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 }).strict();
 
+const deleteByProjectSchema = z.object({
+  project: z.string().trim().min(1),
+  confirm: z.boolean().optional(),
+  dryRun: z.boolean().optional(),
+}).strict();
+
 export class MemoryRoutes extends BaseRouteHandler {
   constructor(
     private dbManager: DatabaseManager,
@@ -23,7 +29,27 @@ export class MemoryRoutes extends BaseRouteHandler {
 
   setupRoutes(app: express.Application): void {
     app.post('/api/memory/save', validateBody(saveMemorySchema), this.handleSaveMemory.bind(this));
+    app.post('/api/memory/delete-by-project', validateBody(deleteByProjectSchema), this.handleDeleteByProject.bind(this));
   }
+
+  private handleDeleteByProject = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
+    const { project, confirm, dryRun } = req.body as z.infer<typeof deleteByProjectSchema>;
+    const sessionStore = this.dbManager.getSessionStore();
+
+    // A non-dryRun delete requires explicit confirm:true (irreversible).
+    if (!dryRun && confirm !== true) {
+      res.status(400).json({ success: false, error: 'Refusing to delete without confirm:true (or pass dryRun:true to preview counts).' });
+      return;
+    }
+
+    try {
+      const result = sessionStore.deleteObservationsByProject(project, { dryRun: dryRun === true });
+      logger.info('HTTP', 'delete-by-project', result);
+      res.json({ success: true, ...result });
+    } catch (error) {
+      res.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
 
   private handleSaveMemory = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
     const { text, title, project, metadata } = req.body as z.infer<typeof saveMemorySchema>;

@@ -654,6 +654,23 @@ NEVER fetch full details without filtering first. 10x token savings.`,
     },
     handler: async (args: any) => handleSessionStartContext(args ?? {}),
   },
+  {
+    name: 'delete_observations_by_project',
+    description: 'Delete ALL observations and summaries for a project. Irreversible. Requires confirm:true to execute; pass dryRun:true to preview the counts that would be deleted without touching data. Params: project (required), confirm, dryRun.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project name whose observations+summaries to delete' },
+        confirm: { type: 'boolean', description: 'Must be true to actually delete (ignored when dryRun:true)' },
+        dryRun: { type: 'boolean', description: 'When true, only returns the counts that would be deleted' },
+      },
+      required: ['project'],
+      additionalProperties: false,
+    },
+    handler: async (args: any) => {
+      return await callWorkerAPIPost('/api/memory/delete-by-project', args ?? {});
+    },
+  },
   // Phase 8 — observation_* tools backed by server REST core.
   // These are the canonical names. memory_* tools below are kept as
   // compatibility aliases that delegate to these handlers, so existing

@@ -157,8 +157,15 @@ export class SessionSearch {
     const conditions: string[] = [];
 
     if (filters.project) {
-      conditions.push(`${tableAlias}.project = ?`);
-      params.push(filters.project);
+      // Phase 4 / Step 2 — default-scope to the project, but keep cross-project
+      // user-pinned rows (type='global') eligible unless explicitly excluded.
+      if (filters.includeGlobal === false) {
+        conditions.push(`${tableAlias}.project = ?`);
+        params.push(filters.project);
+      } else {
+        conditions.push(`(${tableAlias}.project = ? OR ${tableAlias}.type = 'global')`);
+        params.push(filters.project);
+      }
     }
 
     // Source-scoping (#2389): when a platformSource is supplied, restrict to
