@@ -170,21 +170,12 @@ export function runWorkerDependencyPreflight(options: WorkerDependencyPreflightO
     clearDependencyStatus('claude_cli');
   }
 
-  if (chromaEnabled) {
-    const uvxCommand = resolveUvxCommand(options);
-    if (hasExecutableOnPath(uvxCommand, options)) {
-      clearDependencyStatus('uvx');
-    } else {
-      logger.warn('WORKER', 'uvx executable not found during worker dependency preflight', {
-        command: uvxCommand,
-      });
-      recordUvxVectorSearchUnavailable(
-        `uvx executable not found on effective PATH for vector search (${uvxCommand})`,
-      );
-    }
-  } else {
-    clearDependencyStatus('uvx');
-  }
+  // Vector search is now in-process (sqlite-vec + transformers.js); the former
+  // uvx/python toolchain is no longer required, so the 'uvx' dependency is
+  // always considered satisfied. `chromaEnabled` is retained only as the
+  // master on/off toggle for vector search elsewhere.
+  void chromaEnabled;
+  clearDependencyStatus('uvx');
 
   return snapshotDependencyHealth();
 }

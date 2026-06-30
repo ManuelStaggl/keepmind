@@ -14,8 +14,9 @@ import { getUptimeSeconds } from '../shared/uptime.js';
 import { SettingsDefaultsManager } from '../shared/SettingsDefaultsManager.js';
 import { getAuthMethodDescription } from '../shared/EnvManager.js';
 import { logger } from '../utils/logger.js';
-import { ChromaMcpManager } from './sync/ChromaMcpManager.js';
 import { ChromaSync } from './sync/ChromaSync.js';
+import { SqliteVecManager } from './vector/SqliteVecManager.js';
+import { EmbedderService } from './vector/EmbedderService.js';
 import { configureSupervisorSignalHandlers, getSupervisor, startSupervisor } from '../supervisor/index.js';
 import { sanitizeEnv } from '../supervisor/env-sanitizer.js';
 
@@ -246,7 +247,7 @@ export class WorkerService implements WorkerRef {
 
   private searchRoutes: SearchRoutes | null = null;
 
-  private chromaMcpManager: ChromaMcpManager | null = null;
+  private vectorSearchEnabled = false;
   private transcriptWatcher: TranscriptWatcher | null = null;
   private initializationComplete: Promise<void>;
   private resolveInitialization!: () => void;
@@ -615,12 +616,19 @@ export class WorkerService implements WorkerRef {
         logger.error('WORKER', 'Worktree adoption failed (background)', {}, err instanceof Error ? err : new Error(String(err)));
       });
 
-      const chromaEnabled = settings.CLAUDE_MEM_CHROMA_ENABLED !== 'false';
-      if (chromaEnabled) {
-        this.chromaMcpManager = ChromaMcpManager.getInstance();
-        logger.info('SYSTEM', 'ChromaMcpManager initialized (lazy - connects on first use)');
+      this.vectorSearchEnabled = settings.CLAUDE_MEM_CHROMA_ENABLED !== 'false';
+      if (this.vectorSearchEnabled) {
+        try {
+          SqliteVecManager.instance().load();
+          logger.info('SYSTEM', 'In-process vector store loaded (sqlite-vec)');
+        } catch (error) {
+          logger.error('SYSTEM', 'sqlite-vec failed to load — semantic search will degrade to keyword search', {}, error as Error);
+        }
+        // Warm the embedder in the background so the first search isn't penalised
+        // by the one-time model load/download. Best-effort; never blocks boot.
+        EmbedderService.instance().warmup().catch(() => { /* best-effort */ });
       } else {
-        logger.info('SYSTEM', 'Chroma disabled via CLAUDE_MEM_CHROMA_ENABLED=false, skipping ChromaMcpManager');
+        logger.info('SYSTEM', 'Vector search disabled via CLAUDE_MEM_CHROMA_ENABLED=false, using SQLite-only search');
       }
 
       logger.info('WORKER', 'Initializing database manager...');
@@ -721,11 +729,11 @@ export class WorkerService implements WorkerRef {
 
       await this.startTranscriptWatcher(settings);
 
-      if (this.chromaMcpManager) {
+      if (this.vectorSearchEnabled) {
         ChromaSync.backfillAllProjects(this.dbManager.getSessionStore()).then(() => {
-          logger.info('CHROMA_SYNC', 'Backfill check complete for all projects');
+          logger.info('VECTOR_SYNC', 'Backfill check complete for all projects');
         }).catch(error => {
-          logger.error('CHROMA_SYNC', 'Backfill failed (non-blocking)', {}, error as Error);
+          logger.error('VECTOR_SYNC', 'Backfill failed (non-blocking)', {}, error as Error);
         });
       }
 
@@ -880,8 +888,7 @@ export class WorkerService implements WorkerRef {
         server: this.server.getHttpServer(),
         sessionManager: this.sessionManager,
         mcpClient: this.mcpClient,
-        dbManager: this.dbManager,
-        chromaMcpManager: this.chromaMcpManager || undefined
+        dbManager: this.dbManager
       }),
       gracefulDeadlineMs: getPlatformTimeout(10000),
       restartHandoff: {

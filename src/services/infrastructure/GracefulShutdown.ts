@@ -24,7 +24,6 @@ export interface GracefulShutdownConfig {
   sessionManager: ShutdownableService;
   mcpClient?: CloseableClient;
   dbManager?: CloseableDatabase;
-  chromaMcpManager?: StoppableService;
 }
 
 export async function performGracefulShutdown(config: GracefulShutdownConfig): Promise<void> {
@@ -40,12 +39,6 @@ export async function performGracefulShutdown(config: GracefulShutdownConfig): P
   if (config.mcpClient) {
     await config.mcpClient.close();
     logger.info('SYSTEM', 'MCP client closed');
-  }
-
-  if (config.chromaMcpManager) {
-    logger.info('SHUTDOWN', 'Stopping Chroma MCP connection...');
-    await config.chromaMcpManager.stop();
-    logger.info('SHUTDOWN', 'Chroma MCP connection stopped');
   }
 
   if (config.dbManager) {

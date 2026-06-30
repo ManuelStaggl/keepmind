@@ -1,11 +1,15 @@
 
 import express, { Request, Response } from 'express';
 import { BaseRouteHandler } from '../BaseRouteHandler.js';
-import { ChromaMcpManager } from '../../../sync/ChromaMcpManager.js';
-import { logger } from '../../../../utils/logger.js';
+import { SqliteVecManager } from '../../../vector/SqliteVecManager.js';
+import { EmbedderService } from '../../../vector/EmbedderService.js';
 import { SettingsDefaultsManager } from '../../../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../../../shared/paths.js';
 
+// Status endpoint for the in-process vector store (sqlite-vec + transformers.js).
+// Kept at the historical /api/chroma/status path so existing health probes
+// (worker-service dispatch list, dashboards) keep working after the chroma-mcp
+// subprocess was removed.
 export class ChromaRoutes extends BaseRouteHandler {
   setupRoutes(app: express.Application): void {
     app.get('/api/chroma/status', this.handleGetStatus.bind(this));
@@ -13,51 +17,75 @@ export class ChromaRoutes extends BaseRouteHandler {
 
   private handleGetStatus = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-    const chromaEnabled = settings.CLAUDE_MEM_CHROMA_ENABLED !== 'false';
+    const vectorEnabled = settings.CLAUDE_MEM_CHROMA_ENABLED !== 'false';
 
     const deepRaw = req.query.deep;
-    const deepEnabled =
-      deepRaw !== undefined &&
-      deepRaw !== 'false' &&
-      deepRaw !== '0';
+    const deepEnabled = deepRaw !== undefined && deepRaw !== 'false' && deepRaw !== '0';
 
-    if (!chromaEnabled) {
+    if (!vectorEnabled) {
       res.json({
         status: 'disabled',
         connected: false,
         timestamp: new Date().toISOString(),
-        details: 'Chroma is disabled via CLAUDE_MEM_CHROMA_ENABLED=false',
-        deep: deepEnabled
+        details: 'Vector search is disabled via CLAUDE_MEM_CHROMA_ENABLED=false',
+        deep: deepEnabled,
       });
       return;
     }
 
-    const chromaMcp = ChromaMcpManager.getInstance();
-    const isHealthy = await chromaMcp.isHealthy();
+    const vec = SqliteVecManager.instance();
+    let loaded = vec.isLoaded();
+    let vecVersion = vec.getVecVersion();
+    let loadError: string | undefined;
+    if (!loaded) {
+      try {
+        vec.load();
+        loaded = true;
+        vecVersion = vec.getVecVersion();
+      } catch (error) {
+        loadError = error instanceof Error ? error.message : String(error);
+      }
+    }
 
     if (!deepEnabled) {
       res.json({
-        status: isHealthy ? 'healthy' : 'unhealthy',
-        connected: isHealthy,
+        status: loaded ? 'healthy' : 'unhealthy',
+        connected: loaded,
         timestamp: new Date().toISOString(),
-        details: isHealthy ? 'chroma-mcp is responding to tool calls' : 'chroma-mcp health check failed',
-        deep: false
+        details: loaded
+          ? `in-process vector store ready (sqlite-vec ${vecVersion})`
+          : `sqlite-vec failed to load: ${loadError ?? 'unknown error'}`,
+        deep: false,
+        backend: 'sqlite-vec',
+        vec_version: vecVersion,
       });
       return;
     }
 
-    const probe = await chromaMcp.probeSemanticSearch();
-    const status = probe.ok ? 'healthy' : 'unhealthy';
+    // Deep probe: exercise an actual embed round-trip.
+    const startedAt = Date.now();
+    let probeOk = false;
+    let probeError: string | undefined;
+    try {
+      const v = await EmbedderService.instance().embedOne('ping');
+      probeOk = v.length === 384;
+      if (!probeOk) probeError = `unexpected embedding length ${v.length}`;
+    } catch (error) {
+      probeError = error instanceof Error ? error.message : String(error);
+    }
+    const queryLatencyMs = Date.now() - startedAt;
 
     res.json({
-      status,
-      connected: isHealthy,
+      status: loaded && probeOk ? 'healthy' : 'unhealthy',
+      connected: loaded,
       timestamp: new Date().toISOString(),
-      details: probe.ok
-        ? 'chroma-mcp semantic search round-trip succeeded'
-        : `chroma-mcp deep probe failed at stage '${probe.stage}'`,
+      details: probeOk
+        ? 'in-process embed + sqlite-vec round-trip succeeded'
+        : `deep probe failed: ${probeError ?? 'unknown error'}`,
       deep: true,
-      probe
+      backend: 'sqlite-vec',
+      vec_version: vecVersion,
+      probe: { ok: probeOk, queryLatencyMs, embedderWarm: EmbedderService.instance().isWarm(), error: probeError },
     });
   });
 }
