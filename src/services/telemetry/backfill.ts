@@ -2,7 +2,7 @@ import { join } from 'path';
 import { mkdirSync, writeFileSync } from 'fs';
 import { createHash } from 'crypto';
 import { PostHog } from 'posthog-node';
-import type { Database } from 'bun:sqlite';
+import type { Database } from '../../storage/db.js';
 import { resolveDataDir } from '../../shared/paths.js';
 import { readJsonSafe } from '../../utils/json-utils.js';
 import { logger } from '../../utils/logger.js';

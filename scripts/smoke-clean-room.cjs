@@ -145,8 +145,8 @@ function checkPluginClosure(failures) {
     failures.push(`bundled worker not found at ${workerEntry}`);
     return;
   }
-  log('  Booting worker via: bun scripts/worker-service.cjs --version');
-  const res = spawnSync('bun', [workerEntry, '--version'], {
+  log('  Booting worker via: node scripts/worker-service.cjs --version');
+  const res = spawnSync(process.execPath, [workerEntry, '--version'], {
     cwd: tmpPlugin,
     encoding: 'utf8',
     timeout: 20000,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomUUID } from 'crypto';
-import { Database } from 'bun:sqlite';
+import { Database } from '../db.js';
 import {
   CreateMemoryItemSchema,
   CreateMemorySourceSchema,

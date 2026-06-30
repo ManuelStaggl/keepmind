@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import type { Database } from 'bun:sqlite';
+import type { Database } from '../../storage/db.js';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { verifyServerApiKey } from '../auth/sqlite-api-key-service.js';
 import {

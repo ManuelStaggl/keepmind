@@ -265,8 +265,7 @@ async function buildHooks() {
         'tree-sitter-cli'
       ],
       engines: {
-        node: '>=20.12.0',
-        bun: '>=1.0.0'
+        node: '>=22.5.0'
       }
     };
     fs.writeFileSync('plugin/package.json', JSON.stringify(pluginPackageJson, null, 2) + '\n');
@@ -296,7 +295,7 @@ async function buildHooks() {
       minify: true,
       logLevel: 'error', // Suppress warnings (import.meta warning is benign)
       external: [
-        'bun:sqlite',
+        'node:sqlite',
         'zod',
         'cohere-ai',
         'ollama',
@@ -324,7 +323,7 @@ async function buildHooks() {
       },
       banner: {
         js: [
-          '#!/usr/bin/env bun',
+          '#!/usr/bin/env node',
           'var __filename = __filename || require("node:path").resolve(process.argv[1] || "");',
           'var __dirname = __dirname || require("node:path").dirname(__filename);',
           'var __IMPORT_META_URL__ = require("node:url").pathToFileURL(__filename).href;'
@@ -360,7 +359,7 @@ async function buildHooks() {
       minify: true,
       logLevel: 'error',
       external: [
-        'bun:sqlite',
+        'node:sqlite',
         'zod',
       ],
       define: {
@@ -368,7 +367,7 @@ async function buildHooks() {
       },
       banner: {
         js: [
-          '#!/usr/bin/env bun',
+          '#!/usr/bin/env node',
           'var __filename = __filename || require("node:path").resolve(process.argv[1] || "");',
           'var __dirname = __dirname || require("node:path").dirname(__filename);'
         ].join('\n')
@@ -392,7 +391,7 @@ async function buildHooks() {
       minify: true,
       logLevel: 'error',
       external: [
-        'bun:sqlite',
+        'node:sqlite',
         'tree-sitter-cli',
         'tree-sitter-javascript',
         'tree-sitter-typescript',
@@ -466,7 +465,7 @@ async function buildHooks() {
       outfile: `${hooksDir}/${CONTEXT_GENERATOR.name}.cjs`,
       minify: true,
       logLevel: 'error',
-      external: ['bun:sqlite', 'zod'],
+      external: ['node:sqlite', 'zod'],
       define: {
         '__DEFAULT_PACKAGE_VERSION__': `"${version}"`
       },
@@ -492,12 +491,12 @@ async function buildHooks() {
       // any zod usage in the processor.ts import chain should resolve at runtime
       // against plugin/node_modules instead of being inlined (avoids duplicate-
       // instance hazards and keeps the bundle slim).
-      external: ['bun:sqlite', 'zod'],
+      external: ['node:sqlite', 'zod'],
       define: {
         '__DEFAULT_PACKAGE_VERSION__': `"${version}"`
       },
       banner: {
-        js: '#!/usr/bin/env bun'
+        js: '#!/usr/bin/env node'
       }
     });
 
@@ -534,7 +533,7 @@ async function buildHooks() {
         'fs', 'fs/promises', 'path', 'os', 'child_process', 'url',
         'crypto', 'http', 'https', 'net', 'stream', 'util', 'events',
         'buffer', 'querystring', 'readline', 'tty', 'assert',
-        'bun:sqlite',
+        'node:sqlite',
       ],
       define: {
         '__DEFAULT_PACKAGE_VERSION__': `"${version}"`

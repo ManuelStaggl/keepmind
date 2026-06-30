@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import type { Database } from 'bun:sqlite';
+import type { Database } from '../../storage/db.js';
 import { betterAuth } from 'better-auth';
 import { apiKey } from '@better-auth/api-key';
 import { organization } from 'better-auth/plugins';

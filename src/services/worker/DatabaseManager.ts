@@ -1,5 +1,5 @@
 
-import { Database } from 'bun:sqlite';
+import { Database } from '../../storage/db.js';
 import { SessionStore } from '../sqlite/SessionStore.js';
 import { SessionSearch } from '../sqlite/SessionSearch.js';
 import { ChromaSync } from '../sync/ChromaSync.js';

@@ -1,7 +1,7 @@
 
 import path from 'path';
 import { existsSync, writeFileSync, mkdirSync, rmSync, statSync, copyFileSync, statfsSync } from 'fs';
-import { Database } from 'bun:sqlite';
+import { Database } from '../../storage/db.js';
 import { DATA_DIR, OBSERVER_SESSIONS_PROJECT } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
 import { toError } from '../../utils/to-error.js';
@@ -145,9 +145,8 @@ function executeCleanup(dbPath: string, effectiveDataDir: string, markerPath: st
         {
           bsize,
           bavail,
-          runtime: typeof Bun !== 'undefined' ? `bun ${Bun.version}` : 'node',
+          runtime: `node ${process.versions.node}`,
           platform: `${process.platform}-${process.arch}`,
-          hint: 'see https://github.com/oven-sh/bun/issues/31133 for the darwin-x64 case',
         },
       );
     } else {

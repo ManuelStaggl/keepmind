@@ -6,6 +6,7 @@ import { logger } from '../../utils/logger.js';
 import { getProjectContext } from '../../utils/project-name.js';
 import { ChromaSync } from '../sync/ChromaSync.js';
 import { paths } from '../../shared/paths.js';
+import { Database } from '../../storage/db.js';
 
 const DEFAULT_DATA_DIR = paths.dataDir();
 
@@ -179,9 +180,8 @@ export async function adoptMergedWorktrees(opts: {
 
   const adoptedSqliteIds: number[] = [];
 
-  let db: import('bun:sqlite').Database | null = null;
+  let db: Database | null = null;
   try {
-    const { Database } = require('bun:sqlite') as typeof import('bun:sqlite');
     db = new Database(dbPath);
 
     interface ColumnInfo { name: string }
@@ -326,9 +326,8 @@ export async function adoptMergedWorktreesForAllKnownRepos(opts: {
   }
 
   const uniqueParents = new Set<string>();
-  let db: import('bun:sqlite').Database | null = null;
+  let db: Database | null = null;
   try {
-    const { Database } = require('bun:sqlite') as typeof import('bun:sqlite');
     db = new Database(dbPath, { readonly: true });
 
     const hasPending = db.prepare(

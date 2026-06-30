@@ -4,6 +4,7 @@ import { homedir } from 'os';
 import { existsSync, writeFileSync, readFileSync, unlinkSync, mkdirSync, rmSync, statSync, utimesSync, copyFileSync } from 'fs';
 import { execSync, spawnSync } from 'child_process';
 import { spawnHidden } from '../../shared/spawn.js';
+import { Database } from '../../storage/db.js';
 import { logger } from '../../utils/logger.js';
 import { toError } from '../../utils/to-error.js';
 import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
@@ -22,10 +23,10 @@ interface RuntimeResolverOptions {
   lookupInPath?: (binaryName: string, platform: NodeJS.Platform) => string | null;
 }
 
-function isBunExecutablePath(executablePath: string | undefined | null): boolean {
+function isNodeExecutablePath(executablePath: string | undefined | null): boolean {
   if (!executablePath) return false;
 
-  return /(^|[\\/])bun(\.exe)?$/i.test(executablePath.trim());
+  return /(^|[\\/])node(\.exe)?$/i.test(executablePath.trim());
 }
 
 function lookupBinaryInPath(binaryName: string, platform: NodeJS.Platform): string | null {
@@ -75,7 +76,10 @@ function resolveWorkerRuntimePathUncached(options: RuntimeResolverOptions): stri
   const platform = options.platform ?? process.platform;
   const execPath = options.execPath ?? process.execPath;
 
-  if (isBunExecutablePath(execPath)) {
+  // The daemon runs the worker bundle (worker-service.cjs) under Node. When this
+  // resolver runs, the current process is itself Node, so process.execPath is the
+  // exact Node binary we want to re-launch the worker with.
+  if (isNodeExecutablePath(execPath)) {
     return execPath;
   }
 
@@ -86,39 +90,32 @@ function resolveWorkerRuntimePathUncached(options: RuntimeResolverOptions): stri
 
   const candidatePaths: (string | undefined)[] = platform === 'win32'
     ? [
-        env.BUN,
-        env.BUN_PATH,
-        path.join(homeDirectory, '.bun', 'bin', 'bun.exe'),
-        path.join(homeDirectory, '.bun', 'bin', 'bun'),
-        env.USERPROFILE ? path.join(env.USERPROFILE, '.bun', 'bin', 'bun.exe') : undefined,
-        env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, 'bun', 'bun.exe') : undefined,
-        env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, 'bun', 'bin', 'bun.exe') : undefined,
+        env.NODE,
+        path.join(homeDirectory, '.nvm', 'current', 'bin', 'node.exe'),
+        'node',
       ]
     : [
-        env.BUN,
-        env.BUN_PATH,
-        path.join(homeDirectory, '.bun', 'bin', 'bun'),
-        '/usr/local/bin/bun',
-        '/opt/homebrew/bin/bun',
-        '/home/linuxbrew/.linuxbrew/bin/bun',
-        '/usr/bin/bun', // Debian/Ubuntu apt install path
-        '/snap/bin/bun', // Ubuntu Snap install path
+        env.NODE,
+        '/usr/local/bin/node',
+        '/opt/homebrew/bin/node',
+        '/usr/bin/node',
+        'node',
       ];
 
   for (const candidate of candidatePaths) {
     const normalized = candidate?.trim();
     if (!normalized) continue;
 
-    if (isBunExecutablePath(normalized) && pathExists(normalized)) {
+    if (isNodeExecutablePath(normalized) && pathExists(normalized)) {
       return normalized;
     }
 
-    if (normalized.toLowerCase() === 'bun') {
+    if (normalized.toLowerCase() === 'node') {
       return normalized;
     }
   }
 
-  return lookupInPath('bun', platform);
+  return lookupInPath('node', platform);
 }
 
 import {
@@ -309,8 +306,6 @@ export function runOneTimeCwdRemap(dataDirectory?: string): void {
 }
 
 function executeCwdRemap(dbPath: string, effectiveDataDir: string, markerPath: string): void {
-  const { Database } = require('bun:sqlite') as typeof import('bun:sqlite');
-
   const probe = new Database(dbPath, { readonly: true });
   const hasPending = probe.prepare(
     "SELECT name FROM sqlite_master WHERE type='table' AND name='pending_messages'"
@@ -407,7 +402,7 @@ export function spawnDaemon(
   if (!runtimePath) {
     logger.error(
       'SYSTEM',
-      'Bun runtime not found — install from https://bun.sh and ensure it is on PATH or set BUN env var. The worker daemon requires Bun because it uses bun:sqlite.'
+      'Node runtime not found — ensure node is on PATH or set the NODE env var. The worker daemon runs under Node (node:sqlite).'
     );
     return undefined;
   }

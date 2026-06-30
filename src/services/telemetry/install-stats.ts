@@ -1,5 +1,5 @@
 import { statSync } from 'fs';
-import type { Database } from 'bun:sqlite';
+import type { Database } from '../../storage/db.js';
 import { asMs } from './common.js';
 
 /**

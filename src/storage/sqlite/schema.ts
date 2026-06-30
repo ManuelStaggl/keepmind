@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { Database } from 'bun:sqlite';
+import { Database } from '../db.js';
 
 export const SERVER_STORAGE_SCHEMA_VERSION = 33;
 

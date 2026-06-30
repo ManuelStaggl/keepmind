@@ -1,5 +1,5 @@
 
-import { Database } from 'bun:sqlite';
+import { Database } from '../../../storage/db.js';
 import type { ObservationRecord } from '../../../types/database.js';
 import { DEFAULT_PLATFORM_SOURCE, normalizePlatformSource } from '../../../shared/platform-source.js';
 import { logger } from '../../../utils/logger.js';

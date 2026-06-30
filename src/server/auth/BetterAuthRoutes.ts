@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Application } from 'express';
-import type { Database } from 'bun:sqlite';
+import type { Database } from '../../storage/db.js';
 import type { RouteHandler } from '../../services/server/Server.js';
 
 type NodeHandler = ReturnType<typeof import('better-auth/node').toNodeHandler>;

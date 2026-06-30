@@ -1,5 +1,5 @@
 
-import type { SQLQueryBindings } from 'bun:sqlite';
+import type { SQLQueryBindings } from '../../storage/db.js';
 import { DatabaseManager } from './DatabaseManager.js';
 import { logger } from '../../utils/logger.js';
 import { OBSERVER_SESSIONS_PROJECT } from '../../shared/paths.js';

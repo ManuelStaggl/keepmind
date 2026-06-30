@@ -6,7 +6,7 @@
 // (src/server/middleware/postgres-auth.ts).
 
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
-import { Database } from 'bun:sqlite';
+import { Database } from '../../storage/db.js';
 import { AuthRepository, ensureServerStorageSchema } from '../../storage/sqlite/index.js';
 import type { ApiKey } from '../../core/schemas/auth.js';
 

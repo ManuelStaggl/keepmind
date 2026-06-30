@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Application, Request, Response } from 'express';
-import type { Database } from 'bun:sqlite';
+import type { Database } from '../../../storage/db.js';
 import { z, type ZodTypeAny } from 'zod';
 import type { RouteHandler } from '../../../services/server/Server.js';
 import { CreateAgentEventSchema } from '../../../core/schemas/agent-event.js';

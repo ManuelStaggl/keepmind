@@ -20,41 +20,32 @@ function fixBrokenScriptPath(argPath) {
   return argPath;
 }
 
-function findBun() {
+function findNode() {
+  // This launcher is itself invoked via `node bun-runner.js ...` (see
+  // plugin/hooks/hooks.json), so process.execPath is the exact Node binary the
+  // host uses. Re-use it to run the worker bundle — the worker now runs under
+  // Node (node:sqlite), not Bun.
+  if (process.execPath && existsSync(process.execPath)) {
+    return process.execPath;
+  }
+
   const pathCheck = IS_WINDOWS
-    ? spawnSync('where bun', {
+    ? spawnSync('where node', {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: true
       })
-    : spawnSync('which', ['bun'], {
+    : spawnSync('which', ['node'], {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe']
       });
 
   if (pathCheck.status === 0 && pathCheck.stdout.trim()) {
-    if (IS_WINDOWS) {
-      const bunCmdPath = pathCheck.stdout.split('\n').find(line => line.trim().endsWith('bun.cmd'));
-      if (bunCmdPath) {
-        return bunCmdPath.trim();
-      }
+    const firstLine = pathCheck.stdout.split('\n').map(line => line.trim()).find(line => line.length > 0);
+    if (firstLine) {
+      return firstLine;
     }
-    return 'bun'; 
-  }
-
-  const bunPaths = IS_WINDOWS
-    ? [join(homedir(), '.bun', 'bin', 'bun.exe')]
-    : [
-        join(homedir(), '.bun', 'bin', 'bun'),
-        '/usr/local/bin/bun',
-        '/opt/homebrew/bin/bun',
-        '/home/linuxbrew/.linuxbrew/bin/bun'
-      ];
-
-  for (const bunPath of bunPaths) {
-    if (existsSync(bunPath)) {
-      return bunPath;
-    }
+    return 'node';
   }
 
   return null;
@@ -93,10 +84,10 @@ if (args.length === 0) {
 
 args[0] = fixBrokenScriptPath(args[0]);
 
-const bunPath = findBun();
+const bunPath = findNode();
 
 if (!bunPath) {
-  console.error('Error: Bun not found. Please install Bun: https://bun.sh');
+  console.error('Error: Node not found. Please install Node.js: https://nodejs.org');
   console.error('After installation, restart your terminal.');
   process.exit(1);
 }
@@ -222,11 +213,11 @@ if (child.stdin) {
 }
 
 child.on('error', (err) => {
-  // EXCEPTION to CLAUDE.md exit-0-on-error: Bun-not-found is a user environment
+  // EXCEPTION to CLAUDE.md exit-0-on-error: Node-not-found is a user environment
   // problem, not a hook execution failure. Surfacing exit 1 here forces Claude
   // Code to display the stderr message rather than silently retrying. This runs
   // before any hook handler, so the exit-0 tab-management rationale doesn't apply.
-  console.error(`Failed to start Bun: ${err.message}`);
+  console.error(`Failed to start Node: ${err.message}`);
   process.exit(1);
 });
 

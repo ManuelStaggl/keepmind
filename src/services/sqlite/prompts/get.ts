@@ -1,5 +1,5 @@
 
-import type { Database } from 'bun:sqlite';
+import type { Database } from '../../../storage/db.js';
 import { logger } from '../../../utils/logger.js';
 import type { LatestPromptResult } from '../../../types/database.js';
 import { DEFAULT_PLATFORM_SOURCE } from '../../../shared/platform-source.js';

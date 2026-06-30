@@ -1,4 +1,4 @@
-import { Database, type SQLQueryBindings } from 'bun:sqlite';
+import { Database, type SQLQueryBindings } from '../../storage/db.js';
 import { DATA_DIR, DB_PATH, ensureDir, OBSERVER_SESSIONS_PROJECT } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
 import {
