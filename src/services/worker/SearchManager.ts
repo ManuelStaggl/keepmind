@@ -122,6 +122,47 @@ export class SearchManager {
    * (empty when Chroma yields nothing recent); callers own their own FTS
    * fallback and formatting so per-caller behavior is preserved exactly.
    */
+  /**
+   * Reciprocal Rank Fusion of a dense (vector KNN) id list and a sparse (FTS5
+   * BM25) id list. Both are SQLite row ids in rank order. Weighted toward
+   * semantic recall (0.75) while letting exact keyword hits (ids, filenames,
+   * error codes) rescue out-of-embedding-vocabulary queries (0.25). k=60 is the
+   * standard RRF constant (Cormack et al.). When `dense` is empty (embedder
+   * cold/unavailable) this degrades to pure BM25 order.
+   */
+  private rrfFuse(
+    dense: number[],
+    sparse: number[],
+    { k = 60, wDense = 0.75, wSparse = 0.25, limit = 100 }: { k?: number; wDense?: number; wSparse?: number; limit?: number } = {}
+  ): number[] {
+    const score = new Map<number, number>();
+    dense.forEach((id, i) => score.set(id, (score.get(id) ?? 0) + wDense / (k + i + 1)));
+    sparse.forEach((id, i) => score.set(id, (score.get(id) ?? 0) + wSparse / (k + i + 1)));
+    return [...score.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([id]) => id);
+  }
+
+  /** BM25 (FTS5) row ids for a doc type, in rank order. Errors degrade to []. */
+  private ftsIdsFor(
+    docType: string,
+    query: string,
+    options: { project?: string; platformSource?: string; type?: any; concepts?: any; files?: any; limit?: number } = {}
+  ): number[] {
+    try {
+      if (docType === 'observation') {
+        return this.sessionSearch.searchObservations(query, { ...options, limit: options.limit ?? 100 }).map(r => r.id);
+      }
+      if (docType === 'session_summary') {
+        return this.sessionSearch.searchSessions(query, { ...options, limit: options.limit ?? 100 }).map(r => r.id);
+      }
+      if (docType === 'user_prompt') {
+        return this.sessionSearch.searchUserPrompts(query, { ...options, limit: options.limit ?? 100 }).map(r => r.id);
+      }
+    } catch (ftsError) {
+      logger.warn('SEARCH', 'BM25 side of hybrid search failed', { docType }, ftsError instanceof Error ? ftsError : undefined);
+    }
+    return [];
+  }
+
   private async hybridSemanticHydrate<T>(
     query: string,
     docType: string,
@@ -131,20 +172,27 @@ export class SearchManager {
   ): Promise<T[]> {
     const whereFilter = this.buildDocTypeWhereFilter(docType, project, platformSource);
     const chromaResults = await this.queryChroma(query, 100, whereFilter);
-    logger.debug('SEARCH', 'Chroma returned semantic matches', { matchCount: chromaResults?.ids?.length ?? 0 });
+    logger.debug('SEARCH', 'Vector store returned semantic matches', { matchCount: chromaResults?.ids?.length ?? 0 });
 
+    // Dense side: recency-filter the semantic matches (stale semantic hits are
+    // noisy). Keyword-exact matches are not recency-filtered (matches prior FTS
+    // fallback behaviour), so the fused set can still surface old exact hits.
+    let denseIds: number[] = [];
     if (chromaResults?.ids && chromaResults.ids.length > 0) {
       const ninetyDaysAgo = Date.now() - SEARCH_CONSTANTS.RECENCY_WINDOW_MS;
-      const recentIds = chromaResults.ids.filter((_id, idx) => {
+      denseIds = chromaResults.ids.filter((_id, idx) => {
         const meta = chromaResults.metadatas[idx];
         return meta && meta.created_at_epoch > ninetyDaysAgo;
       });
+      logger.debug('SEARCH', 'Results within 90-day window', { count: denseIds.length });
+    }
 
-      logger.debug('SEARCH', 'Results within 90-day window', { count: recentIds.length });
+    const sparseIds = query ? this.ftsIdsFor(docType, query, { project, platformSource }) : [];
+    const fused = this.rrfFuse(denseIds, sparseIds);
+    logger.debug('SEARCH', 'Hybrid RRF fused ids', { dense: denseIds.length, sparse: sparseIds.length, fused: fused.length });
 
-      if (recentIds.length > 0) {
-        return hydrate(recentIds);
-      }
+    if (fused.length > 0) {
+      return hydrate(fused);
     }
     return [];
   }
@@ -387,91 +435,85 @@ export class SearchManager {
 
       try {
         const chromaResults = await this.queryChroma(query, 100, whereFilter);
-        chromaSucceeded = true; 
-        logger.debug('SEARCH', 'ChromaDB returned semantic matches', { matchCount: chromaResults.ids.length });
+        chromaSucceeded = true;
+        logger.debug('SEARCH', 'Vector store returned semantic matches', { matchCount: chromaResults.ids.length });
 
-        if (chromaResults.ids.length > 0) {
-          const { dateRange } = options;
-          let startEpoch: number | undefined;
-          let endEpoch: number | undefined;
+        const { dateRange } = options;
+        let startEpoch: number | undefined;
+        let endEpoch: number | undefined;
 
-          if (dateRange) {
-            if (dateRange.start) {
-              startEpoch = typeof dateRange.start === 'number'
-                ? dateRange.start
-                : new Date(dateRange.start).getTime();
-            }
-            if (dateRange.end) {
-              endEpoch = typeof dateRange.end === 'number'
-                ? dateRange.end
-                : new Date(dateRange.end).getTime();
-            }
-          } else {
-            startEpoch = Date.now() - SEARCH_CONSTANTS.RECENCY_WINDOW_MS;
+        if (dateRange) {
+          if (dateRange.start) {
+            startEpoch = typeof dateRange.start === 'number'
+              ? dateRange.start
+              : new Date(dateRange.start).getTime();
           }
-
-          const recentMetadata = chromaResults.metadatas.map((meta, idx) => ({
-            id: chromaResults.ids[idx],
-            meta,
-            isRecent: meta && meta.created_at_epoch != null
-              && (!startEpoch || meta.created_at_epoch >= startEpoch)
-              && (!endEpoch || meta.created_at_epoch <= endEpoch)
-          })).filter(item => item.isRecent);
-
-          logger.debug('SEARCH', dateRange ? 'Results within user date range' : 'Results within 90-day window', { count: recentMetadata.length });
-
-          const obsIds: number[] = [];
-          const sessionIds: number[] = [];
-          const promptIds: number[] = [];
-
-          for (const item of recentMetadata) {
-            const docType = item.meta?.doc_type;
-            if (docType === 'observation' && searchObservations) {
-              obsIds.push(item.id);
-            } else if (docType === 'session_summary' && searchSessions) {
-              sessionIds.push(item.id);
-            } else if (docType === 'user_prompt' && searchPrompts) {
-              promptIds.push(item.id);
-            }
-          }
-
-          if (obsIds.length > 0) {
-            const obsOptions = { ...options, type: obs_type, concepts, files };
-            observations = this.sessionStore.getObservationsByIds(obsIds, obsOptions);
-          }
-          if (sessionIds.length > 0) {
-            sessions = this.sessionStore.getSessionSummariesByIds(sessionIds, {
-              orderBy: 'date_desc',
-              limit: options.limit,
-              project: options.project,
-              platformSource: options.platformSource
-            });
-          }
-          if (promptIds.length > 0) {
-            prompts = this.sessionStore.getUserPromptsByIds(promptIds, {
-              orderBy: 'date_desc',
-              limit: options.limit,
-              project: options.project,
-              platformSource: options.platformSource
-            });
+          if (dateRange.end) {
+            endEpoch = typeof dateRange.end === 'number'
+              ? dateRange.end
+              : new Date(dateRange.end).getTime();
           }
         } else {
-          if (options.platformSource) {
-            logger.debug('SEARCH', 'Platform-scoped ChromaDB search found no matches; falling back to scoped FTS5 search', {});
-            platformScopedChromaZeroFallback = true;
+          startEpoch = Date.now() - SEARCH_CONSTANTS.RECENCY_WINDOW_MS;
+        }
 
-            if (searchObservations) {
-              observations = this.sessionSearch.searchObservations(query, { ...options, type: obs_type, concepts, files });
-            }
-            if (searchSessions) {
-              sessions = this.sessionSearch.searchSessions(query, options);
-            }
-            if (searchPrompts) {
-              prompts = this.sessionSearch.searchUserPrompts(query, options);
-            }
-          } else {
-            logger.debug('SEARCH', 'ChromaDB found no matches (final result, no FTS5 fallback)', {});
-          }
+        // Dense side: recency/date-range filtered semantic matches, partitioned
+        // by doc type.
+        const denseObs: number[] = [];
+        const denseSessions: number[] = [];
+        const densePrompts: number[] = [];
+        chromaResults.metadatas.forEach((meta, idx) => {
+          const isRecent = meta && meta.created_at_epoch != null
+            && (!startEpoch || meta.created_at_epoch >= startEpoch)
+            && (!endEpoch || meta.created_at_epoch <= endEpoch);
+          if (!isRecent) return;
+          const id = chromaResults.ids[idx];
+          const docType = meta?.doc_type;
+          if (docType === 'observation' && searchObservations) denseObs.push(id);
+          else if (docType === 'session_summary' && searchSessions) denseSessions.push(id);
+          else if (docType === 'user_prompt' && searchPrompts) densePrompts.push(id);
+        });
+
+        // Sparse side: BM25 keyword ids per active doc type. Fuse with RRF so
+        // exact keyword hits reinforce semantic recall and the path still
+        // returns results when the embedder is cold (dense empty → pure BM25).
+        const obsIds = searchObservations
+          ? this.rrfFuse(denseObs, this.ftsIdsFor('observation', query, { ...options, type: obs_type, concepts, files }))
+          : [];
+        const sessionIds = searchSessions
+          ? this.rrfFuse(denseSessions, this.ftsIdsFor('session_summary', query, options))
+          : [];
+        const promptIds = searchPrompts
+          ? this.rrfFuse(densePrompts, this.ftsIdsFor('user_prompt', query, options))
+          : [];
+
+        logger.debug('SEARCH', 'Hybrid RRF fused ids (search PATH 2)', {
+          obs: obsIds.length, sessions: sessionIds.length, prompts: promptIds.length
+        });
+
+        if (obsIds.length === 0 && sessionIds.length === 0 && promptIds.length === 0) {
+          logger.debug('SEARCH', 'Hybrid search found no matches', {});
+        }
+
+        if (obsIds.length > 0) {
+          const obsOptions = { ...options, type: obs_type, concepts, files };
+          observations = this.sessionStore.getObservationsByIds(obsIds, obsOptions);
+        }
+        if (sessionIds.length > 0) {
+          sessions = this.sessionStore.getSessionSummariesByIds(sessionIds, {
+            orderBy: 'date_desc',
+            limit: options.limit,
+            project: options.project,
+            platformSource: options.platformSource
+          });
+        }
+        if (promptIds.length > 0) {
+          prompts = this.sessionStore.getUserPromptsByIds(promptIds, {
+            orderBy: 'date_desc',
+            limit: options.limit,
+            project: options.project,
+            platformSource: options.platformSource
+          });
         }
       } catch (chromaError) {
         const errorObject = chromaError instanceof Error ? chromaError : new Error(String(chromaError));
