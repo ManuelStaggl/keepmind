@@ -33,6 +33,8 @@ vitest.config*
 .claude/
 .cursor/
 .mcp.json
+# plugin/.mcp.json must ship in the tarball (declared in package.json "files").
+!plugin/.mcp.json
 .plan/
 
 .DS_Store

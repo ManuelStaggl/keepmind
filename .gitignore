@@ -25,6 +25,9 @@ Auto Run Docs/
 src/ui/viewer.html
 
 .mcp.json
+# plugin/.mcp.json is a committed source-of-truth manifest the build verifies and
+# ships to npm (listed in package.json "files"); the broad rule above must not eat it.
+!plugin/.mcp.json
 .cursor/
 
 .idea/
