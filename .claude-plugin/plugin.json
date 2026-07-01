@@ -1,11 +1,11 @@
 {
-  "name": "claude-mem",
-  "version": "13.9.1",
-  "description": "Memory compression system for Claude Code - persist context across sessions",
+  "name": "keepmind",
+  "version": "1.0.0",
+  "description": "Memory compression system for Claude Code - persist context across sessions (node-only fork of claude-mem)",
   "author": {
-    "name": "Alex Newman"
+    "name": "Manuel Staggl"
   },
-  "repository": "https://github.com/thedotmack/claude-mem",
+  "repository": "https://github.com/ManuelStaggl/keepmind",
   "license": "Apache-2.0",
   "keywords": [
     "claude",
@@ -20,5 +20,5 @@
     "typescript",
     "nodejs"
   ],
-  "homepage": "https://github.com/thedotmack/claude-mem#readme"
+  "homepage": "https://github.com/ManuelStaggl/keepmind#readme"
 }

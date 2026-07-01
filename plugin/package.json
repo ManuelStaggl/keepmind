@@ -1,8 +1,8 @@
 {
-  "name": "claude-mem-plugin",
-  "version": "13.9.1",
+  "name": "keepmind-plugin",
+  "version": "1.0.0",
   "private": true,
-  "description": "Runtime dependencies for claude-mem bundled hooks",
+  "description": "Runtime dependencies for keepmind bundled hooks",
   "type": "module",
   "dependencies": {
     "zod": "^4.4.3",

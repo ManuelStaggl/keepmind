@@ -1,11 +1,11 @@
 {
-  "name": "claude-mem-local",
+  "name": "keepmind-local",
   "interface": {
-    "displayName": "claude-mem (local)"
+    "displayName": "keepmind (local)"
   },
   "plugins": [
     {
-      "name": "claude-mem",
+      "name": "keepmind",
       "source": {
         "source": "local",
         "path": "./plugin"
