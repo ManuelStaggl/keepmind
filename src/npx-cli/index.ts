@@ -38,7 +38,6 @@ ${pc.bold('Runtime Commands')} (requires Bun, delegates to installed plugin):
   ${pc.cyan('npx keepmind restart')}              Restart worker service
   ${pc.cyan('npx keepmind status')}               Show worker status
   ${pc.cyan('npx keepmind doctor')}               Diagnose install/runtime health (bun, uv, worker)
-  ${pc.cyan('npx keepmind telemetry status|enable|disable')}   Manage anonymous telemetry (on by default, opt-out)
   ${pc.cyan('npx keepmind server api-key create|list|revoke')}   Manage local SQLite API keys (for the local v1 routes)
   ${pc.cyan('npx keepmind worker start|stop|restart|status')}    Worker compatibility aliases
   ${pc.cyan('npx keepmind search <query>')}       Search observations
@@ -156,12 +155,6 @@ async function main(): Promise<void> {
     case 'doctor': {
       const { runDoctorCommand } = await import('./commands/doctor.js');
       await runDoctorCommand();
-      break;
-    }
-
-    case 'telemetry': {
-      const { runTelemetryCommand } = await import('./commands/telemetry.js');
-      await runTelemetryCommand(args.slice(1));
       break;
     }
 

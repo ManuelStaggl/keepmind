@@ -18,7 +18,6 @@ import type { DatabaseManager } from '../DatabaseManager.js';
 import type { SessionManager } from '../SessionManager.js';
 import type { WorkerRef, StorageResult } from './types.js';
 import { broadcastObservation, broadcastSummary } from './ObservationBroadcaster.js';
-import { telemetryBuffer } from '../../telemetry/buffer.js';
 
 export async function processAgentResponse(
   text: string,
@@ -183,29 +182,9 @@ export async function processAgentResponse(
   };
 
   if (agentName === 'SDK') {
-    // Claude path: the streamed assistant message's usage.output_tokens is an
-    // early-streaming placeholder (single digits), not the real count. The
-    // finalized per-turn usage and cumulative cost arrive on the SDK `result`
-    // message — stash the event and let ClaudeProvider fire it from there. A
-    // still-stashed event here means the prior turn never produced a result
-    // (abort/kill): ship it without token fields rather than lose it.
-    if (session.pendingCompressionEvent) {
-      telemetryBuffer.record('session_compressed', session.sessionDbId, session.pendingCompressionEvent);
-    }
+    // Claude path stashes the finalized compression event on the session; the
+    // provider consumes (and clears) it once the SDK `result` message settles.
     session.pendingCompressionEvent = compressionProps;
-  } else {
-    telemetryBuffer.record('session_compressed', session.sessionDbId, {
-      ...compressionProps,
-      tokens_input: usage?.input,
-      tokens_output: usage?.output,
-      cost_usd: usage?.costUsd,
-      // input > 0 guard: a gateway that reports output without input must not
-      // produce a literal 0.0 ratio (it crushed per-model averages in PostHog).
-      compression_ratio:
-        usage && usage.input > 0 && usage.output > 0
-          ? Math.round((usage.input / usage.output) * 100) / 100
-          : undefined,
-    });
   }
 
   if (summary && (summary.skipped || session.lastSummaryStored)) {

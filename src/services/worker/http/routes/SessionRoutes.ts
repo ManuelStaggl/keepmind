@@ -19,8 +19,6 @@ import { USER_SETTINGS_PATH } from '../../../../shared/paths.js';
 import { getProjectContext } from '../../../../utils/project-name.js';
 import { normalizePlatformSource } from '../../../../shared/platform-source.js';
 import { handleGeneratorExit } from '../../session/GeneratorExitHandler.js';
-import { telemetryBuffer } from '../../../telemetry/buffer.js';
-import { instrument } from '../../../telemetry/instrument.js';
 import { SessionCompletionHandler } from '../../session/SessionCompletionHandler.js';
 import { getUptimeSeconds } from '../../../../shared/uptime.js';
 import { USER_PROMPT_DEDUPE_WINDOW_MS } from '../../../../shared/user-prompts.js';
@@ -36,24 +34,6 @@ import { isClassified } from '../../provider-errors.js';
 import { classifyClaudeError } from '../../ClaudeProvider.js';
 
 const MAX_USER_PROMPT_BYTES = 256 * 1024;
-
-/**
- * Collapse session.abortReason onto a closed telemetry enum. The raw value can
- * carry free text after a colon (e.g. 'quota:<provider message>') — never emit
- * it verbatim. Unknown or absent reasons map to 'none'.
- */
-function normalizeAbortReason(
-  reason: string | null | undefined
-): 'idle' | 'shutdown' | 'overflow' | 'restart_guard' | 'quota' | 'none' {
-  switch ((reason ?? '').split(':')[0]) {
-    case 'idle': return 'idle';
-    case 'shutdown': return 'shutdown';
-    case 'overflow': return 'overflow';
-    case 'restart-guard': return 'restart_guard';
-    case 'quota': return 'quota';
-    default: return 'none';
-  }
-}
 
 export class SessionRoutes extends BaseRouteHandler {
   constructor(
@@ -223,38 +203,15 @@ export class SessionRoutes extends BaseRouteHandler {
         // No retry: the generator failed, the in-RAM batch is dropped, and the
         // transcript is the recovery path. The next observation ingest will
         // start a fresh generator via ensureGeneratorRunning.
-        //
-        // Single instrumentation call: the local error line (full fidelity)
-        // and the scrubbed session_compressed rollup are one logical event.
-        // No abort_reason here: every site that sets abortReason aborts the
-        // controller on its next line, so aborted generators either resolve
-        // normally (quota/overflow break) or hit the signal-aborted early
-        // return above — this catch only ever sees non-abort rejections.
-        instrument(
+        logger.error(
           'SESSION',
-          'error',
-          `Generator failed`,
+          'Generator failed',
           {
             sessionId: session.sessionDbId,
             provider,
             error: errorMsg,
-            data: error,
           },
-          {
-            event: 'session_compressed',
-            rollup: 'session',
-            sessionDbId: session.sessionDbId,
-            props: {
-              outcome: 'error',
-              provider,
-              // Providers seed lastModelId when they start; 'unknown' covers a
-              // generator that died before resolving its model.
-              model: session.lastModelId ?? 'unknown',
-              error_category: 'provider_error',
-              hook: session.lastGeneratorSource,
-              ide: session.platformSource,
-            },
-          }
+          error,
         );
       })
       .finally(async () => {
@@ -270,20 +227,6 @@ export class SessionRoutes extends BaseRouteHandler {
 
         const reason = session.abortReason ?? null;
         session.abortReason = null;  // consume the reason
-        if (reason !== null) {
-          // Abort accounting lives HERE, where the reason is consumed — the
-          // ONLY point every abort flow (idle / shutdown / overflow / quota)
-          // passes through. Emit the closed enum, never the raw
-          // string ('quota:…' carries a window suffix).
-          telemetryBuffer.record('session_compressed', session.sessionDbId, {
-            outcome: 'aborted',
-            provider,
-            model: session.lastModelId ?? 'unknown',
-            abort_reason: normalizeAbortReason(reason),
-            hook: session.lastGeneratorSource,
-            ide: session.platformSource,
-          });
-        }
         await handleGeneratorExit(session, reason, {
           sessionManager: this.sessionManager,
           completionHandler: this.completionHandler,

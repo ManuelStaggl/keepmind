@@ -28,7 +28,6 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { buildHardenedSdkOptions } from '../../sdk/hardened-options.js';
 import { ClassifiedProviderError } from './provider-errors.js';
 import { resolveTierAlias } from './model-aliases.js';
-import { telemetryBuffer } from '../telemetry/buffer.js';
 import { clearDependencyStatus, recordClaudeCliSetupRequired } from '../../shared/dependency-health.js';
 
 /**
@@ -404,34 +403,13 @@ export class ClaudeProvider {
             session.lastResultTotalCostUsd = totalCostUsd;
           }
 
-          const pending = session.pendingCompressionEvent;
-          if (pending) {
+          if (session.pendingCompressionEvent) {
             session.pendingCompressionEvent = null;
-            const finalInput = resultUsage
-              ? (resultUsage.input_tokens || 0) +
-                (resultUsage.cache_creation_input_tokens || 0) +
-                (resultUsage.cache_read_input_tokens || 0)
-              : undefined;
-            const finalOutput = resultUsage ? resultUsage.output_tokens || 0 : undefined;
-            telemetryBuffer.record('session_compressed', session.sessionDbId, {
-              ...pending,
-              tokens_input: finalInput,
-              tokens_output: finalOutput,
-              cost_usd: turnCostUsd,
-              compression_ratio:
-                finalInput && finalOutput
-                  ? Math.round((finalInput / finalOutput) * 100) / 100
-                  : undefined,
-            });
           }
         }
       }
     } finally {
-      // A stashed compression event whose turn never reached a result message
-      // (abort/kill) still ships — without token fields, per the no-estimates
-      // rule — instead of being silently dropped.
       if (session.pendingCompressionEvent) {
-        telemetryBuffer.record('session_compressed', session.sessionDbId, session.pendingCompressionEvent);
         session.pendingCompressionEvent = null;
       }
       const tracked = getSdkProcessForSession(session.sessionDbId);

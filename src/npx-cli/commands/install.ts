@@ -1,9 +1,5 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
-import { randomUUID } from 'crypto';
-import { spawnSync } from 'child_process';
-import { loadTelemetryConfig, saveTelemetryConfig } from '../../services/telemetry/consent.js';
-import { captureCliEvent } from '../../services/telemetry/cli-telemetry.js';
 import { spawnHidden } from '../../shared/spawn.js';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
@@ -35,41 +31,6 @@ function getSetting<K extends keyof SettingsDefaults>(key: K): SettingsDefaults[
 }
 
 const isInteractive = process.stdin.isTTY === true;
-
-/**
- * Which package manager launched this CLI (npx / bunx / pnpm / yarn), parsed
- * from npm_config_user_agent ("npm/10.8.2 node/v22.14.0 darwin arm64 ...").
- * Bounded enum for telemetry — never raw user-agent content.
- */
-function detectInstallMethod(): string {
-  const agent = process.env.npm_config_user_agent ?? '';
-  const name = agent.split('/')[0]?.trim().toLowerCase();
-  if (name === 'npm' || name === 'bun' || name === 'pnpm' || name === 'yarn') return name;
-  if (process.versions.bun) return 'bun';
-  return 'unknown';
-}
-
-/**
- * Claude Code CLI version, best effort. Hook/plugin behavior differs across
- * Claude Code releases, so this is key for diagnosing installs whose worker
- * never starts. Missing binary or timeout → undefined (dropped by scrubber).
- */
-function detectClaudeCodeVersion(): string | undefined {
-  try {
-    const result = spawnSync('claude', ['--version'], {
-      timeout: 5000,
-      windowsHide: true,
-      shell: process.platform === 'win32',
-      encoding: 'utf-8',
-    });
-    const output = (result.stdout ?? '').trim();
-    if (!output) return undefined;
-    // "2.0.14 (Claude Code)" → "2.0.14"
-    return output.split(/\s+/)[0].slice(0, 40) || undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 interface TaskDescriptor {
   title: string;
@@ -1190,40 +1151,6 @@ async function submitOnlineSignup(payload: { email: string; note: string; versio
   }
 }
 
-/**
- * Final step of the install flow: tell the user telemetry is on by default
- * (opt-out) and let them decide. Asked ONCE — a telemetry.json with a recorded
- * enabled decision means the user already chose, and we never re-nag. An
- * installId-only config (written by the worker's ID bootstrap) does NOT count
- * as a decision. Respects DO_NOT_TRACK (skip entirely: they already answered),
- * CI, and non-TTY. See docs/public/telemetry.mdx for what is/isn't collected.
- */
-async function promptTelemetryOptIn(): Promise<void> {
-  if (!isInteractive) return;
-  if (process.env.CI) return;
-  const dnt = process.env.DO_NOT_TRACK;
-  if (dnt !== undefined && dnt !== '' && dnt !== '0' && dnt !== 'false') return;
-  const existing = loadTelemetryConfig();
-  if (existing?.enabled !== undefined) return;
-
-  p.log.message(pc.dim(
-    'Anonymous install ID only — no prompts, file paths, code, or project names, ever.\n'
-    + 'Details: https://github.com/ManuelStaggl/keepmind · Change anytime: keepmind telemetry disable',
-  ));
-  const consent = await p.confirm({
-    message: 'Share anonymized usage data with CMEM? It is on by default and helps us make the product better.',
-    initialValue: true,
-  });
-  if (p.isCancel(consent)) return;
-
-  saveTelemetryConfig({
-    enabled: consent === true,
-    installId: existing?.installId || randomUUID(),
-    decidedAt: new Date().toISOString(),
-  });
-  log.success(consent ? 'Thanks! Anonymized usage sharing is on.' : 'No problem — telemetry is off.');
-}
-
 async function promptCmemOnlineOptIn(version: string): Promise<void> {
   // Interactive-only, and easy to turn off for CI / scripted installs.
   if (!isInteractive) return;
@@ -1311,13 +1238,6 @@ export async function runInstallCommand(options: InstallOptions = {}): Promise<v
     await runInstallCommandInner(options, summary);
   } catch (error: unknown) {
     if (error instanceof InstallAbortError) {
-      // error.category.id is OUR taxonomy id (error-taxonomy.ts), never a message.
-      await captureCliEvent('install_failed', {
-        error_category: error.category.id,
-        interactive: isInteractive,
-        install_method: detectInstallMethod(),
-        claude_code_version: detectClaudeCodeVersion(),
-      }, { person: true });
       // Flush whatever warnings accrued before the abort, then print the
       // remediation headline and exit non-zero. ABORT must never reach the
       // "Installation Complete" path.
@@ -1339,7 +1259,6 @@ export async function runInstallCommand(options: InstallOptions = {}): Promise<v
 }
 
 async function runInstallCommandInner(options: InstallOptions, summary: InstallSummary): Promise<void> {
-  const installStartedAt = Date.now();
   const version = readPluginVersion();
   // Captured by the runtime-setup task below; reported on install_completed
   // so funnel dropoff can be sliced by toolchain versions.
@@ -1751,9 +1670,6 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
 
   if (isInteractive) {
     p.note(nextSteps.join('\n'), 'Next Steps');
-    // Deliberately the last interaction of the flow: consent is asked after
-    // the product is installed and working, never as a gate in front of it.
-    await promptTelemetryOptIn();
     if (failedIDEs.length > 0) {
       p.outro(pc.yellow('keepmind installed with some IDE setup failures.'));
     } else {
@@ -1769,23 +1685,6 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
       console.log('\nkeepmind installed successfully!');
     }
   }
-
-  // After promptTelemetryOptIn so a just-made consent choice is honored.
-  // ide/provider/runtime_mode/install_method are installer enums, the
-  // *_version values are tool version strings — never user data.
-  await captureCliEvent('install_completed', {
-    ide: selectedIDEs.join(','),
-    provider: selectedProvider,
-    runtime_mode: selectedRuntime,
-    is_update: alreadyInstalled,
-    outcome: failedIDEs.length > 0 ? 'partial' : 'ok',
-    duration_ms: Date.now() - installStartedAt,
-    interactive: isInteractive,
-    install_method: detectInstallMethod(),
-    bun_version: installedBunVersion,
-    uv_version: installedUvVersion,
-    claude_code_version: detectClaudeCodeVersion(),
-  }, { person: true });
 }
 
 export async function runRepairCommand(): Promise<void> {

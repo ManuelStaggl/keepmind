@@ -14,8 +14,6 @@ import { SettingsDefaultsManager } from '../../../../shared/SettingsDefaultsMana
 import { USER_SETTINGS_PATH } from '../../../../shared/paths.js';
 import { normalizePlatformSource } from '../../../../shared/platform-source.js';
 import type { ObservationSearchResult, SessionSummarySearchResult } from '../../../sqlite/types.js';
-import { captureEvent } from '../../../telemetry/telemetry.js';
-import { telemetryBuffer } from '../../../telemetry/buffer.js';
 
 const ONBOARDING_EXPLAINER_PATH: string = path.resolve(__dirname, '../skills/how-it-works/onboarding-explainer.md');
 
@@ -108,38 +106,6 @@ export class SearchRoutes extends BaseRouteHandler {
   }
 
   setupRoutes(app: express.Application): void {
-    // One telemetry site for every /api/search* endpoint (unified + dedicated
-    // variants), so search adoption is not undercounted. /api/search/help is
-    // documentation, not a search. Properties are the endpoint name (OUR route
-    // segment, bounded to a known enum), outcome, and latency — never query
-    // text (see docs/public/telemetry.mdx).
-    const KNOWN_SEARCH_ENDPOINTS = new Set([
-      'unified', 'observations', 'sessions', 'prompts', 'by-concept', 'by-file', 'by-type',
-    ]);
-    app.use('/api/search', (req: Request, res: Response, next: express.NextFunction) => {
-      if (req.path !== '/help') {
-        const searchStartedAt = Date.now();
-        const segment = req.path === '/' ? 'unified' : req.path.slice(1).split('/')[0];
-        const endpoint = KNOWN_SEARCH_ENDPOINTS.has(segment) ? segment : 'other';
-        res.once('finish', () => {
-          // res.locals.searchTelemetry is the retrieval-quality envelope
-          // (result_count, search_strategy, chroma_available, fallback_reason)
-          // populated by SearchManager.search() and stashed by the handler —
-          // counts/booleans/enums only, never response-body introspection.
-          captureEvent('search_performed', {
-            endpoint,
-            outcome: res.statusCode < 400 ? 'ok' : 'error',
-            duration_ms: Date.now() - searchStartedAt,
-            ...(res.locals.searchTelemetry ?? {}),
-          });
-        });
-      }
-      next();
-    });
-
-    // context_injected is captured inside handleContextInject so the event can
-    // carry the depth/economics stats computed during generation.
-
     app.get('/api/search', this.handleUnifiedSearch.bind(this));
     app.get('/api/timeline', this.handleUnifiedTimeline.bind(this));
     app.get('/api/decisions', this.handleDecisions.bind(this));
@@ -424,43 +390,16 @@ export class SearchRoutes extends BaseRouteHandler {
     const primaryProject = projects[projects.length - 1];
     const cwd = `/context/${primaryProject}`;
 
-    const injectStartedAt = Date.now();
-    let contextResult: Awaited<ReturnType<typeof generateContextWithStats>>;
-    try {
-      contextResult = await generateContextWithStats(
-        {
-          session_id: 'context-inject-' + Date.now(),
-          cwd: cwd,
-          projects: projects,
-          ...(platformSource ? { platformSource } : {}),
-          full
-        },
-        forHuman
-      );
-    } catch (error) {
-      // context_injected is HOOK-level (no sessionDbId in scope) → null key,
-      // routed to the 5-minute time-window rollup, NOT the per-session path.
-      telemetryBuffer.record('context_injected', null, {
-        outcome: 'error',
-        duration_ms: Date.now() - injectStartedAt,
-      });
-      throw error;
-    }
-
-    // Stats are counts/enums computed alongside rendering (ContextInjectStats);
-    // mode/provider snapshot the settings the injection ran under. Empty-state
-    // responses (stats === null) injected no memory and are not counted.
-    if (contextResult.stats) {
-      const settingsSnapshot = this.getCachedSettings();
-      // Hook-level → null key, time-window rollup (see error branch above).
-      telemetryBuffer.record('context_injected', null, {
-        outcome: 'ok',
-        duration_ms: Date.now() - injectStartedAt,
-        mode: settingsSnapshot.CLAUDE_MEM_MODE,
-        provider: settingsSnapshot.CLAUDE_MEM_PROVIDER,
-        ...contextResult.stats,
-      });
-    }
+    const contextResult = await generateContextWithStats(
+      {
+        session_id: 'context-inject-' + Date.now(),
+        cwd: cwd,
+        projects: projects,
+        ...(platformSource ? { platformSource } : {}),
+        full
+      },
+      forHuman
+    );
 
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.send(contextResult.text);

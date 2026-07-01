@@ -1,7 +1,5 @@
 [test]
 smol = true
-# Mocks posthog-node for ALL tests before any module loads — required because
-# telemetry.ts is a process-wide singleton imported transitively by many test
-# files, and because real captures from tests would pollute production
-# analytics. See tests/preload.ts.
+# Pins CLAUDE_MEM_DATA_DIR to a temp dir before any module loads, so no test can
+# touch the real ~/.claude-mem. See tests/preload.ts.
 preload = ["./tests/preload.ts"]
