@@ -4,7 +4,7 @@ import { SessionStore } from '../sqlite/SessionStore.js';
 import { SessionSearch } from '../sqlite/SessionSearch.js';
 import { ChromaSync } from '../sync/ChromaSync.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
-import { USER_SETTINGS_PATH, DB_PATH } from '../../shared/paths.js';
+import { USER_SETTINGS_PATH, resolveOpenDbPath } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
 import type { DBSession } from '../worker-types.js';
 
@@ -15,7 +15,10 @@ export class DatabaseManager {
   private chromaSync: ChromaSync | null = null;
 
   async initialize(): Promise<void> {
-    this.db = new Database(DB_PATH);
+    // resolveOpenDbPath() runs the one-time legacy claude-mem.db → keepmind.db
+    // rename before opening, so this shared connection never creates an empty
+    // keepmind.db that would orphan existing data.
+    this.db = new Database(resolveOpenDbPath());
     
     this.sessionStore = new SessionStore(this.db);
     this.sessionSearch = new SessionSearch(this.db);

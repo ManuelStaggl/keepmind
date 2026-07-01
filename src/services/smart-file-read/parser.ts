@@ -109,14 +109,26 @@ const EMPTY_USER_GRAMMAR_CONFIG: UserGrammarConfig = {
   languageToQueryKey: {},
 };
 
+// Per-project config filenames, canonical first. `.claude-mem.json` is honored
+// as a fallback so existing per-project grammar configs keep working post-rename.
+const PROJECT_CONFIG_NAMES = [".keepmind.json", ".claude-mem.json"] as const;
+
 export function loadUserGrammars(projectRoot: string): UserGrammarConfig {
   if (userGrammarCache.has(projectRoot)) return userGrammarCache.get(projectRoot)!;
 
-  const configPath = join(projectRoot, ".claude-mem.json");
-  let rawConfig: Record<string, unknown>;
+  let content: string | undefined;
+  for (const name of PROJECT_CONFIG_NAMES) {
+    try {
+      content = readFileSync(join(projectRoot, name), "utf-8");
+      break;
+    } catch {
+      // try next candidate
+    }
+  }
 
+  let rawConfig: Record<string, unknown>;
   try {
-    const content = readFileSync(configPath, "utf-8");
+    if (content === undefined) throw new Error("no project config");
     rawConfig = JSON.parse(content);
   } catch {
     userGrammarCache.set(projectRoot, EMPTY_USER_GRAMMAR_CONFIG);
@@ -776,7 +788,7 @@ function buildSymbols(matches: RawMatch[], lines: string[], language: string): {
 export function findProjectRoot(filePath: string): string | undefined {
   let dir = dirname(filePath);
   while (true) {
-    if (existsSync(join(dir, ".claude-mem.json"))) return dir;
+    if (PROJECT_CONFIG_NAMES.some(name => existsSync(join(dir, name)))) return dir;
     const parent = dirname(dir);
     if (parent === dir) return undefined;
     dir = parent;

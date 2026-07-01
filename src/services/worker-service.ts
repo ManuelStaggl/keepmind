@@ -8,7 +8,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { getWorkerPort, getConfiguredWorkerPort, getWorkerHost, fetchWithTimeout, resolveWorkerScriptPath } from '../shared/worker-utils.js';
 import { getCurrentWorkerPid, verifyRestartedWorker } from './restart-verify.js';
 import { runShutdownSequence, type WorkerShutdownReason } from './worker-shutdown.js';
-import { DATA_DIR, DB_PATH, ensureDir } from '../shared/paths.js';
+import { DATA_DIR, ensureDir, resolveOpenDbPath } from '../shared/paths.js';
 import { HOOK_TIMEOUTS } from '../shared/hook-constants.js';
 import { getUptimeSeconds } from '../shared/uptime.js';
 import { SettingsDefaultsManager } from '../shared/SettingsDefaultsManager.js';
@@ -1030,7 +1030,7 @@ function parseServerApiKeyOptions(args: string[]): Record<string, string> {
 
 function openServerCommandDatabase(): Database {
   ensureDir(DATA_DIR);
-  return new Database(DB_PATH, { create: true, readwrite: true });
+  return new Database(resolveOpenDbPath(), { create: true, readwrite: true });
 }
 
 function runServerApiKeyCli(args: string[]): never {
@@ -1202,8 +1202,9 @@ async function main() {
   // developer's global plugin toggle. Whichever branch triggers, it is LOGGED
   // (was a silent process.exit(0) — see worker-startup root-cause).
   const gatedCommands = ['start', 'hook'];
-  const forceStart = process.env.CLAUDE_MEM_FORCE_START === '1'
-    || process.env.CLAUDE_MEM_FORCE_START === 'true';
+  // Canonical KEEPMIND_FORCE_START, with CLAUDE_MEM_FORCE_START honored as fallback.
+  const forceStartRaw = process.env.KEEPMIND_FORCE_START ?? process.env.CLAUDE_MEM_FORCE_START;
+  const forceStart = forceStartRaw === '1' || forceStartRaw === 'true';
   if (
     (command === undefined || gatedCommands.includes(command)) &&
     !forceStart &&
@@ -1282,12 +1283,14 @@ async function main() {
           logger.info('SYSTEM', 'Worker restart verified', { pid: handoff.pid, version: handoff.version });
           await launcherExit(0);
         }
-        handoffDetail = `; handoff attempt: ${handoff.lastObserved}`;
-        handoffSawLiveWorker = handoff.lastPollSawHealth;
-        logger.warn('SYSTEM', 'Self-replacing worker handoff did not verify in time — falling back to CLI spawn', {
-          oldPid,
-          lastObserved: handoff.lastObserved,
-        });
+        if (!handoff.ok) {
+          handoffDetail = `; handoff attempt: ${handoff.lastObserved}`;
+          handoffSawLiveWorker = handoff.lastPollSawHealth;
+          logger.warn('SYSTEM', 'Self-replacing worker handoff did not verify in time — falling back to CLI spawn', {
+            oldPid,
+            lastObserved: handoff.lastObserved,
+          });
+        }
       }
 
       // FALLBACK — reached when no worker was running, the shutdown POST was
@@ -1356,8 +1359,10 @@ async function main() {
         console.error(`Worker restart verification failed (old pid: ${oldPid ?? 'none'}, expected version: ${packageVersion}, spawned script: ${spawnedScript}); ${verification.lastObserved}${handoffDetail}`);
         await launcherExit(1);
       }
-      console.log(`Worker restart verified (pid: ${verification.pid}, version: ${verification.version})`);
-      logger.info('SYSTEM', 'Worker restart verified', { pid: verification.pid, version: verification.version });
+      if (verification.ok) {
+        console.log(`Worker restart verified (pid: ${verification.pid}, version: ${verification.version})`);
+        logger.info('SYSTEM', 'Worker restart verified', { pid: verification.pid, version: verification.version });
+      }
       await launcherExit(0);
       break;
     }
@@ -1674,14 +1679,10 @@ if (isMainModule) {
   main().catch(async (error) => {
     // A fatal error in main() must be LOUD and non-zero — the old `exit(0)`
     // masked startup failures as success (bug #2), so a crashing daemon looked
-    // like a clean exit and nothing retried. Log, flush logs + telemetry, then
-    // exit 1 so restart verifiers and supervising callers see a dead boot.
+    // like a clean exit and nothing retried. Log (synchronous appendFileSync —
+    // no flush needed), flush telemetry, then exit 1 so restart verifiers and
+    // supervising callers see a dead boot.
     logger.failure('SYSTEM', 'Fatal error in main', {}, error instanceof Error ? error : new Error(String(error)));
-    try {
-      await logger.flush?.();
-    } catch {
-      // best-effort flush
-    }
     try {
       await shutdownTelemetry();
     } catch {

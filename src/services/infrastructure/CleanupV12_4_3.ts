@@ -2,7 +2,7 @@
 import path from 'path';
 import { existsSync, writeFileSync, mkdirSync, rmSync, statSync, copyFileSync, statfsSync } from 'fs';
 import { Database } from '../../storage/db.js';
-import { DATA_DIR, OBSERVER_SESSIONS_PROJECT } from '../../shared/paths.js';
+import { DATA_DIR, OBSERVER_SESSIONS_PROJECT, dbFileForDataDir } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
 import { toError } from '../../utils/to-error.js';
 
@@ -42,7 +42,7 @@ export function runOneTimeV12_4_3Cleanup(
     return;
   }
 
-  const dbPath = path.join(effectiveDataDir, 'claude-mem.db');
+  const dbPath = dbFileForDataDir(effectiveDataDir);
   if (!existsSync(dbPath)) {
     if (dryRun) {
       logger.info('SYSTEM', 'v12.4.3 cleanup --dry-run: no DB present, nothing to scan', { dbPath });

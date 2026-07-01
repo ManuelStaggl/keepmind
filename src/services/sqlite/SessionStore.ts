@@ -1,5 +1,5 @@
 import { Database, type SQLQueryBindings } from '../../storage/db.js';
-import { DATA_DIR, DB_PATH, ensureDir, OBSERVER_SESSIONS_PROJECT } from '../../shared/paths.js';
+import { DATA_DIR, DB_PATH, ensureDir, resolveOpenDbPath, OBSERVER_SESSIONS_PROJECT } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
 import {
   TableColumnInfo,
@@ -76,7 +76,10 @@ export class SessionStore {
       if (dbPathOrDb !== ':memory:') {
         ensureDir(DATA_DIR);
       }
-      this.db = new Database(dbPathOrDb);
+      // For the canonical DB, run the one-time legacy claude-mem.db → keepmind.db
+      // rename and open whichever file actually holds the data (fallback-safe).
+      const openPath = dbPathOrDb === DB_PATH ? resolveOpenDbPath() : dbPathOrDb;
+      this.db = new Database(openPath);
 
       this.db.run('PRAGMA journal_mode = WAL');
       this.db.run('PRAGMA synchronous = NORMAL');

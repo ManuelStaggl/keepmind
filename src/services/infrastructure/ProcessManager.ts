@@ -9,7 +9,7 @@ import { logger } from '../../utils/logger.js';
 import { toError } from '../../utils/to-error.js';
 import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
 import { getSupervisor, validateWorkerPidFile, type ValidateWorkerPidStatus } from '../../supervisor/index.js';
-import { paths } from '../../shared/paths.js';
+import { paths, dbFileForDataDir } from '../../shared/paths.js';
 
 const DATA_DIR = paths.dataDir();
 const PID_FILE = paths.workerPid();
@@ -301,7 +301,7 @@ function classifyCwdForRemap(cwd: string): CwdClassification {
 export function runOneTimeCwdRemap(dataDirectory?: string): void {
   const effectiveDataDir = dataDirectory ?? DATA_DIR;
   const markerPath = path.join(effectiveDataDir, CWD_REMAP_MARKER_FILENAME);
-  const dbPath = path.join(effectiveDataDir, 'claude-mem.db');
+  const dbPath = dbFileForDataDir(effectiveDataDir);
 
   if (existsSync(markerPath)) {
     logger.debug('SYSTEM', 'cwd-remap marker exists, skipping');

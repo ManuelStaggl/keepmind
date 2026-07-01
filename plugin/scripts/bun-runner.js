@@ -155,7 +155,7 @@ if (child.stdin) {
       // Issue #2188: empty/missing stdin previously masked by `|| '{}'` fallback,
       // which silently hid WSL bash failures (e.g. hooks invoked under a broken
       // shell that never piped a payload). Surface the failure mode instead.
-      const dataDir = process.env.CLAUDE_MEM_DATA_DIR || join(homedir(), '.keepmind');
+      const dataDir = process.env.KEEPMIND_DATA_DIR || process.env.CLAUDE_MEM_DATA_DIR || join(homedir(), '.keepmind');
       const payloadType = stdinData === null
         ? 'null (no data event or stream error)'
         : stdinData === undefined

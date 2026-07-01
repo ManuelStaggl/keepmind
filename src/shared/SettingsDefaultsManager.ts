@@ -62,15 +62,7 @@ export interface SettingsDefaults {
   CLAUDE_MEM_TIER_SUMMARY_MODEL: string;
   CLAUDE_MEM_TIER_FAST_MODEL: string;        // #2289 — resolved by $TIER:fast in CLAUDE_MEM_MODEL
   CLAUDE_MEM_TIER_SMART_MODEL: string;       // #2289 — resolved by $TIER:smart in CLAUDE_MEM_MODEL
-  CLAUDE_MEM_CHROMA_ENABLED: string;   
-  CLAUDE_MEM_CHROMA_MODE: string;      
-  CLAUDE_MEM_CHROMA_HOST: string;
-  CLAUDE_MEM_CHROMA_PORT: string;
-  CLAUDE_MEM_CHROMA_SSL: string;
-  CLAUDE_MEM_CHROMA_API_KEY: string;
-  CLAUDE_MEM_CHROMA_TENANT: string;
-  CLAUDE_MEM_CHROMA_DATABASE: string;
-  CLAUDE_MEM_CHROMA_PREWARM_TIMEOUT_MS: string;
+  CLAUDE_MEM_CHROMA_ENABLED: string;   // Feature toggle: 'false' = SQLite/BM25-only search (no in-process vector store)
   CLAUDE_MEM_TELEGRAM_ENABLED: string;
   CLAUDE_MEM_TELEGRAM_BOT_TOKEN: string;
   CLAUDE_MEM_TELEGRAM_CHAT_ID: string;
@@ -117,7 +109,7 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_OPENROUTER_APP_NAME: 'claude-mem',  // App name for OpenRouter analytics
     CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES: '20',  // Max messages in context window
     CLAUDE_MEM_OPENROUTER_MAX_TOKENS: '100000',  // Max estimated tokens (~100k safety limit)
-    CLAUDE_MEM_DATA_DIR: join(homedir(), '.claude-mem'),
+    CLAUDE_MEM_DATA_DIR: join(homedir(), '.keepmind'),
     CLAUDE_MEM_LOG_LEVEL: 'INFO',
     CLAUDE_MEM_PYTHON_VERSION: '3.13',
     CLAUDE_CODE_PATH: '', // Empty means auto-detect via 'which claude'
@@ -136,7 +128,7 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED: 'false',
     CLAUDE_MEM_FOLDER_USE_LOCAL_MD: 'false',  // When true, writes to CLAUDE.local.md instead of CLAUDE.md
     CLAUDE_MEM_TRANSCRIPTS_ENABLED: 'true',
-    CLAUDE_MEM_TRANSCRIPTS_CONFIG_PATH: join(homedir(), '.claude-mem', 'transcript-watch.json'),
+    CLAUDE_MEM_TRANSCRIPTS_CONFIG_PATH: join(homedir(), '.keepmind', 'transcript-watch.json'),
     CLAUDE_MEM_CODEX_TRANSCRIPT_INGESTION: 'false',
     CLAUDE_MEM_MAX_CONCURRENT_AGENTS: '2',  // Max concurrent Claude SDK agent subprocesses
     CLAUDE_MEM_HOOK_FAIL_LOUD_THRESHOLD: '3',  // Plan 05 Phase 8 — escalate to exit code 2 after N consecutive worker-unreachable hook invocations
@@ -150,15 +142,7 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_TIER_SUMMARY_MODEL: '',                // Empty = use default model for summaries
     CLAUDE_MEM_TIER_FAST_MODEL: 'haiku',              // #2289 — $TIER:fast resolves here (portable alias)
     CLAUDE_MEM_TIER_SMART_MODEL: 'sonnet',            // #2289 — $TIER:smart resolves here (portable alias)
-    CLAUDE_MEM_CHROMA_ENABLED: 'true',         // Set to 'false' to disable Chroma and use SQLite-only search
-    CLAUDE_MEM_CHROMA_MODE: 'local',           // 'local' uses persistent chroma-mcp via uvx, 'remote' connects to existing server
-    CLAUDE_MEM_CHROMA_HOST: '127.0.0.1',
-    CLAUDE_MEM_CHROMA_PORT: '8000',
-    CLAUDE_MEM_CHROMA_SSL: 'false',
-    CLAUDE_MEM_CHROMA_API_KEY: '',
-    CLAUDE_MEM_CHROMA_TENANT: 'default_tenant',
-    CLAUDE_MEM_CHROMA_DATABASE: 'default_database',
-    CLAUDE_MEM_CHROMA_PREWARM_TIMEOUT_MS: '120000',
+    CLAUDE_MEM_CHROMA_ENABLED: 'true',         // Set to 'false' for SQLite/BM25-only search (disables the in-process sqlite-vec vector store)
     CLAUDE_MEM_TELEGRAM_ENABLED: 'true',
     CLAUDE_MEM_TELEGRAM_BOT_TOKEN: '',
     CLAUDE_MEM_TELEGRAM_CHAT_ID: '',
@@ -187,8 +171,17 @@ export class SettingsDefaultsManager {
     return { ...this.DEFAULTS };
   }
 
+  // Canonical env prefix is KEEPMIND_*; the historical CLAUDE_MEM_* names are
+  // honored as a fallback so existing .env/settings.json files keep working.
+  // Interface keys stay CLAUDE_MEM_* internally to avoid churn — this maps a
+  // key to its KEEPMIND_* alias and returns whichever env var is set.
+  private static envOverride(key: keyof SettingsDefaults): string | undefined {
+    const keepmindKey = (key as string).replace(/^CLAUDE_MEM_/, 'KEEPMIND_');
+    return process.env[keepmindKey] ?? process.env[key as string];
+  }
+
   static get(key: keyof SettingsDefaults): string {
-    return process.env[key] ?? this.DEFAULTS[key];
+    return this.envOverride(key) ?? this.DEFAULTS[key];
   }
 
   static getInt(key: keyof SettingsDefaults): number {
@@ -204,8 +197,9 @@ export class SettingsDefaultsManager {
   private static applyEnvOverrides(settings: SettingsDefaults): SettingsDefaults {
     const result = { ...settings };
     for (const key of Object.keys(this.DEFAULTS) as Array<keyof SettingsDefaults>) {
-      if (process.env[key] !== undefined) {
-        result[key] = process.env[key]!;
+      const override = this.envOverride(key);
+      if (override !== undefined) {
+        result[key] = override;
       }
     }
     return result;
