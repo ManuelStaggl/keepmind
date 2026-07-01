@@ -265,6 +265,12 @@ export class VectorSync {
           batchSize: batch.length
         }, error as Error);
       }
+      // Yield to the event loop after each embed batch so the worker's HTTP
+      // server (especially /health) stays responsive during large backfills.
+      // Local embedding is CPU-bound; back-to-back batches otherwise starve the
+      // loop and health checks time out — which surfaced as "worker unreachable"
+      // hook failures during the big post-migration first-boot backfill.
+      await new Promise<void>((resolve) => setImmediate(resolve));
     }
 
     logger.debug('VECTOR_SYNC', 'Documents added', { collection: this.collectionName, requested: documents.length, written });
