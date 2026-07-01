@@ -601,7 +601,11 @@ export class VectorSync {
     logger.info('VECTOR_SYNC', 'merged_into_project metadata patched', { collection: this.collectionName, mergedIntoProject, sqliteIdCount: sqliteIds.length, vecRowsPatched: totalPatched });
   }
 
-  private static readonly BACKFILL_CONCURRENCY_LIMIT = 3;
+  // Serial (1) by design: the embedder funnels all inference through one shared
+  // onnxruntime session anyway, so parallel projects gained no embed throughput
+  // but multiplied peak RAM (3 projects' padded attention tensors at once — the
+  // 7.5 GB backfill blowup). One project at a time keeps the warmup RAM-lean.
+  private static readonly BACKFILL_CONCURRENCY_LIMIT = 1;
   private static backfillInProgress = false;
 
   static async backfillAllProjects(storeOverride?: SessionStore): Promise<void> {

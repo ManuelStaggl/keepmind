@@ -22,6 +22,11 @@ export const EMBED_DIM = 384;
 const DEFAULT_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 const DEFAULT_DTYPE = 'int8';
 const DEFAULT_IDLE_UNLOAD_MS = 5 * 60_000;
+// Inference micro-batch. Attention memory is O(batch · heads · seqLen²), so a
+// large caller batch (e.g. the backfill's 100) padded to ~256 tokens allocates
+// GBs of onnxruntime scratch per run. Embedding in small micro-batches caps the
+// resident tensor to O(microBatch · seqLen²) regardless of the caller's batch.
+const DEFAULT_MICRO_BATCH = 16;
 
 function setting(key: string, fallback: string): string {
   try {
@@ -49,10 +54,18 @@ export class EmbedderService {
     const raw = Number(setting('CLAUDE_MEM_EMBED_IDLE_MS', String(DEFAULT_IDLE_UNLOAD_MS)));
     return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_IDLE_UNLOAD_MS;
   })();
+  private readonly microBatch = (() => {
+    const raw = Number(setting('CLAUDE_MEM_EMBED_BATCH', String(DEFAULT_MICRO_BATCH)));
+    return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_MICRO_BATCH;
+  })();
 
   private pipe: FeatureExtractionPipeline | null = null;
   private loading: Promise<FeatureExtractionPipeline> | null = null;
   private idleTimer: NodeJS.Timeout | null = null;
+  // Serializes all inference so at most one padded batch tensor is resident at a
+  // time — even when concurrent callers (backfill projects, a live query) embed
+  // at once through this process singleton.
+  private inferenceChain: Promise<unknown> = Promise.resolve();
 
   /** True when the ORT session is currently resident (model loaded). */
   isWarm(): boolean {
@@ -100,17 +113,34 @@ export class EmbedderService {
   async embed(texts: string | string[]): Promise<Float32Array[]> {
     const list = Array.isArray(texts) ? texts : [texts];
     if (list.length === 0) return [];
-    const pipe = await this.getPipe();
-    this.touchIdle();
-    const out = await pipe(list, { pooling: 'mean', normalize: true });
-    const data = out.data as Float32Array;
-    const rows: Float32Array[] = [];
-    for (let i = 0; i < list.length; i++) {
-      // Copy each row out of the shared backing buffer so callers own a
-      // standalone Float32Array (slice() copies; subarray() would alias).
-      rows.push(data.slice(i * EMBED_DIM, (i + 1) * EMBED_DIM));
-    }
-    return rows;
+
+    const run = async (): Promise<Float32Array[]> => {
+      const pipe = await this.getPipe();
+      this.touchIdle();
+      const rows: Float32Array[] = [];
+      // Split into micro-batches so the padded attention tensor stays small
+      // (peak RAM ∝ microBatch · seqLen², not list.length · seqLen²).
+      for (let i = 0; i < list.length; i += this.microBatch) {
+        const sub = list.slice(i, i + this.microBatch);
+        const out = await pipe(sub, { pooling: 'mean', normalize: true });
+        const data = out.data as Float32Array;
+        for (let j = 0; j < sub.length; j++) {
+          // Copy each row out of the shared backing buffer so callers own a
+          // standalone Float32Array (slice() copies; subarray() would alias).
+          rows.push(data.slice(j * EMBED_DIM, (j + 1) * EMBED_DIM));
+        }
+        // Release the transformers.js tensor's backing buffer between micro-
+        // batches so onnxruntime scratch does not accumulate across the loop.
+        (out as unknown as { dispose?: () => void }).dispose?.();
+      }
+      return rows;
+    };
+
+    // Chain onto the serialization queue: run only after the previous inference
+    // settles, and let the next caller wait on this one.
+    const result = this.inferenceChain.then(run, run);
+    this.inferenceChain = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   async embedOne(text: string): Promise<Float32Array> {
