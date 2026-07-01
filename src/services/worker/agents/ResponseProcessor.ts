@@ -40,12 +40,6 @@ export async function processAgentResponse(
 
   const parsed = parseAgentXml(text, session.contentSessionId);
 
-  // Provider enum for telemetry, derived once so the invalid-output and
-  // success paths stamp the same value.
-  const providerName =
-    session.currentProvider ??
-    ({ SDK: 'claude', Gemini: 'gemini', OpenRouter: 'openrouter' } as Record<string, string>)[agentName] ??
-    'claude';
 
   if (!parsed.valid) {
     if (isQuotaLimitedObserverOutput(text)) {
@@ -145,47 +139,10 @@ export async function processAgentResponse(
 
   session.lastSummaryStored = result.summaryId !== null;
 
-  // Telemetry: counts, enums, and REAL usage only (lastUsage is never an
-  // estimate — providers leave it null when the API gave no usage split).
-  const typeCounts: Record<string, number> = { bugfix: 0, discovery: 0, decision: 0, refactor: 0, other: 0 };
-  for (const obs of labeledObservations) {
-    const bucket = obs.type in typeCounts && obs.type !== 'other' ? obs.type : 'other';
-    typeCounts[bucket]++;
-  }
-  const dominantType = (Object.entries(typeCounts) as Array<[string, number]>)
-    .reduce((best, entry) => (entry[1] > best[1] ? entry : best), ['other', -1])[0];
-  const usage = session.lastUsage;
-  const compressionMs = session.lastPromptSentAt ? Date.now() - session.lastPromptSentAt : undefined;
+  // Reset per-compression session accounting (previously read for a telemetry
+  // event that no longer exists).
   session.lastUsage = null;
   session.lastPromptSentAt = null;
-
-  const compressionProps: Record<string, unknown> = {
-    outcome: 'ok',
-    duration_ms: Date.now() - processingStartedAt,
-    count: result.observationIds.length,
-    has_summary: session.lastSummaryStored,
-    provider: providerName,
-    // Settings are raw JSON passthrough, so a misconfigured model can arrive
-    // as an array/null; the scrubber drops non-strings silently, which read
-    // as "no model" in PostHog — stamp 'unknown' instead.
-    model: typeof modelId === 'string' && modelId ? modelId : 'unknown',
-    ide: session.platformSource,
-    hook: session.lastGeneratorSource,
-    endpoint_class: session.endpointClass,
-    compression_ms: compressionMs,
-    observation_type: labeledObservations.length > 0 ? dominantType : undefined,
-    obs_type_bugfix: typeCounts.bugfix,
-    obs_type_discovery: typeCounts.discovery,
-    obs_type_decision: typeCounts.decision,
-    obs_type_refactor: typeCounts.refactor,
-    obs_type_other: typeCounts.other,
-  };
-
-  if (agentName === 'SDK') {
-    // Claude path stashes the finalized compression event on the session; the
-    // provider consumes (and clears) it once the SDK `result` message settles.
-    session.pendingCompressionEvent = compressionProps;
-  }
 
   if (summary && (summary.skipped || session.lastSummaryStored)) {
     await ingestSummary({

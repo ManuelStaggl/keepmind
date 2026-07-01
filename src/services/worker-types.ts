@@ -50,13 +50,6 @@ export interface ActiveSession {
   lastModelId?: string;
   /** Whether the OpenRouter provider targets openrouter.ai or a custom OpenAI-compatible gateway — telemetry endpoint_class. */
   endpointClass?: 'openrouter' | 'custom';
-  /**
-   * session_compressed properties stashed by ResponseProcessor on the claude
-   * path: the streamed assistant message's output_tokens is an early-streaming
-   * placeholder, so the event waits for the SDK result message's finalized
-   * per-turn usage before ClaudeProvider fires it.
-   */
-  pendingCompressionEvent?: Record<string, unknown> | null;
   /** Cumulative total_cost_usd from the SDK's latest result message — per-compression cost is the delta between results. */
   lastResultTotalCostUsd?: number | null;
 }

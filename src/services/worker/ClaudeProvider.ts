@@ -402,16 +402,9 @@ export class ClaudeProvider {
             turnCostUsd = totalCostUsd >= prior ? totalCostUsd - prior : totalCostUsd;
             session.lastResultTotalCostUsd = totalCostUsd;
           }
-
-          if (session.pendingCompressionEvent) {
-            session.pendingCompressionEvent = null;
-          }
         }
       }
     } finally {
-      if (session.pendingCompressionEvent) {
-        session.pendingCompressionEvent = null;
-      }
       const tracked = getSdkProcessForSession(session.sessionDbId);
       if (tracked && tracked.process.exitCode === null) {
         await ensureSdkProcessExit(tracked, 5000);
