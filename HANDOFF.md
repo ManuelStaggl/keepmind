@@ -24,6 +24,15 @@
 
 **Kern steht:** Windows-stabil, RAM-arm, node-only, offline-Semantiksuche, Secret-sicher, cloud-frei, **verlustfreie Migration**.
 
+## ✅ Maximal-Rebrand + Cleanup + Viewer-Refresh — DURCHGEFÜHRT (2026-07-01)
+Commits `423ae01`, `db7fc8f`, `7063c76`, `f9cb905`, `33a9422` (lokal auf `main`, **noch nicht gepusht**). tsc `--noEmit`=0 (root+viewer), `npm run build` grün.
+- **Cleanup (`423ae01`):** tote bun-Wartungsscripts + verwaiste `scripts/*.ts` + `translate-readme/` + `wipe-chroma.cjs` entfernt; tote Logger-Components `CHROMA_MCP`/`CHROMA_SYNC` raus (`CHROMA` bleibt live). 8 tsc-Fehler in `worker-service.ts` gefixt (RestartVerifyResult-Narrowing + `logger.flush`-Entfernung → in `db7fc8f`).
+- **Runtime-Rebrand backward-compatible (`db7fc8f`):** **DB `claude-mem.db`→`keepmind.db`** via `ensureDbFilename()`/`resolveOpenDbPath()` in `paths.ts` — one-time, non-destruktiver Rename (inkl. `-wal`/`-shm`) VOR jedem Open, mit Legacy-Fallback (nie Datenverlust). Angewandt an ALLEN Öffnern (SessionStore/SessionSearch/DatabaseManager/worker-service + Infra via `dbFileForDataDir`). **Config `.keepmind.json`** first, `.claude-mem.json` Fallback. **ENV `KEEPMIND_*`** canonical, `CLAUDE_MEM_*` Fallback (zentral in `SettingsDefaultsManager.get/applyEnvOverrides` + Ad-hoc DATA_DIR/FORCE_START in paths/worker/plugin-scripts). Data-Dir-Default-Bug (`~/.claude-mem`→`~/.keepmind`) + 8 tote CHROMA_*-Keys entfernt (CHROMA_ENABLED bleibt).
+- **UI (`7063c76`):** Viewer Titel/Favicon/Wordmark = keepmind (inline-SVG, kein Raster mehr); Upstream-Ballast raus (GitHub-Stars/Discord/X/Star-History); Clean/Minimal-Tokens (neutrale Grautöne + 1 Indigo-Akzent, light+dark, als Override ans `<style>`-Ende); localStorage-Keys/OpenRouter-App-Name/Installer-Strings/codex-hooks rebranded; claude-mem-Raster-Assets gelöscht.
+- **Docs (`f9cb905`):** README neu (prägnant, keepmind, Attribution erhalten); Datenpfade in 32 docs-mdx korrigiert.
+- **Verifikation (isoliert gegen Kopie der 26MB-Live-DB):** Rename ok (keepmind.db aus claude-mem.db), Health `status:ok/mcpReady`, Counts **identisch 4082/1409/1495**, FTS-Suche liefert Treffer, sqlite-vec round-trip ok, Worker bootet auch mit **nur `KEEPMIND_*`**-Env. Test-Worker gestoppt, tmp bereinigt, Live-Worker (37782) unberührt.
+- **☐ Offen:** (1) `npm run build-and-sync` → Marktplatz-Sync + **Live-Worker-Restart** (benennt echte `~/.keepmind/claude-mem.db`→`keepmind.db` beim Start um). (2) `git push` (5 Commits ahead). Beides User-Freigabe.
+
 ## ✅ Finale Integration — DURCHGEFÜHRT (2026-07-01)
 - **Plugin installiert** via `npx keepmind install --provider claude --no-auto-start`: `known_marketplaces.json` (keepmind→github ManuelStaggl/keepmind), `installed_plugins.json` (keepmind@keepmind @ cache/1.0.0), `settings.json enabledPlugins` `keepmind@keepmind:true` / `claude-mem@thedotmack:false`. Plugin-Layout + hooks.json + .mcp.json + Native-Deps (vec0.dll) im Marktplatz. Settings-Backup unter `~/.claude/settings.json.bak-*`.
 - **Migration ausgeführt** (Adopt): `~/.keepmind/claude-mem.db` = 157 Sess / 4029 Obs / 1407 Summ / 1494 Prompts (verlustfrei, Quelle unangetastet).
