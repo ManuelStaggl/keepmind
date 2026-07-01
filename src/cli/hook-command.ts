@@ -13,9 +13,7 @@ import {
 import {
   recordWorkerUnreachable,
   setActiveHookType,
-  getActiveHookType,
 } from '../shared/worker-utils.js';
-import { captureCliEvent } from '../services/telemetry/cli-telemetry.js';
 import { logger } from '../utils/logger.js';
 
 export interface HookCommandOptions {
@@ -132,18 +130,6 @@ export async function hookCommand(platform: string, event: string, options: Hook
     }
 
     logger.error('HOOK', `Hook error: ${error instanceof Error ? error.message : error}`, {}, error instanceof Error ? error : undefined);
-    // hook_failed telemetry MUST be awaited BEFORE emitBlockingError — it
-    // calls process.exit(2), which would kill a fire-and-forget POST
-    // mid-flight. captureCliEvent never throws and is hard-capped at 2s.
-    // Closed-enum props only: the error message itself is never sent.
-    {
-      const hookType = getActiveHookType();
-      await captureCliEvent('hook_failed', {
-        ...(hookType !== null ? { hook_type: hookType } : {}),
-        error_mode: 'blocking_error',
-        threshold_tripped: false,
-      });
-    }
     // BLOCKING_FEEDBACK: flush the buffered logger.error line to stderr and
     // exit 2 so the model receives it per Claude Code's hook contract.
     emitBlockingError(

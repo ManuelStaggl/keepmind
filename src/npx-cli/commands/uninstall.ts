@@ -16,7 +16,6 @@ import { readJsonSafe } from '../../utils/json-utils.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
 import { shutdownWorkerAndWait } from '../../services/install/shutdown-helper.js';
-import { captureCliEvent } from '../../services/telemetry/cli-telemetry.js';
 
 function removeMarketplaceDirectory(): boolean {
   const marketplaceDir = marketplaceDirectory();
@@ -331,10 +330,6 @@ export async function runUninstallCommand(): Promise<void> {
     ].join('\n'),
     'Note',
   );
-
-  // Capture BEFORE the data dir note becomes stale advice: consent and the
-  // install ID still live in ~/.keepmind, which uninstall preserves.
-  await captureCliEvent('uninstall_completed', {}, { person: true });
 
   p.outro(pc.green('claude-mem has been uninstalled.'));
 }

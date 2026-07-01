@@ -24,12 +24,8 @@ import { sanitizeEnv } from '../supervisor/env-sanitizer.js';
 import { ensureWorkerStarted as ensureWorkerStartedShared, type WorkerStartResult } from './worker-spawner.js';
 import { acquireSpawnLock, releaseSpawnLock } from '../shared/worker-spawn-gate.js';
 import { snapshotDependencyHealth, type DependencyHealthSnapshot } from '../shared/dependency-health.js';
-import { captureEvent, captureException, shutdownTelemetry, enableExceptionAutocaptureForWorker } from './telemetry/telemetry.js';
-import { telemetryBuffer } from './telemetry/buffer.js';
 import { MaintenanceLoop } from './optimizer/MaintenanceLoop.js';
 import { loadMemoryQualityConfig } from './config/memory-quality.js';
-import { collectInstallStats } from './telemetry/install-stats.js';
-import { runHistoricalBackfill } from './telemetry/backfill.js';
 import { runWorkerDependencyPreflight } from './worker/dependency-preflight.js';
 
 export { isPluginDisabledInClaudeSettings } from '../shared/plugin-state.js';
@@ -521,15 +517,6 @@ export class WorkerService implements WorkerRef {
     const desiredPort = getConfiguredWorkerPort();
     const host = getWorkerHost();
 
-    // Phase 3 telemetry: bridge logged errors into PostHog Error Tracking
-    // WITHOUT the logger importing telemetry (no import cycle). captureException
-    // enforces consent + kill-switch + rate-limit internally and never throws.
-    // enableExceptionAutocaptureForWorker() must run BEFORE the first capture
-    // constructs the client, since enableExceptionAutocapture is read at
-    // construction — so it is set here at the very top of worker start.
-    enableExceptionAutocaptureForWorker();
-    logger.setErrorSink((err) => captureException(err));
-
     // Must run before startSupervisor(): its validateWorkerPidFile() removes
     // the dead previous run's stale PID file, which crash detection needs.
     this.detectPreviousShutdown();
@@ -700,64 +687,6 @@ export class WorkerService implements WorkerRef {
       this.resolveInitialization();
       logger.info('SYSTEM', 'Core initialization complete (DB + search ready)');
 
-      // Lifecycle telemetry (person profile = anonymous install UUID). ide is
-      // this install's dominant client read from session history — a bounded
-      // platform enum (claude-code / cursor / ...), never user data. Props are
-      // rebuilt per capture so the daily heartbeat reports the install's
-      // current DB size/age/activity, not boot-time values.
-      const buildLifecycleProps = (): Record<string, unknown> => {
-        const props: Record<string, unknown> = {
-          runtime_mode: 'worker',
-          provider: settings.CLAUDE_MEM_PROVIDER,
-          mode: settings.CLAUDE_MEM_MODE,
-        };
-        try {
-          const row = this.dbManager.getConnection()
-            .query(`SELECT platform_source FROM sdk_sessions
-                    WHERE platform_source IS NOT NULL AND platform_source != ''
-                    ORDER BY id DESC LIMIT 1`)
-            .get() as { platform_source?: string } | null;
-          if (row?.platform_source) props.ide = row.platform_source;
-        } catch (error) {
-          // Expected only before the schema exists; anything else (e.g. the
-          // wrong-table query this once masked) should be diagnosable.
-          logger.debug('SYSTEM', 'ide lookup for lifecycle telemetry failed', {}, error as Error);
-        }
-        try {
-          Object.assign(props, collectInstallStats(this.dbManager.getConnection()));
-        } catch (error) {
-          // Snapshot is best-effort; the lifecycle event still ships without it.
-          logger.debug('SYSTEM', 'Install stats snapshot failed', {}, error as Error);
-        }
-        // Process health for the daily heartbeat: memoryUsage() returns bytes;
-        // the scrubber drops non-finite numbers, so round to whole MiB.
-        const memory = process.memoryUsage();
-        props.process_rss_mb = Math.round(memory.rss / 1024 / 1024);
-        props.heap_used_mb = Math.round(memory.heapUsed / 1024 / 1024);
-        return props;
-      };
-      captureEvent('worker_started', {
-        trigger: 'start',
-        duration_ms: Date.now() - this.startTime,
-        // Crash detection (detectPreviousShutdown): crash case carries no
-        // previous_uptime_seconds — the stop time is unknowable.
-        previous_shutdown: this.previousShutdown,
-        ...(this.previousUptimeSeconds !== null && { previous_uptime_seconds: this.previousUptimeSeconds }),
-        ...buildLifecycleProps(),
-      }, { person: true });
-      telemetryBuffer.start();
-
-      // One-time historical telemetry backfill (anonymized daily rollups).
-      // Fire-and-forget: gated internally by the backfill.json marker and the
-      // same consent checks as live telemetry; a failed run retries on the
-      // next worker start because no marker is written.
-      // runHistoricalBackfill never rejects by contract (its body is fully
-      // try/caught), so this .catch is an unhandled-rejection backstop that
-      // keeps the worker alive if that contract ever regresses.
-      runHistoricalBackfill(this.dbManager.getConnection()).catch(error => {
-        logger.error('SYSTEM', 'Telemetry historical backfill failed (non-blocking)', {}, error as Error);
-      });
-
       await this.startTranscriptWatcher(settings);
 
       if (this.vectorSearchEnabled) {
@@ -906,15 +835,8 @@ export class WorkerService implements WorkerRef {
           logger.info('TRANSCRIPT', 'Transcript watcher stopped');
         }
 
-        // Mark this stop as graceful for the next start's crash detection, and
-        // capture worker_stopped BEFORE shutdownTelemetry() — isShutdown drops
-        // any event captured after the flush, by design.
+        // Mark this stop as graceful for the next start's crash detection.
         writeCleanShutdownSentinel();
-        captureEvent('worker_stopped', {
-          uptime_seconds: getUptimeSeconds(this.startTime),
-          shutdown_reason: reason,
-        });
-        await shutdownTelemetry();
       },
       performGracefulShutdown: () => performGracefulShutdown({
         server: this.server.getHttpServer(),
@@ -1687,14 +1609,9 @@ if (isMainModule) {
     // A fatal error in main() must be LOUD and non-zero — the old `exit(0)`
     // masked startup failures as success (bug #2), so a crashing daemon looked
     // like a clean exit and nothing retried. Log (synchronous appendFileSync —
-    // no flush needed), flush telemetry, then exit 1 so restart verifiers and
-    // supervising callers see a dead boot.
+    // no flush needed), then exit 1 so restart verifiers and supervising
+    // callers see a dead boot.
     logger.failure('SYSTEM', 'Fatal error in main', {}, error instanceof Error ? error : new Error(String(error)));
-    try {
-      await shutdownTelemetry();
-    } catch {
-      // best-effort telemetry flush
-    }
     process.exit(1);
   });
 }
