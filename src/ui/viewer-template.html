@@ -4,8 +4,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>claude-mem viewer</title>
-  <link rel="icon" type="image/webp" href="claude-mem-logomark.webp">
+  <title>keepmind viewer</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%232563eb'/%3E%3Cpath d='M8 9 L12 16 L16 9' fill='none' stroke='%23fff' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='8' cy='9' r='2.1' fill='%23fff'/%3E%3Ccircle cx='16' cy='9' r='2.1' fill='%23fff'/%3E%3Ccircle cx='12' cy='16' r='2.1' fill='%23fff'/%3E%3C/svg%3E">
   <style>
     @font-face {
       font-family: 'Monaspace Radon';
@@ -3133,6 +3133,163 @@
       .toggle-switch.on .toggle-knob {
         transform: translateX(16px);
       }
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       keepmind clean/minimal refresh (2026-07)
+       Neutral grayscale surfaces + a single indigo accent. Appended last
+       so these token values win over the original warm-sand palette via
+       source order (equal specificity). Variable names are unchanged, so
+       every component keeps resolving the same custom properties.
+       ───────────────────────────────────────────────────────────── */
+    :root,
+    [data-theme="light"] {
+      --color-bg-primary: #ffffff;
+      --color-bg-secondary: #f7f8fa;
+      --color-bg-tertiary: #eef0f3;
+      --color-bg-header: #ffffff;
+      --color-bg-card: #ffffff;
+      --color-bg-card-hover: #f7f8fa;
+      --color-bg-input: #ffffff;
+      --color-bg-button: #2563eb;
+      --color-bg-button-hover: #1d4ed8;
+      --color-bg-button-active: #1e40af;
+      --color-bg-summary: #fbfaf6;
+      --color-bg-prompt: #faf9fd;
+      --color-bg-observation: #f6f9fe;
+      --color-bg-stat: #f7f8fa;
+      --color-bg-scrollbar-track: #ffffff;
+      --color-bg-scrollbar-thumb: #d6d9de;
+      --color-bg-scrollbar-thumb-hover: #b8bcc4;
+
+      --color-border-primary: #e6e8ec;
+      --color-border-secondary: #eceef1;
+      --color-border-hover: #cdd1d8;
+      --color-border-focus: #2563eb;
+      --color-border-summary: #e4dcc6;
+      --color-border-summary-hover: #d5cab0;
+      --color-border-prompt: #e2daf3;
+      --color-border-prompt-hover: #d0c2f1;
+      --color-border-observation: #d5e1f7;
+      --color-border-observation-hover: #b8cdf2;
+
+      --color-text-primary: #1a1d21;
+      --color-text-secondary: #565a63;
+      --color-text-tertiary: #767b85;
+      --color-text-muted: #9aa0a9;
+      --color-text-header: #1a1d21;
+      --color-text-title: #1a1d21;
+      --color-text-subtitle: #565a63;
+      --color-text-button: #ffffff;
+      --color-text-summary: #8a6d2e;
+      --color-text-observation: #1a1d21;
+      --color-text-logo: #1a1d21;
+
+      --color-accent-primary: #2563eb;
+      --color-accent-focus: #2563eb;
+      --color-accent-success: #16a34a;
+      --color-accent-error: #dc2626;
+      --color-accent-summary: #9a7b2e;
+      --color-accent-prompt: #7c3aed;
+      --color-accent-observation: #2563eb;
+
+      --color-type-badge-bg: rgba(37, 99, 235, 0.10);
+      --color-type-badge-text: #2563eb;
+      --color-summary-badge-bg: rgba(154, 123, 46, 0.10);
+      --color-summary-badge-text: #9a7b2e;
+      --color-prompt-badge-bg: rgba(124, 58, 237, 0.10);
+      --color-prompt-badge-text: #7c3aed;
+      --color-observation-badge-bg: rgba(37, 99, 235, 0.10);
+      --color-observation-badge-text: #2563eb;
+
+      --color-skeleton-base: #e6e8ec;
+      --color-skeleton-highlight: #f1f3f5;
+
+      --shadow-focus: 0 0 0 3px rgba(37, 99, 235, 0.20);
+    }
+
+    [data-theme="dark"] {
+      --color-bg-primary: #0f1113;
+      --color-bg-secondary: #16181b;
+      --color-bg-tertiary: #1b1e22;
+      --color-bg-header: #101214;
+      --color-bg-card: #17191c;
+      --color-bg-card-hover: #1d2024;
+      --color-bg-input: #17191c;
+      --color-bg-button: #3b82f6;
+      --color-bg-button-hover: #2f6fe0;
+      --color-bg-button-active: #2560c4;
+      --color-bg-summary: #1a1916;
+      --color-bg-prompt: #17161d;
+      --color-bg-observation: #12161d;
+      --color-bg-stat: #17191c;
+      --color-bg-scrollbar-track: #0f1113;
+      --color-bg-scrollbar-thumb: #2a2e34;
+      --color-bg-scrollbar-thumb-hover: #3a3f47;
+
+      --color-border-primary: #262a30;
+      --color-border-secondary: #22262b;
+      --color-border-hover: #363b43;
+      --color-border-focus: #3b82f6;
+      --color-border-summary: #4a4126;
+      --color-border-summary-hover: #5a5030;
+      --color-border-prompt: #383152;
+      --color-border-prompt-hover: #473e66;
+      --color-border-observation: #2a3a52;
+      --color-border-observation-hover: #37496a;
+
+      --color-text-primary: #e7e9ec;
+      --color-text-secondary: #a6abb3;
+      --color-text-tertiary: #7c828c;
+      --color-text-muted: #656b74;
+      --color-text-header: #f0f2f4;
+      --color-text-title: #f0f2f4;
+      --color-text-subtitle: #a6abb3;
+      --color-text-button: #ffffff;
+      --color-text-summary: #d3b874;
+      --color-text-observation: #c3ccd6;
+      --color-text-logo: #f0f2f4;
+
+      --color-accent-primary: #3b82f6;
+      --color-accent-focus: #3b82f6;
+      --color-accent-success: #22c55e;
+      --color-accent-error: #f05252;
+      --color-accent-summary: #d3b874;
+      --color-accent-prompt: #a78bfa;
+      --color-accent-observation: #60a5fa;
+
+      --color-type-badge-bg: rgba(59, 130, 246, 0.14);
+      --color-type-badge-text: #60a5fa;
+      --color-summary-badge-bg: rgba(211, 184, 116, 0.14);
+      --color-summary-badge-text: #d3b874;
+      --color-prompt-badge-bg: rgba(167, 139, 250, 0.14);
+      --color-prompt-badge-text: #a78bfa;
+      --color-observation-badge-bg: rgba(96, 165, 250, 0.14);
+      --color-observation-badge-text: #60a5fa;
+
+      --color-skeleton-base: #262a30;
+      --color-skeleton-highlight: #33383f;
+
+      --shadow-focus: 0 0 0 3px rgba(59, 130, 246, 0.22);
+    }
+
+    /* Flatter, calmer chrome for the minimal look. */
+    .header {
+      background: var(--color-bg-header);
+      backdrop-filter: none;
+      box-shadow: none;
+    }
+
+    .card {
+      border-radius: 10px;
+    }
+
+    /* Removed upstream community/social chrome — hide any lingering nodes. */
+    .github-stars-btn,
+    .community-btn,
+    .sidebar-community-btn,
+    .sidebar-social-links {
+      display: none !important;
     }
   </style>
 </head>

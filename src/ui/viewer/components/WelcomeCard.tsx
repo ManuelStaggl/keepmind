@@ -4,9 +4,9 @@ interface WelcomeCardProps {
   onDismiss: () => void;
 }
 
-const STORAGE_KEY = 'claude-mem-welcome-dismissed-v3';
+const STORAGE_KEY = 'keepmind-welcome-dismissed-v3';
 const EXPLAINER_URL = '/api/onboarding/explainer';
-const DOCS_URL = 'https://docs.claude-mem.ai';
+const DOCS_URL = 'https://github.com/ManuelStaggl/keepmind';
 
 export function getStoredWelcomeDismissed(): boolean {
   try {
@@ -186,8 +186,14 @@ export function WelcomeCard({ onDismiss }: WelcomeCardProps) {
         <DismissButton onClick={handleDismiss} />
 
         <header className="welcome-modal-header">
-          <img className="welcome-modal-logo" src="claude-mem-logo-stylized.png" alt="" width="96" height="96" />
-          <h2 id="welcome-modal-title">Welcome to claude-mem</h2>
+          <svg className="welcome-modal-logo" viewBox="0 0 24 24" fill="none" width="96" height="96" aria-hidden="true">
+            <rect width="24" height="24" rx="6" fill="var(--color-accent-primary)" />
+            <path d="M8 9 L12 16 L16 9" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            <circle cx="8" cy="9" r="2.1" fill="#fff" />
+            <circle cx="16" cy="9" r="2.1" fill="#fff" />
+            <circle cx="12" cy="16" r="2.1" fill="#fff" />
+          </svg>
+          <h2 id="welcome-modal-title">Welcome to keepmind</h2>
           <p>Persistent memory for Claude Code.</p>
         </header>
 

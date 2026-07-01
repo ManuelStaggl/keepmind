@@ -202,9 +202,9 @@ function enablePluginInClaudeSettings(): void {
 
 /**
  * Disable Claude Code's built-in auto-memory by setting CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
- * in ~/.claude/settings.json `env` block. claude-mem provides its own persistent memory
+ * in ~/.claude/settings.json `env` block. keepmind provides its own persistent memory
  * via plugin hooks; the built-in MEMORY.md system creates shadow state outside the user's
- * control and competes with claude-mem for context window tokens.
+ * control and competes with keepmind for context window tokens.
  *
  * Per anthropics/claude-code#23544, the env var is the only supported toggle.
  *
@@ -254,7 +254,7 @@ async function resolveClaudeAutoMemoryChoice(
       {
         value: 'disable',
         label: 'Disable auto-memory',
-        hint: 'Only if you explicitly want claude-mem to replace native startup memory.',
+        hint: 'Only if you explicitly want keepmind to replace native startup memory.',
       },
     ],
     initialValue: 'leave-enabled',
@@ -518,7 +518,7 @@ function applyClaudeCodePathSetupIfNeeded(): void {
   } else {
     try {
       const trailing = existing.length === 0 || existing.endsWith('\n') ? '' : '\n';
-      const block = `${trailing}\n# Added by claude-mem installer for Claude Code\n${exportLine}\n`;
+      const block = `${trailing}\n# Added by keepmind installer for Claude Code\n${exportLine}\n`;
       writeFileSync(configFile, existing + block, 'utf-8');
       log.success(`Added Claude Code to PATH in ${configFile}`);
     } catch (error: unknown) {
@@ -840,7 +840,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
       ANTHROPIC_BASE_URL: '',
       ANTHROPIC_AUTH_TOKEN: '',
     });
-    log.info('Configured claude-mem to use your logged-in Claude SDK account.');
+    log.info('Configured keepmind to use your logged-in Claude SDK account.');
   };
 
   const configureDirectApiKey = async (): Promise<void> => {
@@ -973,7 +973,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
     }
 
     const apiModeResult = await p.select<ClaudeApiMode>({
-      message: 'How should claude-mem connect?',
+      message: 'How should keepmind connect?',
       options: [
         { value: 'direct', label: 'Anthropic API key' },
         { value: 'gateway', label: 'LiteLLM or custom gateway' },
@@ -1109,7 +1109,7 @@ async function promptClaudeModel(options: InstallOptions): Promise<void> {
   const initialValue = allowed.has(initialModel) ? initialModel : 'claude-haiku-4-5-20251001';
 
   const result = await p.select<string>({
-    message: 'Which Claude model should claude-mem use to compress observations?\nThis runs whenever you and Claude touch a file — keep it cheap and fast.',
+    message: 'Which Claude model should keepmind use to compress observations?\nThis runs whenever you and Claude touch a file — keep it cheap and fast.',
     options: [
       { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5 (recommended — fast, cheap, great for compression)' },
       { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6 (balanced quality and cost)' },
@@ -1208,7 +1208,7 @@ async function promptTelemetryOptIn(): Promise<void> {
 
   p.log.message(pc.dim(
     'Anonymous install ID only — no prompts, file paths, code, or project names, ever.\n'
-    + 'Details: https://docs.claude-mem.ai/telemetry · Change anytime: claude-mem telemetry disable',
+    + 'Details: https://github.com/ManuelStaggl/keepmind · Change anytime: keepmind telemetry disable',
   ));
   const consent = await p.confirm({
     message: 'Share anonymized usage data with CMEM? It is on by default and helps us make the product better.',
@@ -1326,7 +1326,7 @@ export async function runInstallCommand(options: InstallOptions = {}): Promise<v
       if (isInteractive) {
         p.log.error(headline);
         p.log.error(error.remediation);
-        p.outro(pc.red('claude-mem installation aborted.'));
+        p.outro(pc.red('keepmind installation aborted.'));
       } else {
         console.error(`\n  ${headline}`);
         console.error(`  ${error.remediation}`);
@@ -1348,9 +1348,9 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
 
   if (isInteractive) {
     await playBanner();
-    p.intro(pc.bgCyan(pc.black(' claude-mem install ')));
+    p.intro(pc.bgCyan(pc.black(' keepmind install ')));
   } else {
-    console.log('claude-mem install');
+    console.log('keepmind install');
   }
   const marketplaceDir = marketplaceDirectory();
   const alreadyInstalled = existsSync(join(marketplaceDir, 'plugin', '.claude-plugin', 'plugin.json'));
@@ -1554,7 +1554,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
 
   // Optionally disable Claude Code's built-in auto-memory (CLAUDE_CODE_DISABLE_AUTO_MEMORY=1)
   // when the user explicitly opts in, either through the interactive prompt or
-  // via --disable-auto-memory. claude-mem's hook-based memory is the intended
+  // via --disable-auto-memory. keepmind's hook-based memory is the intended
   // source of cross-session context, but we no longer mutate settings.json silently.
   // Four-state so the summary can distinguish "wrote", "already set", "left enabled",
   // and "failed". A boolean would conflate the error path with a deliberate no-op.
@@ -1584,7 +1584,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   }
 
   // The server runtime is brought up via its own stack (Docker pg+redis +
-  // `claude-mem server start`), NOT the worker-service spawner. Skip the
+  // `keepmind server start`), NOT the worker-service spawner. Skip the
   // worker-only autostart entirely so the server runtime never invokes the
   // worker path (#2543).
   const autoStartSkipped = !isInteractive || options.noAutoStart || selectedRuntime === 'server';
@@ -1755,18 +1755,18 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
     // the product is installed and working, never as a gate in front of it.
     await promptTelemetryOptIn();
     if (failedIDEs.length > 0) {
-      p.outro(pc.yellow('claude-mem installed with some IDE setup failures.'));
+      p.outro(pc.yellow('keepmind installed with some IDE setup failures.'));
     } else {
-      p.outro(pc.green('claude-mem installed successfully!'));
+      p.outro(pc.green('keepmind installed successfully!'));
     }
   } else {
     console.log('\n  Next Steps');
     nextSteps.forEach(l => console.log(`  ${l}`));
     if (failedIDEs.length > 0) {
-      console.log('\nclaude-mem installed with some IDE setup failures.');
+      console.log('\nkeepmind installed with some IDE setup failures.');
       process.exitCode = 1;
     } else {
-      console.log('\nclaude-mem installed successfully!');
+      console.log('\nkeepmind installed successfully!');
     }
   }
 
@@ -1793,9 +1793,9 @@ export async function runRepairCommand(): Promise<void> {
   const cacheDir = pluginCacheDirectory(version);
 
   if (isInteractive) {
-    p.intro(pc.bgCyan(pc.black(' claude-mem repair ')));
+    p.intro(pc.bgCyan(pc.black(' keepmind repair ')));
   } else {
-    console.log('claude-mem repair');
+    console.log('keepmind repair');
   }
   log.info(`Version: ${pc.cyan(version)}`);
 
@@ -1824,8 +1824,8 @@ export async function runRepairCommand(): Promise<void> {
   ]);
 
   if (isInteractive) {
-    p.outro(pc.green('claude-mem repair complete.'));
+    p.outro(pc.green('keepmind repair complete.'));
   } else {
-    console.log('claude-mem repair complete.');
+    console.log('keepmind repair complete.');
   }
 }
