@@ -255,7 +255,7 @@ async function buildHooks() {
         // In-process vector search runtime (externalized from the worker bundle).
         '@huggingface/transformers': '^4.2.0',
         'sqlite-vec': '^0.1.9',
-        'tree-sitter-cli': '^0.26.5',
+        'tree-sitter-cli': '^0.26.10',
         'tree-sitter-c': '^0.24.1',
         'tree-sitter-cpp': '^0.23.4',
         'tree-sitter-go': '^0.25.0',
@@ -280,7 +280,7 @@ async function buildHooks() {
         '@tree-sitter-grammars/tree-sitter-yaml': '^0.7.1',
         '@derekstride/tree-sitter-sql': '^0.3.11',
         '@tree-sitter-grammars/tree-sitter-markdown': '^0.3.2',
-        'shell-quote': '^1.8.3',
+        'shell-quote': '^1.9.0',
       },
       overrides: {
         'tree-sitter': '^0.25.0'

@@ -12,11 +12,11 @@
         "@tree-sitter-grammars/tree-sitter-toml": "^0.7.0",
         "@tree-sitter-grammars/tree-sitter-yaml": "^0.7.1",
         "@tree-sitter-grammars/tree-sitter-zig": "^1.1.2",
-        "shell-quote": "^1.8.3",
+        "shell-quote": "^1.9.0",
         "sqlite-vec": "^0.1.9",
         "tree-sitter-bash": "^0.25.1",
         "tree-sitter-c": "^0.24.1",
-        "tree-sitter-cli": "^0.26.5",
+        "tree-sitter-cli": "^0.26.10",
         "tree-sitter-cpp": "^0.23.4",
         "tree-sitter-css": "^0.25.0",
         "tree-sitter-elixir": "^0.3.5",
@@ -202,7 +202,7 @@
 
     "sharp": ["sharp@0.34.5", "", { "dependencies": { "@img/colour": "^1.0.0", "detect-libc": "^2.1.2", "semver": "^7.7.3" }, "optionalDependencies": { "@img/sharp-darwin-arm64": "0.34.5", "@img/sharp-darwin-x64": "0.34.5", "@img/sharp-libvips-darwin-arm64": "1.2.4", "@img/sharp-libvips-darwin-x64": "1.2.4", "@img/sharp-libvips-linux-arm": "1.2.4", "@img/sharp-libvips-linux-arm64": "1.2.4", "@img/sharp-libvips-linux-ppc64": "1.2.4", "@img/sharp-libvips-linux-riscv64": "1.2.4", "@img/sharp-libvips-linux-s390x": "1.2.4", "@img/sharp-libvips-linux-x64": "1.2.4", "@img/sharp-libvips-linuxmusl-arm64": "1.2.4", "@img/sharp-libvips-linuxmusl-x64": "1.2.4", "@img/sharp-linux-arm": "0.34.5", "@img/sharp-linux-arm64": "0.34.5", "@img/sharp-linux-ppc64": "0.34.5", "@img/sharp-linux-riscv64": "0.34.5", "@img/sharp-linux-s390x": "0.34.5", "@img/sharp-linux-x64": "0.34.5", "@img/sharp-linuxmusl-arm64": "0.34.5", "@img/sharp-linuxmusl-x64": "0.34.5", "@img/sharp-wasm32": "0.34.5", "@img/sharp-win32-arm64": "0.34.5", "@img/sharp-win32-ia32": "0.34.5", "@img/sharp-win32-x64": "0.34.5" } }, "sha512-Ou9I5Ft9WNcCbXrU9cMgPBcCK8LiwLqcbywW3t4oDV37n1pzpuNLsYiAV8eODnjbtQlSDwZ2cUEeQz4E54Hltg=="],
 
-    "shell-quote": ["shell-quote@1.8.4", "", {}, "sha512-VsC6n6vz1ihYYyZZwX7YZSF5l5x36ca17OC+a69h94YqB7X6XLwf+5MOgynYir2SLFUbl8gIYvBo8K8RoNQ6bQ=="],
+    "shell-quote": ["shell-quote@1.9.0", "", {}, "sha512-Iov+JwFv/2HcTpcwNMKd8+IWNb8tboQJNQTkAY/LLVK7gGH9jy+LGkVqPxfekHl+yMmiqXszdGWXgkfml7hjqA=="],
 
     "sprintf-js": ["sprintf-js@1.1.3", "", {}, "sha512-Oo+0REFV59/rz3gfJNKQiBlwfHaSESl1pcGyABQsnnIfWOFt6JNj5gCog2U6MLZ//IGYD+nA8nI+mTShREReaA=="],
 
@@ -224,7 +224,7 @@
 
     "tree-sitter-c": ["tree-sitter-c@0.24.1", "", { "dependencies": { "node-addon-api": "^8.3.1", "node-gyp-build": "^4.8.4" }, "peerDependencies": { "tree-sitter": "^0.22.4" }, "optionalPeers": ["tree-sitter"] }, "sha512-lkYwWN3SRecpvaeqmFKkuPNR3ZbtnvHU+4XAEEkJdrp3JfSp2pBrhXOtvfsENUneye76g889Y0ddF2DM0gEDpA=="],
 
-    "tree-sitter-cli": ["tree-sitter-cli@0.26.9", "", { "bin": { "tree-sitter": "cli.js" } }, "sha512-7l+U1RmazPVe+yA/JiX80GFOILnL/j24GbawamIzNQC8UlINrcyECbaWGaG1wuq4j/m0DQTx7Uu4r0iW9Ao1BQ=="],
+    "tree-sitter-cli": ["tree-sitter-cli@0.26.10", "", { "bin": { "tree-sitter": "cli.js" } }, "sha512-RTse32x5YWOrEtH7wos8ODt3yyB7SKgmGN70jC7R+WcnDA64vrpYU98+LnwrwdXMlxgr0LGQdezZz85DN8Wv0w=="],
 
     "tree-sitter-cpp": ["tree-sitter-cpp@0.23.4", "", { "dependencies": { "node-addon-api": "^8.2.1", "node-gyp-build": "^4.8.2", "tree-sitter-c": "^0.23.1" }, "peerDependencies": { "tree-sitter": "^0.21.1" }, "optionalPeers": ["tree-sitter"] }, "sha512-qR5qUDyhZ5jJ6V8/umiBxokRbe89bCGmcq/dk94wI4kN86qfdV8k0GHIUEKaqWgcu42wKal5E97LKpLeVW8sKw=="],
 
