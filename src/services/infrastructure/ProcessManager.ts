@@ -504,7 +504,12 @@ export function isProcessAlive(pid: number): boolean {
 export function isPidFileRecent(thresholdMs: number = 15000): boolean {
   try {
     const stats = statSync(PID_FILE);
-    return (Date.now() - stats.mtimeMs) < thresholdMs;
+    // Clamp the age to ≥ 0: on Windows a freshly written file's mtime can round
+    // slightly ahead of Date.now(), yielding a negative age. Left unclamped, a
+    // negative age spuriously satisfies very short/negative thresholds (age < -1
+    // becoming true) — a just-written or future-dated file is recent, never stale.
+    const ageMs = Math.max(0, Date.now() - stats.mtimeMs);
+    return ageMs < thresholdMs;
   } catch (error: unknown) {
     if (error instanceof Error) {
       logger.debug('SYSTEM', 'PID file not accessible for recency check', { path: PID_FILE }, error);
