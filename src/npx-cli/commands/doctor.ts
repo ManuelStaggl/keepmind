@@ -123,7 +123,56 @@ export async function runDoctorCommand(): Promise<void> {
     required: false, // worker can be intentionally stopped; don't hard-fail
   });
 
-  // 6. Last recorded install error (surface remediation if present).
+  // 6. API TLS reachability. Corporate networks that do TLS interception
+  //    (SSL-decrypt firewalls) re-sign api.anthropic.com with an internal CA
+  //    that the runtime doesn't trust — the summarizer SDK then fails with cert
+  //    errors and NOTHING gets compressed, which otherwise reads as silent
+  //    "empty context". Surface the precise failure and its remedy here.
+  {
+    let tlsStatus: CheckStatus = 'ok';
+    let tlsDetail = 'api.anthropic.com reachable, certificate trusted';
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/models', {
+        method: 'GET',
+        signal: AbortSignal.timeout(5000),
+      });
+      // Any HTTP status (401 without a key is normal) means the TLS handshake
+      // succeeded — that is all this check probes.
+      tlsDetail = `reachable (HTTP ${res.status}), certificate trusted`;
+    } catch (err) {
+      const code =
+        (err as { cause?: { code?: string } })?.cause?.code ??
+        (err as NodeJS.ErrnoException)?.code ??
+        '';
+      const certCodes = [
+        'CERT_HAS_EXPIRED',
+        'SELF_SIGNED_CERT_IN_CHAIN',
+        'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+        'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+        'DEPTH_ZERO_SELF_SIGNED_CERT',
+        'CERT_UNTRUSTED',
+      ];
+      if (certCodes.includes(code)) {
+        tlsStatus = 'fail';
+        tlsDetail =
+          `certificate rejected (${code}) — corporate TLS interception. ` +
+          `Export your corporate root CA to a .pem and set NODE_EXTRA_CA_CERTS to it. ` +
+          `On Windows, Claude Code's bundled runtime currently IGNORES CA env vars ` +
+          `(upstream bug #71581); until fixed, workaround: NODE_TLS_REJECT_UNAUTHORIZED=0.`;
+      } else {
+        tlsStatus = 'warn';
+        tlsDetail = `could not reach api.anthropic.com (${code || 'network error'}) — offline or blocked`;
+      }
+    }
+    checks.push({
+      name: 'API TLS reachability',
+      status: tlsStatus,
+      detail: tlsDetail,
+      required: false, // environmental (offline/proxy varies); surface loudly, don't hard-fail CI
+    });
+  }
+
+  // 7. Last recorded install error (surface remediation if present).
   const lastErrorPath = join(dataDir, 'last-install-error.json');
   if (existsSync(lastErrorPath)) {
     let detail = `present at ${lastErrorPath}`;
