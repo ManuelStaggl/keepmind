@@ -21,9 +21,8 @@ description: Automated semantic versioning and release workflow for Claude Code 
     - `plugin/.claude-plugin/plugin.json` — bundled Claude-plugin manifest
     - `.codex-plugin/plugin.json` — Codex-plugin manifest
     - `plugin/.codex-plugin/plugin.json` — bundled Codex-plugin manifest
-    - `openclaw/openclaw.plugin.json` — OpenClaw plugin manifest
 
-    Verify coverage before editing: `git grep -l "\"version\": \"<OLD>\""` should list all eight. If a new manifest has been added since this doc was last updated, update this list.
+    Verify coverage before editing: `git grep -l "\"version\": \"<OLD>\""` should list all seven. If a new manifest has been added since this doc was last updated, update this list.
 
 ## Workflow
 

@@ -1,6 +1,6 @@
 {
   "name": "keepmind",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Memory compression system for Claude Code - persist context across sessions (node-only fork of claude-mem)",
   "keywords": [
     "claude",
@@ -46,8 +46,7 @@
     "plugin/scripts/*.js",
     "plugin/scripts/*.cjs",
     "plugin/skills",
-    "plugin/ui",
-    "openclaw"
+    "plugin/ui"
   ],
   "engines": {
     "node": ">=22.5.0"

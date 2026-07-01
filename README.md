@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"></a>
-  <a href="package.json"><img src="https://img.shields.io/badge/version-1.0.0-green.svg" alt="Version"></a>
+  <a href="package.json"><img src="https://img.shields.io/badge/version-1.0.1-green.svg" alt="Version"></a>
   <a href="package.json"><img src="https://img.shields.io/badge/node-%3E%3D22.5-brightgreen.svg" alt="Node"></a>
 </p>
 
@@ -41,22 +41,21 @@ Data lives under `~/.keepmind/` (SQLite `keepmind.db` + `vector-db/`).
 
 ## Quick Start
 
-keepmind installs as a Claude Code plugin from this repo's marketplace:
+**Run the interactive installer — this is the one required step:**
 
 ```bash
-/plugin marketplace add ManuelStaggl/keepmind
-/plugin install keepmind
+npx keepmind@latest install
 ```
 
-Or run the installer from a checkout:
+The installer does everything: registers the plugin with Claude Code, installs the runtime (worker, Bun, uv, native deps), lets you pick your AI provider/model, and starts the worker. If an existing **claude-mem** install is found, it offers to migrate your memories and remove it.
 
-```bash
-npx keepmind install --provider claude
-```
+> ⚠️ **The `/plugin install` marketplace flow alone is NOT enough.** It only copies the plugin files — it does **not** install the runtime (worker, Bun/uv, dependencies) or configure a provider, so no memory is ever captured. Whether or not you added the marketplace, you must run `npx keepmind@latest install` to complete setup.
 
-Restart Claude Code. Memory injection begins on your **second** session in a project — the first seeds the store, subsequent sessions receive auto-injected context.
+Then **restart Claude Code**. Memory injection begins on your **second** session in a project — the first seeds the store, subsequent sessions receive auto-injected context.
 
-**Requirements:** Node ≥ 22.5. Native deps (`sqlite-vec`, `@huggingface/transformers`) are installed into the plugin at setup time.
+Check status any time with `npx keepmind@latest status` (or diagnose setup with `npx keepmind@latest doctor`).
+
+**Requirements:** Node ≥ 22.5. Bun and uv are installed automatically at setup time.
 
 ---
 

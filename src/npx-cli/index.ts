@@ -48,7 +48,7 @@ ${pc.bold('Runtime Commands')} (requires Bun, delegates to installed plugin):
   ${pc.cyan('npx keepmind transcript watch')}     Start transcript watcher
 
 ${pc.bold('IDE Identifiers')}:
-  claude-code, cursor, gemini-cli, opencode, openclaw,
+  claude-code, cursor, gemini-cli, opencode,
   windsurf, codex-cli, copilot-cli, antigravity, goose,
   roo-code, warp
 `);
