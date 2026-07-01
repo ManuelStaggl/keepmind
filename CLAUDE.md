@@ -13,8 +13,8 @@ npm run build-and-sync        # Build, sync to marketplace, restart worker
 - **Source**: `<project-root>/src/`
 - **Built Plugin**: `<project-root>/plugin/`
 - **Installed Plugin**: `~/.claude/plugins/marketplaces/thedotmack/`
-- **Database**: `~/.claude-mem/claude-mem.db`
-- **Chroma**: `~/.claude-mem/chroma/`
+- **Database**: `~/.keepmind/keepmind.db`
+- **Chroma / Vector DB**: `~/.keepmind/vector-db/`
 
 ## Requirements
 
