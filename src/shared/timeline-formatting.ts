@@ -46,7 +46,9 @@ export function formatDate(dateInput: string | number): string {
 
 export function toRelativePath(filePath: string, cwd: string): string {
   if (path.isAbsolute(filePath)) {
-    return path.relative(cwd, filePath);
+    // Normalize separators to "/" so output is stable across platforms
+    // (path.relative yields "\\" on Windows).
+    return path.relative(cwd, filePath).split(path.sep).join('/');
   }
   return filePath;
 }

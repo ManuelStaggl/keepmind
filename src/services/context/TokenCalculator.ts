@@ -47,7 +47,7 @@ export function formatObservationTokenDisplay(
   const readTokens = calculateObservationTokens(obs);
   const discoveryTokens = obs.discovery_tokens || 0;
   const workEmoji = getWorkEmoji(obs.type);
-  const discoveryDisplay = discoveryTokens > 0 ? `${workEmoji} ${discoveryTokens.toLocaleString()}` : '-';
+  const discoveryDisplay = discoveryTokens > 0 ? `${workEmoji} ${discoveryTokens.toLocaleString('en-US')}` : '-';
 
   return { readTokens, discoveryTokens, discoveryDisplay, workEmoji };
 }

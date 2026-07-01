@@ -47,15 +47,15 @@ export function renderAgentContextEconomics(
   const output: string[] = [];
 
   const parts: string[] = [
-    `${economics.totalObservations} obs (${economics.totalReadTokens.toLocaleString()}t read)`,
-    `${economics.totalDiscoveryTokens.toLocaleString()}t work`
+    `${economics.totalObservations} obs (${economics.totalReadTokens.toLocaleString('en-US')}t read)`,
+    `${economics.totalDiscoveryTokens.toLocaleString('en-US')}t work`
   ];
 
   if (economics.totalDiscoveryTokens > 0 && (config.showSavingsAmount || config.showSavingsPercent)) {
     if (config.showSavingsPercent) {
       parts.push(`${economics.savingsPercent}% savings`);
     } else if (config.showSavingsAmount) {
-      parts.push(`${economics.savings.toLocaleString()}t saved`);
+      parts.push(`${economics.savings.toLocaleString('en-US')}t saved`);
     }
   }
 
