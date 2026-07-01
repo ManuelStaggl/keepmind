@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-const WORKER_SERVICE_PATH = join(import.meta.dir, '../../src/services/worker-service.ts');
+const WORKER_SERVICE_PATH = join(import.meta.dirname, '../../src/services/worker-service.ts');
 const source = readFileSync(WORKER_SERVICE_PATH, 'utf-8');
 
 describe('Worker daemon port-race guard (#1447)', () => {

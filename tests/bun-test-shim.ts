@@ -33,16 +33,19 @@ function callerFileUrl(): string | undefined {
 export const beforeAll = before;
 export const afterAll = after;
 
-// bun's `it.if(cond)(name, fn)` / `test.if` — run only when cond is truthy.
-type TestFn = typeof it;
-function withIf<T extends TestFn>(base: T): T & { if(cond: boolean): T } {
-  const wrapped = base as T & { if(cond: boolean): T };
+// bun's conditional variants: `it.if(cond)` runs only when cond is truthy,
+// `it.skipIf(cond)` skips when cond is truthy. Also exposed on describe/test.
+type CondFn = { skip: unknown };
+function withIf<T extends CondFn>(base: T): T & { if(cond: boolean): T; skipIf(cond: boolean): T } {
+  const wrapped = base as T & { if(cond: boolean): T; skipIf(cond: boolean): T };
   wrapped.if = (cond: boolean) => (cond ? base : (base.skip as unknown as T));
+  wrapped.skipIf = (cond: boolean) => (cond ? (base.skip as unknown as T) : base);
   return wrapped;
 }
 const itWithIf = withIf(it);
 const testWithIf = withIf(test);
-export { itWithIf as it, testWithIf as test, describe, beforeEach, afterEach };
+const describeWithIf = withIf(describe);
+export { itWithIf as it, testWithIf as test, describeWithIf as describe, beforeEach, afterEach };
 
 // Tracks spyOn restores so bun's global `mock.restore()` can undo all spies.
 const activeSpyRestores: Array<() => void> = [];
@@ -283,7 +286,26 @@ class AsyncExpectation {
   toBe = this.proxy('toBe');
   toEqual = this.proxy('toEqual');
   toStrictEqual = this.proxy('toStrictEqual');
-  toThrow = this.proxy('toThrow');
+  // `.rejects.toThrow(x?)` — the promise REJECTING is itself the throw, so we must
+  // NOT delegate to the sync toThrow (which would try to call the rejection value
+  // as a function). Optionally match the rejection error against `x`. For
+  // `.resolves.toThrow(x?)` (rare) the resolved value is treated as a throwing fn.
+  toThrow = async (expected?: string | RegExp | (new (...a: any[]) => any)) => {
+    const { resolved, value } = await this.settle();
+    if (this.mode === 'rejects') {
+      const rejected = !resolved;
+      const errorMatches = expected === undefined ? true : (rejected && matchError(value, expected));
+      const pass = rejected && errorMatches;
+      if (this.negated ? pass : !pass) {
+        fail(resolved
+          ? `expected promise to reject${expected ? ` with ${format(expected)}` : ''} but it resolved with ${format(value)}`
+          : `expected rejection to${this.negated ? ' not' : ''} match ${format(expected)}`);
+      }
+      return;
+    }
+    if (!resolved) fail(`expected promise to resolve but it rejected with ${format(value)}`);
+    return (this.wrap(value).toThrow as any)(expected);
+  };
   toContain = this.proxy('toContain');
   toContainEqual = this.proxy('toContainEqual');
   toMatch = this.proxy('toMatch');
@@ -368,14 +390,27 @@ function equals(a: any, e: any): boolean {
   }
   return deepEqual(a, e);
 }
+// Recursive partial match for a single value (jest/bun toMatchObject semantics):
+// - asymmetric matchers delegate to their .match
+// - arrays must be the same length and each element partial-matches (extra keys
+//   in element objects are allowed — this is what plain `equals` got wrong)
+// - plain objects partial-match (extra keys allowed)
+// - primitives fall back to structural equality
+function partialMatchValue(av: any, ev: any): boolean {
+  if (isAsym(ev)) return ev.match(av);
+  if (Array.isArray(ev)) {
+    if (!Array.isArray(av) || av.length !== ev.length) return false;
+    return ev.every((e, i) => partialMatchValue(av[i], e));
+  }
+  if (ev !== null && typeof ev === 'object') {
+    return matchObject(av, ev);
+  }
+  return equals(av, ev);
+}
 function matchObject(actual: any, expected: Record<string, any>): boolean {
   if (actual == null || typeof actual !== 'object') return false;
   for (const k of Object.keys(expected)) {
-    const ev = expected[k];
-    const av = actual[k];
-    if (isAsym(ev)) { if (!ev.match(av)) return false; }
-    else if (ev && typeof ev === 'object' && !Array.isArray(ev)) { if (!matchObject(av, ev)) return false; }
-    else if (!equals(av, ev)) return false;
+    if (!partialMatchValue(actual[k], expected[k])) return false;
   }
   return true;
 }

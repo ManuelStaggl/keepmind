@@ -22,7 +22,7 @@ import type { HookResult } from '../../src/cli/types.js';
 // daemon for the `hook` subcommand (polluting the machine / flaky in CI — see
 // the plan's risk table). The seam-level assertions are deterministic.
 
-const REPO_ROOT = join(import.meta.dir, '..', '..');
+const REPO_ROOT = join(import.meta.dirname, '..', '..');
 
 function captureRealStderr(): { chunks: string[]; restore: () => void } {
   const chunks: string[] = [];

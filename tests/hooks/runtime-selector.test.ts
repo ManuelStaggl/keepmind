@@ -36,12 +36,16 @@ afterAll(() => {
   mock.module('../../src/utils/logger.js', () => realLoggerSnapshot);
 });
 
-import {
+// Dynamic import AFTER the mock.module calls above: static (hoisted) imports run
+// before the top-level mock.module statements, so node would bind the consumer to
+// the REAL hook-settings/logger. A dynamic import here picks up the mocks (matches
+// the working pattern in should-track-project.test.ts).
+const {
   resolveRuntimeContext,
   selectRuntime,
   buildServerContext,
   logServerFallback,
-} from '../../src/services/hooks/runtime-selector.js';
+} = await import('../../src/services/hooks/runtime-selector.js');
 
 describe('runtime-selector', () => {
   beforeEach(() => {

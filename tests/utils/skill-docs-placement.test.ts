@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
-const SKILLS_DIR = join(import.meta.dir, '../../plugin/skills');
+const SKILLS_DIR = join(import.meta.dirname, '../../plugin/skills');
 
 describe('skill docs placement (#1651)', () => {
   it('smart-explore/SKILL.md contains Language Support section', () => {

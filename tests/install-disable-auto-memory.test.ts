@@ -4,6 +4,9 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { disableClaudeAutoMemory } from '../src/npx-cli/commands/install.js';
 
+// node ESM has no __dirname (bun provides it); node 20.11+ exposes import.meta.dirname.
+const __dirname = import.meta.dirname;
+
 /**
  * Tests for auto-memory disable behavior in the install command.
  *

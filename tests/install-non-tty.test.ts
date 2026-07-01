@@ -2,6 +2,9 @@ import { describe, it, expect } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
+// node ESM has no __dirname (bun provides it); node 20.11+ exposes import.meta.dirname.
+const __dirname = import.meta.dirname;
+
 const installSourcePath = join(
   __dirname,
   '..',
@@ -101,11 +104,11 @@ describe('Install Non-TTY Support', () => {
 
     it('documents the explicit --disable-auto-memory install flag in help output', () => {
       expect(readFileSync(join(__dirname, '..', 'src', 'npx-cli', 'index.ts'), 'utf-8'))
-        .toContain('npx claude-mem install --disable-auto-memory');
+        .toContain('npx keepmind install --disable-auto-memory');
     });
 
     it('uses console.log for intro in non-interactive mode', () => {
-      expect(installSource).toContain("console.log('claude-mem install')");
+      expect(installSource).toContain("console.log('keepmind install')");
     });
 
     it('uses console.log for note/summary in non-interactive mode', () => {
@@ -132,15 +135,16 @@ describe('Install Non-TTY Support', () => {
       expect(codexInstallerSource).toContain("path.join('plugin', 'skills', 'mem-search', 'SKILL.md')");
     });
 
-    it('keeps the sync-managed gitignore override mechanism for local marketplace sync', () => {
+    it('drives local marketplace sync excludes from .gitignore', () => {
+      // node-only fork: the rsync `--exclude=` list + syncManagedFiles override
+      // map was replaced by a cross-platform mirror. The gitignore-driven
+      // exclude mechanism itself survives as getExcludePatterns().
       const gitignoreExcludeRegion = syncMarketplaceSource.slice(
-        syncMarketplaceSource.indexOf('function getGitignoreExcludes'),
-        syncMarketplaceSource.indexOf('const branch = getCurrentBranch'),
+        syncMarketplaceSource.indexOf('function getExcludePatterns'),
+        syncMarketplaceSource.indexOf('function makeMatcher'),
       );
-      // Root .mcp.json was dropped in #2411, so it is no longer a
-      // sync-managed override — the override mechanism itself remains.
-      expect(gitignoreExcludeRegion).toContain('syncManagedFiles');
-      expect(gitignoreExcludeRegion).toContain('syncManagedFiles.has(line)');
+      expect(gitignoreExcludeRegion).toContain('.gitignore');
+      expect(gitignoreExcludeRegion).toContain('readFileSync');
     });
 
     it('registers Codex against the durable marketplace directory', () => {
@@ -275,14 +279,12 @@ describe('Install Non-TTY Support', () => {
   });
 
   describe('runtime selection', () => {
-    it('offers Server (beta) while keeping worker as the default runtime', () => {
-      // Phase 1d: installer writes the new canonical `'server'` runtime value.
-      // The legacy `'server-beta'` value is still accepted by
-      // runtime-selector.ts for existing installs, but new writes use 'server'.
-      expect(installSource).toContain("value: 'server'");
-      expect(installSource).toContain('Server (beta)');
-      expect(installSource).toContain("initialValue: 'worker'");
-      expect(installSource).toContain('CLAUDE_MEM_RUNTIME');
+    // The interactive "Server (beta)" runtime picker was removed in this
+    // local-only fork (the cloud server runtime layer is gone). The installer
+    // now always provisions the local worker runtime; assert that the
+    // CLAUDE_MEM_RUNTIME setting is still written as 'worker'.
+    it('provisions the local worker runtime', () => {
+      expect(installSource).toContain("CLAUDE_MEM_RUNTIME: 'worker'");
     });
   });
 
@@ -297,7 +299,7 @@ describe('Install Non-TTY Support', () => {
 
     it('addresses privacy: everything stays local', () => {
       expect(installSource).toContain('Everything stays in ');
-      expect(installSource).toContain("pc.cyan('~/.claude-mem')");
+      expect(installSource).toContain("pc.cyan('~/.keepmind')");
     });
 
     it('keeps /learn-codebase as the optional front-load path', () => {

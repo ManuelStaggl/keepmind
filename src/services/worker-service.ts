@@ -1,5 +1,6 @@
 
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { spawn } from 'child_process';
 import { Database } from '../storage/db.js';
@@ -311,7 +312,9 @@ export class WorkerService implements WorkerRef {
       getDependencyHealth: () => snapshotDependencyHealth(),
       onShutdown: (reason) => this.shutdown(reason ?? 'stop'),
       onRestart: () => this.shutdown('restart'),
-      workerPath: __filename,
+      // ESM-safe: __filename exists in the CJS bundle (prod) and under bun, but
+      // is undeclared in node ESM (tsx tests). Fall back to import.meta.url.
+      workerPath: typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url),
       getAiStatus: () => {
         let provider = 'claude';
         if (isOpenRouterSelected() && isOpenRouterAvailable()) provider = 'openrouter';
@@ -1668,12 +1671,16 @@ async function fetchWorkerHealth(port: number, timeoutMs: number): Promise<Worke
   }
 }
 
+// ESM-safe: bare `__filename` is defined in the CJS bundle (prod) and under bun,
+// but is undeclared in node ESM (tsx tests) where referencing it throws
+// ReferenceError. The typeof guard keeps this expression evaluable in both.
+const __filenameSafe: string | undefined = typeof __filename !== 'undefined' ? __filename : undefined;
 const isMainModule = typeof require !== 'undefined' && typeof module !== 'undefined'
   ? require.main === module || !module.parent || process.env.CLAUDE_MEM_MANAGED === 'true'
   : import.meta.url === `file://${process.argv[1]}`
     || process.argv[1]?.endsWith('worker-service')
     || process.argv[1]?.endsWith('worker-service.cjs')
-    || process.argv[1]?.replaceAll('\\', '/') === __filename?.replaceAll('\\', '/');
+    || process.argv[1]?.replaceAll('\\', '/') === __filenameSafe?.replaceAll('\\', '/');
 
 if (isMainModule) {
   main().catch(async (error) => {

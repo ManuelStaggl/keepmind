@@ -2,6 +2,7 @@
 import express, { Request, Response } from 'express';
 import * as fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { z } from 'zod';
 import { SearchManager } from '../../SearchManager.js';
 import type { SearchTelemetryEnvelope } from '../../SearchManager.js';
@@ -17,7 +18,14 @@ import type { ObservationSearchResult, SessionSummarySearchResult } from '../../
 import { captureEvent } from '../../../telemetry/telemetry.js';
 import { telemetryBuffer } from '../../../telemetry/buffer.js';
 
-const ONBOARDING_EXPLAINER_PATH: string = path.resolve(__dirname, '../skills/how-it-works/onboarding-explainer.md');
+// ESM-safe __dirname: bundled to CJS in production (where __dirname exists), but
+// the guard lets this module also load as raw ESM (tsx tests, direct node ESM)
+// without crashing — mirrors src/shared/paths.ts getDirname().
+const _dirname: string = typeof __dirname !== 'undefined'
+  ? __dirname
+  : path.dirname(fileURLToPath(import.meta.url));
+
+const ONBOARDING_EXPLAINER_PATH: string = path.resolve(_dirname, '../skills/how-it-works/onboarding-explainer.md');
 
 const cachedOnboardingExplainer: string | null = (() => {
   try {

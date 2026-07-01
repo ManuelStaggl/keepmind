@@ -4,6 +4,9 @@ import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, mkdtemp
 import { tmpdir } from 'os';
 import path from 'path';
 
+// node ESM has no __dirname (bun provides it); node 20.11+ exposes import.meta.dirname.
+const __dirname = import.meta.dirname;
+
 const TEST_PORT = 37877;
 // Phase 6 (worker-restart plan): a unique temp dir, NOT a fixed path in the
 // user's home directory — concurrent runs can't collide and nothing lands

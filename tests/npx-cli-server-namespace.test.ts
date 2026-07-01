@@ -2,6 +2,9 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
+// node ESM has no __dirname (bun provides it); node 20.11+ exposes import.meta.dirname.
+const __dirname = import.meta.dirname;
+
 const indexSource = readFileSync(join(__dirname, '..', 'src', 'npx-cli', 'index.ts'), 'utf-8');
 const serverSource = readFileSync(join(__dirname, '..', 'src', 'npx-cli', 'commands', 'server.ts'), 'utf-8');
 const workerServiceSource = readFileSync(join(__dirname, '..', 'src', 'services', 'worker-service.ts'), 'utf-8');
@@ -23,28 +26,14 @@ describe('npx CLI server namespace', () => {
     expect(serverSource).toContain('runStatusCommand()');
   });
 
-  it('routes server lifecycle commands while keeping reserved commands nonzero failures', () => {
-    expect(serverSource).toContain('runServerLifecycleCommand(subCommand)');
-    expect(serverSource).toContain('runServerStartCommand()');
-    expect(serverSource).toContain('runServerStopCommand()');
-    expect(serverSource).toContain('runServerRestartCommand()');
-    expect(serverSource).toContain('runServerStatusCommand()');
-    expect(serverSource).toContain("'logs'");
-    expect(serverSource).toContain("'doctor'");
-    expect(serverSource).toContain("'migrate'");
-    expect(serverSource).toContain("'export'");
-    expect(serverSource).toContain("'import'");
-    expect(serverSource).toContain("process.exit(1)");
-    expect(serverSource).toContain('runServerApiKeyCommand(argv.slice(1))');
-    expect(serverSource).not.toContain('runServerLogsCommand');
-  });
+  // NOTE: the cloud server-lifecycle CLI (server start/stop/restart/status +
+  // logs/doctor/migrate/export/import) was removed in this local-only fork. The
+  // former "routes server lifecycle commands" test asserted that removed wiring
+  // and has been deleted. Only the surviving api-key management + `server-help`
+  // handling is exercised below.
 
-  it('normalizes direct worker-service server invocations', () => {
+  it('normalizes direct worker-service server invocations (api-key + help only)', () => {
     expect(workerServiceSource).toContain("rawCommand === 'server'");
-    expect(workerServiceSource).toContain('lifecycleCommands.has(maybeSubCommand)');
-    expect(workerServiceSource).toContain('command: `server-${maybeSubCommand}`');
-    expect(workerServiceSource).toContain("case 'server-start'");
-    expect(workerServiceSource).toContain('runServerServiceCli(command.slice');
     expect(workerServiceSource).toContain('serverCommands.has(maybeSubCommand)');
     expect(workerServiceSource).toContain("case 'server-api-key'");
     expect(workerServiceSource).toContain('runServerApiKeyCli(commandArgs)');

@@ -3,7 +3,7 @@ import { describe, it, expect } from 'bun:test';
 import { readdir, readFile } from 'fs/promises';
 import { join, relative } from 'path';
 
-const PROJECT_ROOT = join(import.meta.dir, '..');
+const PROJECT_ROOT = join(import.meta.dirname, '..');
 const SRC_DIR = join(PROJECT_ROOT, 'src');
 
 interface LoggerCall {

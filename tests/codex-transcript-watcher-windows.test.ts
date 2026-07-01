@@ -2,6 +2,9 @@ import { describe, it, expect } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
+// node ESM has no __dirname (bun provides it); node 20.11+ exposes import.meta.dirname.
+const __dirname = import.meta.dirname;
+
 const watcherSource = readFileSync(
   join(__dirname, '..', 'src', 'services', 'transcripts', 'watcher.ts'),
   'utf-8',

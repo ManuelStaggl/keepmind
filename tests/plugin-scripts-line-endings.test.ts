@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
-const SCRIPTS_DIR = join(import.meta.dir, '..', 'plugin', 'scripts');
+const SCRIPTS_DIR = join(import.meta.dirname, '..', 'plugin', 'scripts');
 
 const SHEBANG_SCRIPTS = [
   'mcp-server.cjs',

@@ -3,6 +3,7 @@ import express, { Request, Response, Application } from 'express';
 import http from 'http';
 import * as fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { ALLOWED_OPERATIONS, ALLOWED_TOPICS } from './allowed-constants.js';
 import { logger } from '../../utils/logger.js';
 import { createCorsMiddleware, createMiddleware, summarizeRequestBody, requireLocalhost } from '../worker/http/middleware.js';
@@ -43,7 +44,14 @@ interface ObservationQueueHealth {
   }>;
 }
 
-const INSTRUCTIONS_BASE_DIR: string = path.resolve(__dirname, '../skills/mem-search');
+// ESM-safe __dirname: bundled to CJS in production (where __dirname exists), but
+// the guard lets this module also load as raw ESM (tsx tests, direct node ESM)
+// without crashing — mirrors src/shared/paths.ts getDirname().
+const _dirname: string = typeof __dirname !== 'undefined'
+  ? __dirname
+  : path.dirname(fileURLToPath(import.meta.url));
+
+const INSTRUCTIONS_BASE_DIR: string = path.resolve(_dirname, '../skills/mem-search');
 const INSTRUCTIONS_OPERATIONS_DIR: string = path.join(INSTRUCTIONS_BASE_DIR, 'operations');
 const INSTRUCTIONS_SKILL_PATH: string = path.join(INSTRUCTIONS_BASE_DIR, 'SKILL.md');
 

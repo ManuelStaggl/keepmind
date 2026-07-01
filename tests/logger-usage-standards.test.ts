@@ -3,7 +3,7 @@ import { readdir } from "fs/promises";
 import { join, relative } from "path";
 import { readFileSync } from "fs";
 
-const PROJECT_ROOT = join(import.meta.dir, "..");
+const PROJECT_ROOT = join(import.meta.dirname, "..");
 const SRC_DIR = join(PROJECT_ROOT, "src");
 
 const EXCLUDED_PATTERNS = [
@@ -43,6 +43,8 @@ const EXCLUDED_PATTERNS = [
   /sdk\/output-classifier\.ts$/,  // Pure, side-effect-free output classifier; logging happens at the ResponseProcessor call site with full session context
   /build\/hook-shell-template\.ts$/,  // Pure build-time shell-string generator (no runtime/observability surface); drift is enforced by build-hooks.js + plugin-distribution.test.ts
   /worker\/model-aliases\.ts$/,  // Pure $TIER alias resolver (#2289); side-effect-free passthrough, logging happens at the request-time call site
+  /services\/sync\/ChromaSync\.ts$/,  // Pure compatibility re-export of VectorSync (no logic; mirrors index.ts re-export exclusion)
+  /worker\/http\/routes\/ChromaRoutes\.ts$/,  // Thin /api/chroma/status health route; surfaces errors in the HTTP response, error logging centralized in BaseRouteHandler.wrapHandler
 ];
 
 const HIGH_PRIORITY_PATTERNS = [
@@ -84,13 +86,20 @@ async function findTypeScriptFiles(dir: string): Promise<string[]> {
   return files;
 }
 
+// Normalize to forward slashes: on Windows `relative()` yields backslash paths,
+// but EXCLUDED_PATTERNS/HIGH_PRIORITY_PATTERNS are written with '/' separators.
+// Without this, every exclusion silently fails on Windows/node.
+function toPosix(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
 function shouldExclude(filePath: string): boolean {
-  const relativePath = relative(SRC_DIR, filePath);
+  const relativePath = toPosix(relative(SRC_DIR, filePath));
   return EXCLUDED_PATTERNS.some(pattern => pattern.test(relativePath));
 }
 
 function isHighPriority(filePath: string): boolean {
-  const relativePath = relative(SRC_DIR, filePath);
+  const relativePath = toPosix(relative(SRC_DIR, filePath));
 
   if (isUIFile(relativePath)) {
     return false;
@@ -102,7 +111,7 @@ function isHighPriority(filePath: string): boolean {
 function analyzeFile(filePath: string): FileAnalysis {
   const content = readFileSync(filePath, "utf-8");
   const lines = content.split("\n");
-  const relativePath = relative(PROJECT_ROOT, filePath);
+  const relativePath = toPosix(relative(PROJECT_ROOT, filePath));
 
   const hasLoggerImport = /import\s+.*logger.*from\s+['"].*logger(\.(js|ts))?['"]/.test(content);
 

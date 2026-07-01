@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 
-const REPO_ROOT = resolve(import.meta.dir, '..');
+const REPO_ROOT = resolve(import.meta.dirname, '..');
 const VERSION_CHECK_PATH = join(REPO_ROOT, 'plugin', 'scripts', 'version-check.js');
 const SPAWN_TIMEOUT_MS = 15_000;
 const INSTALL_DIAGNOSTIC = '[version-check] installing plugin dependencies';

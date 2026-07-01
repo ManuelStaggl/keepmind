@@ -4,7 +4,7 @@ import { spawnSync } from 'child_process';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
-const VERSION_CHECK_SCRIPT = join(import.meta.dir, '..', 'plugin', 'scripts', 'version-check.js');
+const VERSION_CHECK_SCRIPT = join(import.meta.dirname, '..', 'plugin', 'scripts', 'version-check.js');
 
 function runVersionCheck(root: string) {
   const env = { ...process.env, CLAUDE_PLUGIN_ROOT: root };
@@ -63,7 +63,7 @@ describe('plugin/scripts/version-check.js install marker compatibility', () => {
 
     expect(result.status).toBe(0);
     expect(result.stderr).toContain(
-      'claude-mem: upgraded to v12.4.4 - run: npx claude-mem@latest install',
+      'keepmind: upgraded to v12.4.4 - run: npx keepmind@latest install',
     );
   });
 });
