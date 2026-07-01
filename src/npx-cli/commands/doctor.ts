@@ -14,11 +14,16 @@
  * rendering.
  */
 
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { spawnSync } from 'child_process';
 import pc from 'picocolors';
-import { isPluginInstalled, marketplaceDirectory, IS_WINDOWS } from '../utils/paths.js';
+import {
+  isPluginInstalled,
+  marketplaceDirectory,
+  pluginsDirectory,
+  IS_WINDOWS,
+} from '../utils/paths.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import {
   resolveDataDir,
@@ -370,9 +375,28 @@ function buildRuntimeGroup(dataDir: string): CheckGroup {
     required: true,
   });
 
-  const depsPresent = existsSync(join(marketplaceDirectory(), 'node_modules'));
+  // Runtime deps live in the cache dir (where `repair` installs them and where
+  // Claude Code actually resolves the plugin at runtime), with `install` also
+  // populating the marketplace clone's plugin/ subdir. Check both so the report
+  // stays consistent with whichever remediation the user ran — the marketplace
+  // ROOT never receives node_modules, so checking it there was a false failure.
+  // The cache is versioned (…/cache/keepmind/keepmind/<version>/node_modules);
+  // scan for any version dir that carries deps rather than resolving a version
+  // (version resolution walks the npm bundle layout and is fragile from dev dist).
+  const cacheHasDeps = (() => {
+    const base = join(pluginsDirectory(), 'cache', 'keepmind', 'keepmind');
+    try {
+      return readdirSync(base, { withFileTypes: true }).some(
+        (e) => e.isDirectory() && existsSync(join(base, e.name, 'node_modules')),
+      );
+    } catch {
+      return false;
+    }
+  })();
+  const marketplacePluginDeps = join(marketplaceDirectory(), 'plugin', 'node_modules');
+  const depsPresent = cacheHasDeps || existsSync(marketplacePluginDeps);
   checks.push({
-    name: 'Marketplace deps',
+    name: 'Plugin deps',
     status: installed ? (depsPresent ? 'ok' : 'fail') : 'warn',
     detail: depsPresent ? 'node_modules present' : 'missing — run `npx keepmind repair`',
     required: installed,
