@@ -70,9 +70,13 @@ function normalizeAuthorName(author) {
 }
 
 function normalizeRepositoryUrl(repository) {
-  if (typeof repository === 'string') return repository.replace(/\.git$/, '');
+  // package.json's repository.url follows the npm convention (git+https://…​.git),
+  // but plugin manifests and the Codex websiteURL want a plain browsable URL.
+  // Strip the npm `git+` prefix and the `.git` suffix so a browser can open it.
+  const clean = (url) => url.replace(/^git\+/, '').replace(/\.git$/, '');
+  if (typeof repository === 'string') return clean(repository);
   if (repository && typeof repository === 'object' && typeof repository.url === 'string')
-    return repository.url.replace(/\.git$/, '');
+    return clean(repository.url);
   return '';
 }
 

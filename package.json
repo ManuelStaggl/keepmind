@@ -19,7 +19,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ManuelStaggl/keepmind.git"
+    "url": "git+https://github.com/ManuelStaggl/keepmind.git"
   },
   "homepage": "https://github.com/ManuelStaggl/keepmind#readme",
   "bugs": {
@@ -27,7 +27,7 @@
   },
   "type": "module",
   "bin": {
-    "keepmind": "./dist/npx-cli/index.js"
+    "keepmind": "dist/npx-cli/index.js"
   },
   "exports": {
     "./modes/*": "./plugin/modes/*"
