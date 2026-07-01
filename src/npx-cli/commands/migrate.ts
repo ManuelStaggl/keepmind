@@ -29,11 +29,22 @@ import pc from 'picocolors';
 import { DATA_DIR, DB_PATH, ensureDir, paths } from '../../shared/paths.js';
 import { Database } from '../../storage/db.js';
 
-interface Counts {
+export interface Counts {
   sessions: number;
   observations: number;
   summaries: number;
   prompts: number;
+}
+
+export interface MigrationResult {
+  source: string;
+  mode: 'adopt' | 'merge';
+  /** Target counts before the import (zeroes when the target was absent/empty). */
+  before: Counts;
+  /** Target counts after the import (equals `before` on a dry run). */
+  after: Counts;
+  /** Counts read from the source claude-mem.db. */
+  sourceCounts: Counts;
 }
 
 /** SQLite single-quoted string literal (for VACUUM INTO / ATTACH paths). */
@@ -53,7 +64,7 @@ function readFlagValue(argv: string[], name: string): string | undefined {
 }
 
 /** Resolve the source claude-mem.db from a --from dir/file or the default. */
-function resolveSource(fromArg: string | undefined): string {
+export function resolveSource(fromArg: string | undefined): string {
   if (fromArg) {
     // Accept either a directory containing claude-mem.db or a direct .db path.
     if (fs.existsSync(fromArg) && fs.statSync(fromArg).isDirectory()) {
@@ -73,7 +84,7 @@ function safeCount(db: Database, table: string): number {
   }
 }
 
-function readCounts(dbPath: string): Counts {
+export function readCounts(dbPath: string): Counts {
   const db = new Database(dbPath, { readonly: true });
   try {
     return {
@@ -202,8 +213,49 @@ async function runMerge(source: string): Promise<void> {
   }
 }
 
+/**
+ * Pure migration core — no console output, no process.exit.
+ *
+ * Imports an existing claude-mem database at `source` into keepmind's DB
+ * (`DB_PATH`), auto-selecting ADOPT (fresh target) or MERGE (dedup import).
+ * Throws on a missing source. On a dry run the target is left untouched and
+ * `after` equals `before`. The source is only ever read — fully non-destructive.
+ *
+ * Callers: the `runMigrateCommand` CLI wrapper below and the interactive
+ * install flow (`install.ts`), both of which render their own UI around this.
+ */
+export async function performMigration(
+  source: string,
+  opts: { dryRun?: boolean } = {},
+): Promise<MigrationResult> {
+  if (!fs.existsSync(source)) {
+    throw new Error(`Source database not found: ${source}`);
+  }
+
+  const sourceCounts = readCounts(source);
+  const targetExists = fs.existsSync(DB_PATH);
+  const before: Counts = targetExists
+    ? readCounts(DB_PATH)
+    : { sessions: 0, observations: 0, summaries: 0, prompts: 0 };
+  const mode: 'adopt' | 'merge' = !targetExists || before.sessions === 0 ? 'adopt' : 'merge';
+
+  if (opts.dryRun) {
+    return { source, mode, before, after: before, sourceCounts };
+  }
+
+  if (mode === 'adopt') {
+    await runAdopt(source);
+  } else {
+    await runMerge(source);
+  }
+
+  return { source, mode, before, after: readCounts(DB_PATH), sourceCounts };
+}
+
 export async function runMigrateCommand(argv: string[] = []): Promise<void> {
   const dryRun = argv.includes('--dry-run');
+  const purge = argv.includes('--purge');
+  const assumeYes = argv.includes('--yes') || argv.includes('-y');
   const fromArg = readFlagValue(argv, '--from');
   const source = resolveSource(fromArg);
 
@@ -215,13 +267,12 @@ export async function runMigrateCommand(argv: string[] = []): Promise<void> {
     process.exit(1);
   }
 
-  const srcCounts = readCounts(source);
   const targetExists = fs.existsSync(DB_PATH);
   const targetSessions = targetExists ? readCounts(DB_PATH).sessions : 0;
   const mode: 'adopt' | 'merge' = !targetExists || targetSessions === 0 ? 'adopt' : 'merge';
 
   console.log(pc.dim(`  Source: ${source}`));
-  printCounts('source', srcCounts);
+  printCounts('source', readCounts(source));
   console.log(pc.dim(`  Target: ${DB_PATH}`));
   printCounts('target', targetExists ? readCounts(DB_PATH) : { sessions: 0, observations: 0, summaries: 0, prompts: 0 });
   console.log(`  Mode:   ${pc.bold(mode === 'adopt' ? 'ADOPT (fresh snapshot)' : 'MERGE (dedup import)')}`);
@@ -233,19 +284,51 @@ export async function runMigrateCommand(argv: string[] = []): Promise<void> {
 
   if (dryRun) {
     console.log(`\n${pc.cyan('Dry run')} — no changes written.\n`);
+    if (purge) console.log(pc.dim('  (--purge is ignored on a dry run.)\n'));
     return;
   }
 
   console.log('');
-  if (mode === 'adopt') {
-    await runAdopt(source);
-  } else {
-    await runMerge(source);
-  }
+  const result = await performMigration(source, { dryRun: false });
 
-  const after = readCounts(DB_PATH);
   console.log(`\n${pc.green('✓ Migration complete.')}`);
-  printCounts('result', after);
+  printCounts('result', result.after);
   console.log(pc.dim('  Vectors backfill automatically on the next worker start (semantic search).'));
   console.log(pc.dim('  The original database was not modified.\n'));
+
+  if (purge) {
+    await runPurgeAfterMigrate(source, assumeYes);
+  }
+}
+
+/**
+ * Headless purge path for `keepmind migrate --purge`. Refuses to delete unless
+ * every source observation is already present in the target (content-hash
+ * anti-join) — the same redundancy gate the interactive flow enforces.
+ */
+async function runPurgeAfterMigrate(source: string, assumeYes: boolean): Promise<void> {
+  const { verifyMigrated, purgeClaudeMem } = await import('../../services/migration/claude-mem-migration.js');
+
+  const { missing, total, unhashable } = verifyMigrated(source);
+  if (missing > 0) {
+    console.error(pc.red(`\n✗ Purge aborted: ${missing} of ${total} claude-mem observations are not yet in keepmind.`));
+    console.error(pc.dim('  Re-run migrate (or investigate) before purging. The source was left intact.\n'));
+    process.exit(1);
+  }
+  if (unhashable > 0) {
+    console.log(pc.dim(`  Note: ${unhashable} legacy row(s) without a content_hash were copied but not hash-verified.`));
+  }
+
+  if (!assumeYes) {
+    console.error(pc.yellow('\nRefusing to purge without confirmation. Re-run with --yes to remove claude-mem.'));
+    console.error(pc.dim(`  Verified: all ${total} observations are safely in keepmind.\n`));
+    process.exit(1);
+  }
+
+  console.log(pc.dim('  Purging claude-mem (verified redundant)…'));
+  const report = await purgeClaudeMem({ timestamp: new Date().toISOString() });
+  console.log(`\n${pc.green('✓ claude-mem removed.')}`);
+  if (report.archivePath) console.log(pc.dim(`  Backup: ${report.archivePath}`));
+  if (report.processesKilled) console.log(pc.dim(`  Stopped ${report.processesKilled} orphaned process(es).`));
+  console.log('');
 }

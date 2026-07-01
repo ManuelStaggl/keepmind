@@ -1232,6 +1232,83 @@ export interface InstallOptions {
   serverUrl?: string;
 }
 
+/**
+ * First-run claude-mem → keepmind migration + optional removal (interactive).
+ *
+ * Two-stage, both opt-in: (1) import claude-mem's memories via the lossless
+ * `performMigration`; (2) only after a content-hash-verified-complete import,
+ * offer to remove claude-mem entirely (archived first). Any negative/cancelled
+ * answer, or nothing to migrate, is a clean no-op. Never throws out.
+ */
+async function maybeMigrateAndPurgeClaudeMem(): Promise<void> {
+  const { detectClaudeMem, verifyMigrated, purgeClaudeMem } = await import(
+    '../../services/migration/claude-mem-migration.js'
+  );
+  const { performMigration } = await import('./migrate.js');
+
+  const presence = detectClaudeMem();
+  if (!presence.hasData) return; // nothing worth migrating
+
+  const c = presence.counts;
+  const summary = c
+    ? `${c.observations} observations · ${c.sessions} sessions · ${c.summaries} summaries`
+    : 'an existing database';
+  p.note(`Found claude-mem at ${presence.dataDir}\n${summary}`, 'claude-mem detected');
+
+  const doMigrate = await p.confirm({
+    message: 'Migrate these claude-mem memories into keepmind now?',
+  });
+  if (p.isCancel(doMigrate) || !doMigrate) return;
+
+  const spin = p.spinner();
+  spin.start('Migrating claude-mem memories…');
+  try {
+    const result = await performMigration(presence.dbPath, {});
+    spin.stop(
+      `Migrated ${result.after.observations} observations · ${result.after.sessions} sessions (${result.mode}).`,
+    );
+  } catch (error) {
+    spin.stop('Migration failed.');
+    p.log.error(`Migration failed: ${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
+  p.log.info('Vectors rebuild automatically on the next worker start (semantic search).');
+
+  // Stage 2: full removal, gated on a verified-complete migration.
+  const verify = verifyMigrated(presence.dbPath);
+  if (verify.missing > 0) {
+    p.log.warn(
+      `Keeping claude-mem: ${verify.missing} of ${verify.total} observations are not yet in keepmind.`,
+    );
+    return;
+  }
+
+  const unhashableNote = verify.unhashable > 0
+    ? ` (${verify.unhashable} legacy rows without a hash were copied but can't be hash-verified)`
+    : '';
+  const doPurge = await p.confirm({
+    message: `Remove claude-mem entirely now? Its ${verify.total} observations are safely in keepmind${unhashableNote} (a backup is archived first).`,
+    initialValue: false,
+  });
+  if (p.isCancel(doPurge) || !doPurge) return;
+
+  const purgeSpin = p.spinner();
+  purgeSpin.start('Removing claude-mem…');
+  try {
+    const report = await purgeClaudeMem({ timestamp: new Date().toISOString(), presence });
+    const bits: string[] = [];
+    if (report.dataDirRemoved) bits.push('data removed');
+    if (report.marketplacesRemoved.length || report.pluginsRemoved.length) bits.push('plugin deregistered');
+    if (report.processesKilled) bits.push(`${report.processesKilled} process(es) stopped`);
+    if (report.archivePath) bits.push(`backup: ${report.archivePath}`);
+    purgeSpin.stop(`claude-mem removed${bits.length ? ` (${bits.join(', ')})` : ''}.`);
+    if (report.errors.length) p.log.warn(`Some cleanup steps had issues: ${report.errors.join('; ')}`);
+  } catch (error) {
+    purgeSpin.stop('claude-mem removal encountered an error.');
+    p.log.warn(`Removal error: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 export async function runInstallCommand(options: InstallOptions = {}): Promise<void> {
   const summary = createInstallSummary();
   try {
@@ -1329,6 +1406,13 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
     selectedIDEs = await promptForIDESelection();
   } else {
     selectedIDEs = ['claude-code'];
+  }
+
+  // First-run migration: detect a legacy claude-mem install and offer to import
+  // its memories, then (verified-complete) offer to remove claude-mem entirely
+  // so only keepmind runs. Interactive-only; silent no-op when nothing is found.
+  if (isInteractive) {
+    await maybeMigrateAndPurgeClaudeMem();
   }
 
   const selectedRuntime = await promptRuntime(options);
