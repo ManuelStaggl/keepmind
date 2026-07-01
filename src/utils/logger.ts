@@ -16,8 +16,6 @@ export type Component =
   | 'AGENTS_MD'
   | 'BRANCH'
   | 'CHROMA'
-  | 'CHROMA_MCP'
-  | 'CHROMA_SYNC'
   | 'VECTOR_SYNC'
   | 'VEC'
   | 'EMBEDDER'
