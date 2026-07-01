@@ -19,38 +19,28 @@
 
 import { ChromaSyncState, ProjectWatermarks } from './ChromaSyncState.js';
 import { ParsedObservation, ParsedSummary } from '../../sdk/parser.js';
-import type { SessionStore as SessionStoreType } from '../sqlite/SessionStore.js';
+import { SessionStore as SessionStoreImpl } from '../sqlite/SessionStore.js';
 import { logger } from '../../utils/logger.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
-import type * as SqliteFilesModule from '../sqlite/observations/files.js';
+import * as SqliteFilesModule from '../sqlite/observations/files.js';
+
+type SessionStoreType = InstanceType<typeof SessionStoreImpl>;
 import { SqliteVecManager, type VecChunk, type VecFilter } from '../vector/SqliteVecManager.js';
 
 type SessionStore = SessionStoreType;
 type SessionStoreCtor = new () => SessionStoreType;
 
-const lazyCreateRequire = (): ((id: string) => unknown) => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const mod = require('module') as typeof import('module');
-  return mod.createRequire(import.meta.url);
-};
-
-let _sessionStoreCtor: SessionStoreCtor | undefined;
+// These were previously loaded via a runtime createRequire() of their relative
+// paths. In the esbuild bundle that resolves against the on-disk bundle location
+// (plugin/scripts/worker-service.cjs), where the modules do not exist — so every
+// startup backfill died with "Cannot find module '../sqlite/SessionStore.js'".
+// Static imports let esbuild bundle them; there is no import cycle back here.
 function loadSessionStoreCtor(): SessionStoreCtor {
-  if (!_sessionStoreCtor) {
-    const req = lazyCreateRequire();
-    const m = req('../sqlite/SessionStore.js') as { SessionStore: SessionStoreCtor };
-    _sessionStoreCtor = m.SessionStore;
-  }
-  return _sessionStoreCtor;
+  return SessionStoreImpl as unknown as SessionStoreCtor;
 }
 
-let _filesHelper: typeof SqliteFilesModule | undefined;
 function loadFilesHelper(): typeof SqliteFilesModule {
-  if (!_filesHelper) {
-    const req = lazyCreateRequire();
-    _filesHelper = req('../sqlite/observations/files.js') as typeof SqliteFilesModule;
-  }
-  return _filesHelper;
+  return SqliteFilesModule;
 }
 
 /** A storage-agnostic document chunk (id + text + metadata bag). */
