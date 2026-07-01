@@ -24,9 +24,17 @@
 
 **Kern steht:** Windows-stabil, RAM-arm, node-only, offline-Semantiksuche, Secret-sicher, cloud-frei, **verlustfreie Migration**.
 
+## ✅ Finale Integration — DURCHGEFÜHRT (2026-07-01)
+- **Plugin installiert** via `npx keepmind install --provider claude --no-auto-start`: `known_marketplaces.json` (keepmind→github ManuelStaggl/keepmind), `installed_plugins.json` (keepmind@keepmind @ cache/1.0.0), `settings.json enabledPlugins` `keepmind@keepmind:true` / `claude-mem@thedotmack:false`. Plugin-Layout + hooks.json + .mcp.json + Native-Deps (vec0.dll) im Marktplatz. Settings-Backup unter `~/.claude/settings.json.bak-*`.
+- **Migration ausgeführt** (Adopt): `~/.keepmind/claude-mem.db` = 157 Sess / 4029 Obs / 1407 Summ / 1494 Prompts (verlustfrei, Quelle unangetastet).
+- **Runtime verifiziert**: Marktplatz-Worker `status:ok, version:1.0.0, mcpReady:true`, Vektor sqlite-vec v0.1.9 round-trip ok. FTS/BM25-Suche über migrierte Inhalte liefert Treffer (projekt-gescopt). Vektor-Backfill embedded real (0 → 21k+ Chunks).
+- **2 Integrations-Bugs gefunden & gefixt:** (1) `fix(install)` — Marktplatz-Deps via bun statt npm (npm-ERESOLVE ließ Worker an `zod/v3` crashen); (2) `fix(vector)` — VectorSync lud SessionStore per Runtime-`createRequire` → im Bundle `Cannot find module` → **jeder** Backfill scheiterte (Vektorstore blieb leer). Beide committet + verifiziert.
+
+**☐ Letzter Schritt (User):** **Claude Code neu starten.** Dann startet der SessionStart-Hook den echten Worker (ephemeral Port), MCP-Tools werden aktiv, und der Vektor-Backfill läuft (watermark-resumbar) im Hintergrund zu Ende. **⚠️ Vor dem Neustart alle Test-Worker-Daemons stoppen** (sonst 2 Worker auf `~/.keepmind`).
+
 ## ☐ Offen (in Reihenfolge)
-1. **Cleanup** — (a) 8 vorbestehende tsc-Typfehler in `worker-service.ts` (`RestartVerifyResult`-Props + `Logger.flush`); (b) ~~Schema-Versionskollision v34/v35~~ ✅ **erledigt** (`8394f94`); (c) bun-Reste (`"test":"bun test"`, Wartungs-`.ts`, `gen-plugin-lockfile` build-time bun); (d) tote uvx-Helper + Chroma-Settings-Keys.
-2. **Finale Integration** — Build → keepmind-Plugin in `~/.claude/settings.json` `enabledPlugins` als `keepmind@keepmind: true` (Original `claude-mem@thedotmack` bleibt `false`) → **`keepmind migrate`** (Adopt, da `~/.keepmind` noch leer) → Claude-Code-Neustart → End-to-End-Test (Worker auto-startet via SessionStart, MCP-Tools `mcp__keepmind__*`, Suche inkl. migrierter Inhalte, Vektor-Backfill beim ersten Start, Secret-Scrub live). **Erst danach hat der User wieder ein aktives (stabiles) Memory-Plugin.**
+1. **Cleanup** — (a) 8 vorbestehende tsc-Typfehler in `worker-service.ts` (`RestartVerifyResult`-Props + `Logger.flush`); (b) ~~Schema-Versionskollision v34/v35~~ ✅ (`8394f94`); (c) bun-Reste (`"test":"bun test"`, Wartungs-`.ts`, `gen-plugin-lockfile` build-time bun); (d) tote uvx-Helper + Chroma-Settings-Keys; (e) Installer-Schlusszeile sagt noch „claude-mem installed successfully!" (kosmetisch).
+2. **Optional:** Erster post-restart Warmup-Backfill (~10 min CPU, ~25k Chunks) sättigt den Single-Thread-Embedder → HTTP-Suche kann währenddessen kurz hängen. Fire-and-forget, einmalig, resumierbar — ggf. Backfill drosseln/yielden für bessere Responsiveness.
 
 **Migrations-Wissen (P5):** `keepmind migrate [--from <dir>] [--dry-run]` in `src/npx-cli/commands/migrate.ts`, Dispatch in `index.ts`. Läuft in-process unter node (nur `node:sqlite` + `SessionStore`, kein Embedder). Adopt = `VACUUM INTO` (read-only Quelle) + `new SessionStore(ziel)` fährt Migrationen hoch. Merge = ATTACH read-only + `INSERT OR IGNORE`/NOT-EXISTS-Guards. Vektoren macht der Worker beim Start (`VectorSync.backfillAllProjects`, `worker-service.ts:761`, watermark-inkrementell).
 
