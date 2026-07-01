@@ -1,45 +1,91 @@
 import { spawnHidden } from '../../shared/spawn.js';
 import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
-import { existsSync } from 'fs';
-import { join } from 'path';
+import { existsSync, readdirSync, readFileSync } from 'fs';
+import { dirname, join } from 'path';
 import pc from 'picocolors';
-import { resolveBunBinaryPath } from '../utils/bun-resolver.js';
-import { isPluginInstalled, marketplaceDirectory } from '../utils/paths.js';
+import { resolveWorkerRuntimePath } from '../../services/infrastructure/ProcessManager.js';
+import { isPluginInstalled, marketplaceDirectory, pluginCacheDirectory, pluginsDirectory } from '../utils/paths.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 
 function ensureInstalledOrExit(): void {
   if (!isPluginInstalled()) {
-    console.error(pc.red('claude-mem is not installed.'));
+    console.error(pc.red('keepmind is not installed.'));
     console.error(`Run: ${pc.bold('npx keepmind install')}`);
     process.exit(1);
   }
 }
 
-function resolveBunOrExit(): string {
-  const bunPath = resolveBunBinaryPath();
-  if (!bunPath) {
-    console.error(pc.red('Bun not found.'));
-    console.error('Install Bun: https://bun.sh');
+/**
+ * Resolve the Node runtime that runs the worker bundle. keepmind is a node-only
+ * fork — the worker bundle imports `node:sqlite`, which Bun does not provide, so
+ * these lifecycle commands MUST launch it under Node (not Bun). This mirrors the
+ * auto-spawn path (worker-utils / ProcessManager), keeping manual and automatic
+ * starts on the same runtime.
+ */
+function resolveNodeRuntimeOrExit(): string {
+  const nodePath = resolveWorkerRuntimePath();
+  if (!nodePath) {
+    console.error(pc.red('Node.js runtime not found.'));
+    console.error('keepmind requires Node.js >= 22.5 — install it from https://nodejs.org');
     console.error('After installation, restart your terminal.');
     process.exit(1);
   }
-  return bunPath;
+  return nodePath;
 }
 
-function workerServiceScriptPath(): string {
-  return join(marketplaceDirectory(), 'plugin', 'scripts', 'worker-service.cjs');
+/** Version of the installed plugin, from the marketplace copy's plugin.json. */
+function installedPluginVersion(): string | null {
+  try {
+    const manifest = JSON.parse(
+      readFileSync(join(marketplaceDirectory(), 'plugin', '.claude-plugin', 'plugin.json'), 'utf-8'),
+    );
+    return typeof manifest?.version === 'string' ? manifest.version : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Spawn a plugin .cjs script under Bun with inherited stdio, exiting this
+ * Resolve a plugin runtime script, preferring the cache copy over the
+ * marketplace copy. The cache directory is where install runs `bun install`, so
+ * it is the ONLY copy with a populated node_modules — the worker bundle
+ * externalises runtime deps (zod incl. its zod/v3 subpath, sqlite-vec, the
+ * Agent SDK) and requires them at runtime. Running the marketplace copy (source
+ * only, no node_modules) fails with `Cannot find module 'zod/v3'`. Falls back
+ * to any cached version that has the script, then the marketplace source.
+ */
+function pluginScriptPath(scriptName: string): string {
+  const version = installedPluginVersion();
+  if (version) {
+    const cacheScript = join(pluginCacheDirectory(version), 'scripts', scriptName);
+    if (existsSync(cacheScript)) return cacheScript;
+  }
+  const cacheBase = join(pluginsDirectory(), 'cache', 'keepmind', 'keepmind');
+  if (existsSync(cacheBase)) {
+    for (const v of readdirSync(cacheBase)) {
+      const candidate = join(cacheBase, v, 'scripts', scriptName);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return join(marketplaceDirectory(), 'plugin', 'scripts', scriptName);
+}
+
+function workerServiceScriptPath(): string {
+  return pluginScriptPath('worker-service.cjs');
+}
+
+/**
+ * Spawn a plugin .cjs script under Node with inherited stdio, exiting this
  * process with the child's exit code. `args[0]` is the script path. Sanitizes
  * host CLI bleed-through and Anthropic credentials before launch; credentials
  * are re-read from ~/.keepmind/.env at SDK spawn time (#2357 / #2375).
  */
-function spawnPlugin(bunPath: string, args: string[], startFailureLabel = 'Bun'): void {
-  const child = spawnHidden(bunPath, args, {
+function spawnPlugin(runtimePath: string, args: string[], startFailureLabel = 'worker'): void {
+  // cwd = the script's own directory so it runs from the cache tree that owns
+  // the populated node_modules (matches where the script path was resolved).
+  const child = spawnHidden(runtimePath, args, {
     stdio: 'inherit',
-    cwd: marketplaceDirectory(),
+    cwd: dirname(args[0]),
     env: sanitizeEnv(process.env),
   });
 
@@ -53,9 +99,9 @@ function spawnPlugin(bunPath: string, args: string[], startFailureLabel = 'Bun')
   });
 }
 
-function spawnBunWorkerCommand(command: string, extraArgs: string[] = []): void {
+function spawnNodeWorkerCommand(command: string, extraArgs: string[] = []): void {
   ensureInstalledOrExit();
-  const bunPath = resolveBunOrExit();
+  const nodePath = resolveNodeRuntimeOrExit();
   const workerScript = workerServiceScriptPath();
 
   if (!existsSync(workerScript)) {
@@ -64,32 +110,32 @@ function spawnBunWorkerCommand(command: string, extraArgs: string[] = []): void 
     process.exit(1);
   }
 
-  spawnPlugin(bunPath, [workerScript, command, ...extraArgs]);
+  spawnPlugin(nodePath, [workerScript, command, ...extraArgs]);
 }
 
 export function runStartCommand(): void {
-  spawnBunWorkerCommand('start');
+  spawnNodeWorkerCommand('start');
 }
 
 export function runStopCommand(): void {
-  spawnBunWorkerCommand('stop');
+  spawnNodeWorkerCommand('stop');
 }
 
 export function runRestartCommand(): void {
-  spawnBunWorkerCommand('restart');
+  spawnNodeWorkerCommand('restart');
 }
 
 export function runStatusCommand(): void {
-  spawnBunWorkerCommand('status');
+  spawnNodeWorkerCommand('status');
 }
 
 export function runServerApiKeyCommand(extraArgs: string[] = []): void {
-  spawnBunWorkerCommand('server', ['api-key', ...extraArgs]);
+  spawnNodeWorkerCommand('server', ['api-key', ...extraArgs]);
 }
 
 export function runAdoptCommand(extraArgs: string[] = []): void {
   ensureInstalledOrExit();
-  const bunPath = resolveBunOrExit();
+  const nodePath = resolveNodeRuntimeOrExit();
   const workerScript = workerServiceScriptPath();
 
   if (!existsSync(workerScript)) {
@@ -99,11 +145,11 @@ export function runAdoptCommand(extraArgs: string[] = []): void {
   }
 
   const userCwd = process.cwd();
-  spawnPlugin(bunPath, [workerScript, 'adopt', '--cwd', userCwd, ...extraArgs]);
+  spawnPlugin(nodePath, [workerScript, 'adopt', '--cwd', userCwd, ...extraArgs]);
 }
 
 export function runCleanupCommand(extraArgs: string[] = []): void {
-  spawnBunWorkerCommand('cleanup', extraArgs);
+  spawnNodeWorkerCommand('cleanup', extraArgs);
 }
 
 export async function runSearchCommand(queryParts: string[]): Promise<void> {
@@ -161,19 +207,14 @@ export async function runSearchCommand(queryParts: string[]): Promise<void> {
 
 export function runTranscriptWatchCommand(): void {
   ensureInstalledOrExit();
-  const bunPath = resolveBunOrExit();
+  const nodePath = resolveNodeRuntimeOrExit();
 
-  const transcriptWatcherPath = join(
-    marketplaceDirectory(),
-    'plugin',
-    'scripts',
-    'transcript-watcher.cjs',
-  );
+  const transcriptWatcherPath = pluginScriptPath('transcript-watcher.cjs');
 
   if (!existsSync(transcriptWatcherPath)) {
-    spawnBunWorkerCommand('transcript', ['watch']);
+    spawnNodeWorkerCommand('transcript', ['watch']);
     return;
   }
 
-  spawnPlugin(bunPath, [transcriptWatcherPath, 'watch'], 'transcript watcher');
+  spawnPlugin(nodePath, [transcriptWatcherPath, 'watch'], 'transcript watcher');
 }
