@@ -97,9 +97,12 @@ export class Statement<Row = unknown> {
     return this.stmt.all(...(normalizeParams(params) as never[])) as Row[];
   }
 
-  get(...params: BindParam[]): Row | undefined {
+  get(...params: BindParam[]): Row | null {
+    // bun:sqlite's `.get()` returns `null` (not `undefined`) when there are no
+    // rows; node:sqlite returns `undefined`. Normalize to null so call sites and
+    // tests written against bun's contract (e.g. `expect(row).toBeNull()`) hold.
     const row = this.stmt.get(...(normalizeParams(params) as never[]));
-    return (row ?? undefined) as Row | undefined;
+    return (row ?? null) as Row | null;
   }
 
   run(...params: BindParam[]): RunResult {
