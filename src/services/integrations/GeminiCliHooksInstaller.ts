@@ -161,7 +161,7 @@ export async function installGeminiCliHooks(): Promise<number> {
   const workerServicePath = findWorkerServicePath();
   if (!workerServicePath) {
     console.error('Could not find worker-service.cjs');
-    console.error('   Expected at: ~/.claude/plugins/marketplaces/thedotmack/plugin/scripts/worker-service.cjs');
+    console.error('   Expected at: ~/.claude/plugins/marketplaces/keepmind/plugin/scripts/worker-service.cjs');
     return 1;
   }
 
@@ -209,7 +209,7 @@ Hooks installed to: ${GEMINI_SETTINGS_PATH}
 Using unified CLI: bun worker-service.cjs hook gemini-cli <event>
 
 Next steps:
-  1. Start claude-mem worker: claude-mem start
+  1. Start keepmind worker: keepmind start
   2. Restart Gemini CLI to load the hooks
   3. Memory will be captured automatically during sessions
 

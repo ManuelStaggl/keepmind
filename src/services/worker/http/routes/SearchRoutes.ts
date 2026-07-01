@@ -43,7 +43,7 @@ const cachedOnboardingExplainer: string | null = (() => {
 // practice and long enough to absorb hook bursts.
 const SETTINGS_CACHE_TTL_MS = 5000;
 
-const WELCOME_HINT_TEMPLATE = `# claude-mem status
+const WELCOME_HINT_TEMPLATE = `# keepmind status
 
 This project has no memory yet. The current session will seed it; subsequent sessions will receive auto-injected context for relevant past work.
 

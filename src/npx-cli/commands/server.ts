@@ -13,7 +13,7 @@ import {
 // local worker daemon.
 
 function printServerUsage(): void {
-  console.error(`Usage: ${pc.bold('npx claude-mem server <command>')}`);
+  console.error(`Usage: ${pc.bold('npx keepmind server <command>')}`);
   console.error('Commands: api-key create|list|revoke');
 }
 
@@ -51,7 +51,7 @@ export async function runServerCommand(argv: string[] = []): Promise<void> {
       return;
     }
     console.error(pc.red(`Unknown server api-key subcommand: ${apiKeyCommand ?? '(none)'}`));
-    console.error('Usage: npx claude-mem server api-key create|list|revoke');
+    console.error('Usage: npx keepmind server api-key create|list|revoke');
     process.exit(1);
   }
 
@@ -65,7 +65,7 @@ export function runWorkerAliasCommand(argv: string[] = []): void {
 
   if (!subCommand || !runWorkerLifecycleCommand(subCommand)) {
     console.error(pc.red(`Unknown worker command: ${subCommand ?? '(none)'}`));
-    console.error('Usage: npx claude-mem worker start|stop|restart|status');
+    console.error('Usage: npx keepmind worker start|stop|restart|status');
     process.exit(1);
   }
 }

@@ -10,7 +10,7 @@ import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js
 function ensureInstalledOrExit(): void {
   if (!isPluginInstalled()) {
     console.error(pc.red('claude-mem is not installed.'));
-    console.error(`Run: ${pc.bold('npx claude-mem install')}`);
+    console.error(`Run: ${pc.bold('npx keepmind install')}`);
     process.exit(1);
   }
 }
@@ -34,7 +34,7 @@ function workerServiceScriptPath(): string {
  * Spawn a plugin .cjs script under Bun with inherited stdio, exiting this
  * process with the child's exit code. `args[0]` is the script path. Sanitizes
  * host CLI bleed-through and Anthropic credentials before launch; credentials
- * are re-read from ~/.claude-mem/.env at SDK spawn time (#2357 / #2375).
+ * are re-read from ~/.keepmind/.env at SDK spawn time (#2357 / #2375).
  */
 function spawnPlugin(bunPath: string, args: string[], startFailureLabel = 'Bun'): void {
   const child = spawnHidden(bunPath, args, {
@@ -60,7 +60,7 @@ function spawnBunWorkerCommand(command: string, extraArgs: string[] = []): void 
 
   if (!existsSync(workerScript)) {
     console.error(pc.red(`Worker script not found at: ${workerScript}`));
-    console.error('The installation may be corrupted. Try: npx claude-mem install');
+    console.error('The installation may be corrupted. Try: npx keepmind install');
     process.exit(1);
   }
 
@@ -94,7 +94,7 @@ export function runAdoptCommand(extraArgs: string[] = []): void {
 
   if (!existsSync(workerScript)) {
     console.error(pc.red(`Worker script not found at: ${workerScript}`));
-    console.error('The installation may be corrupted. Try: npx claude-mem install');
+    console.error('The installation may be corrupted. Try: npx keepmind install');
     process.exit(1);
   }
 
@@ -111,7 +111,7 @@ export async function runSearchCommand(queryParts: string[]): Promise<void> {
 
   const query = queryParts.join(' ').trim();
   if (!query) {
-    console.error(pc.red('Usage: npx claude-mem search <query>'));
+    console.error(pc.red('Usage: npx keepmind search <query>'));
     process.exit(1);
   }
 
@@ -126,7 +126,7 @@ export async function runSearchCommand(queryParts: string[]): Promise<void> {
     const cause = error instanceof Error ? (error as any).cause : undefined;
     if (cause?.code === 'ECONNREFUSED' || message.includes('ECONNREFUSED')) {
       console.error(pc.red('Worker is not running.'));
-      console.error(`Start it with: ${pc.bold('npx claude-mem start')}`);
+      console.error(`Start it with: ${pc.bold('npx keepmind start')}`);
       process.exit(1);
     }
     console.error(pc.red(`Search failed: ${message}`));
@@ -136,7 +136,7 @@ export async function runSearchCommand(queryParts: string[]): Promise<void> {
   if (!response.ok) {
     if (response.status === 404) {
       console.error(pc.red('Search endpoint not found. Is the worker running?'));
-      console.error(`Try: ${pc.bold('npx claude-mem start')}`);
+      console.error(`Try: ${pc.bold('npx keepmind start')}`);
       process.exit(1);
     }
     console.error(pc.red(`Search failed: HTTP ${response.status}`));

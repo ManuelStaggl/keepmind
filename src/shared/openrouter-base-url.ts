@@ -21,7 +21,7 @@
  *   DeepSeek:
  *     CLAUDE_MEM_OPENROUTER_BASE_URL = https://api.deepseek.com
  *     CLAUDE_MEM_OPENROUTER_MODEL    = deepseek-chat
- *     OPENROUTER_API_KEY (in ~/.claude-mem/.env) = <deepseek key>
+ *     OPENROUTER_API_KEY (in ~/.keepmind/.env) = <deepseek key>
  *
  *   LM Studio (local, no key required):
  *     CLAUDE_MEM_OPENROUTER_BASE_URL = http://localhost:1234/v1

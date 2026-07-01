@@ -4,7 +4,7 @@ import type { InstallOptions } from './commands/install.js';
 
 const args = process.argv.slice(2);
 const firstArg = args[0]?.toLowerCase() ?? '';
-// If the first token is a flag (e.g. `npx claude-mem --provider claude`),
+// If the first token is a flag (e.g. `npx keepmind --provider claude`),
 // treat the invocation as `install` with those flags. Help/version flags are
 // handled directly so they don't get swallowed by the install path.
 const HELP_OR_VERSION_FLAGS = new Set(['-h', '--help', '-v', '--version']);
@@ -17,34 +17,34 @@ function printHelp(): void {
   const version = readPluginVersion();
 
   console.log(`
-${pc.bold('claude-mem')} v${version} — persistent memory for AI coding assistants
+${pc.bold('keepmind')} v${version} — persistent memory for AI coding assistants
 
 ${pc.bold('Install Commands')} (no Bun required):
-  ${pc.cyan('npx claude-mem')}                     Interactive install
-  ${pc.cyan('npx claude-mem install')}              Interactive install
-  ${pc.cyan('npx claude-mem install --ide <id>')}   Install for specific IDE
-  ${pc.cyan('npx claude-mem install --provider claude|gemini|openrouter')}   Set LLM provider non-interactively
-  ${pc.cyan('npx claude-mem install --model <id>')}   Set Claude model (when provider=claude)
-  ${pc.cyan('npx claude-mem install --no-auto-start')}   Skip worker auto-start at the end
-  ${pc.cyan('npx claude-mem install --disable-auto-memory')}   Explicitly disable Claude Code native auto-memory
-  ${pc.cyan('npx claude-mem repair')}                Repair runtime (re-runs Bun/uv setup and bun install in plugin cache)
-  ${pc.cyan('npx claude-mem update')}               Update to latest version
-  ${pc.cyan('npx claude-mem uninstall')}            Remove plugin and configs
-  ${pc.cyan('npx claude-mem version')}              Print version
+  ${pc.cyan('npx keepmind')}                     Interactive install
+  ${pc.cyan('npx keepmind install')}              Interactive install
+  ${pc.cyan('npx keepmind install --ide <id>')}   Install for specific IDE
+  ${pc.cyan('npx keepmind install --provider claude|gemini|openrouter')}   Set LLM provider non-interactively
+  ${pc.cyan('npx keepmind install --model <id>')}   Set Claude model (when provider=claude)
+  ${pc.cyan('npx keepmind install --no-auto-start')}   Skip worker auto-start at the end
+  ${pc.cyan('npx keepmind install --disable-auto-memory')}   Explicitly disable Claude Code native auto-memory
+  ${pc.cyan('npx keepmind repair')}                Repair runtime (re-runs Bun/uv setup and bun install in plugin cache)
+  ${pc.cyan('npx keepmind update')}               Update to latest version
+  ${pc.cyan('npx keepmind uninstall')}            Remove plugin and configs
+  ${pc.cyan('npx keepmind version')}              Print version
 
 ${pc.bold('Runtime Commands')} (requires Bun, delegates to installed plugin):
-  ${pc.cyan('npx claude-mem start')}                Start worker service
-  ${pc.cyan('npx claude-mem stop')}                 Stop worker service
-  ${pc.cyan('npx claude-mem restart')}              Restart worker service
-  ${pc.cyan('npx claude-mem status')}               Show worker status
-  ${pc.cyan('npx claude-mem doctor')}               Diagnose install/runtime health (bun, uv, worker)
-  ${pc.cyan('npx claude-mem telemetry status|enable|disable')}   Manage anonymous telemetry (on by default, opt-out)
-  ${pc.cyan('npx claude-mem server api-key create|list|revoke')}   Manage local SQLite API keys (for the local v1 routes)
-  ${pc.cyan('npx claude-mem worker start|stop|restart|status')}    Worker compatibility aliases
-  ${pc.cyan('npx claude-mem search <query>')}       Search observations
-  ${pc.cyan('npx claude-mem adopt [--dry-run] [--branch <name>]')}    Stamp merged worktrees into parent project
-  ${pc.cyan('npx claude-mem cleanup [--dry-run]')}    Run one-time v12.4.3 pollution cleanup (or preview counts)
-  ${pc.cyan('npx claude-mem transcript watch')}     Start transcript watcher
+  ${pc.cyan('npx keepmind start')}                Start worker service
+  ${pc.cyan('npx keepmind stop')}                 Stop worker service
+  ${pc.cyan('npx keepmind restart')}              Restart worker service
+  ${pc.cyan('npx keepmind status')}               Show worker status
+  ${pc.cyan('npx keepmind doctor')}               Diagnose install/runtime health (bun, uv, worker)
+  ${pc.cyan('npx keepmind telemetry status|enable|disable')}   Manage anonymous telemetry (on by default, opt-out)
+  ${pc.cyan('npx keepmind server api-key create|list|revoke')}   Manage local SQLite API keys (for the local v1 routes)
+  ${pc.cyan('npx keepmind worker start|stop|restart|status')}    Worker compatibility aliases
+  ${pc.cyan('npx keepmind search <query>')}       Search observations
+  ${pc.cyan('npx keepmind adopt [--dry-run] [--branch <name>]')}    Stamp merged worktrees into parent project
+  ${pc.cyan('npx keepmind cleanup [--dry-run]')}    Run one-time v12.4.3 pollution cleanup (or preview counts)
+  ${pc.cyan('npx keepmind transcript watch')}     Start transcript watcher
 
 ${pc.bold('IDE Identifiers')}:
   claude-code, cursor, gemini-cli, opencode, openclaw,
@@ -201,7 +201,7 @@ async function main(): Promise<void> {
         runTranscriptWatchCommand();
       } else {
         console.error(pc.red(`Unknown transcript subcommand: ${subCommand ?? '(none)'}`));
-        console.error(`Usage: npx claude-mem transcript watch`);
+        console.error(`Usage: npx keepmind transcript watch`);
         process.exit(1);
       }
       break;
@@ -209,7 +209,7 @@ async function main(): Promise<void> {
 
     default: {
       console.error(pc.red(`Unknown command: ${command}`));
-      console.error(`Run ${pc.bold('npx claude-mem --help')} for usage information.`);
+      console.error(`Run ${pc.bold('npx keepmind --help')} for usage information.`);
       process.exit(1);
     }
   }

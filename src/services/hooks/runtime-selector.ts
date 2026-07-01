@@ -2,7 +2,7 @@
 //
 // Phase 7 — Runtime selector for hook subcommands.
 //
-// Reads `CLAUDE_MEM_RUNTIME` from `~/.claude-mem/settings.json` (via
+// Reads `CLAUDE_MEM_RUNTIME` from `~/.keepmind/settings.json` (via
 // `loadFromFileOnce`) and decides whether the hook should call the
 // server /v1 endpoints or fall through to the worker compat path.
 //

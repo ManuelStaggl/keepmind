@@ -116,7 +116,7 @@ export function findBuiltPluginPath(): string | null {
   const possiblePaths = [
     path.join(
       process.env.CLAUDE_CONFIG_DIR || path.join(homedir(), '.claude'),
-      'plugins', 'marketplaces', 'thedotmack',
+      'plugins', 'marketplaces', 'keepmind',
       'dist', 'opencode-plugin', 'index.js',
     ),
     path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'dist', 'opencode-plugin', 'index.js'),
@@ -336,7 +336,7 @@ Plugin installed to: ${getInstalledPluginPath()}
 Context file: ${getOpenCodeAgentsMdPath()}
 
 Next steps:
-  1. Start claude-mem worker: npx claude-mem start
+  1. Start keepmind worker: npx keepmind start
   2. Restart OpenCode to load the plugin
   3. Memory capture is automatic from then on
 `);

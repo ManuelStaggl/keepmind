@@ -34,7 +34,7 @@ import { clearDependencyStatus, recordClaudeCliSetupRequired } from '../../share
 /**
  * Module-scoped guard so the "effort parameter" hint only fires once per
  * worker process. The underlying cause (a leaked CLAUDE_CODE_EFFORT_LEVEL in
- * ~/.claude-mem/.env, see #2357) is environmental — re-logging it on every
+ * ~/.keepmind/.env, see #2357) is environmental — re-logging it on every
  * SDK call would spam the logs without adding signal.
  *
  * Exported solely for tests to reset the latch between cases.
@@ -129,8 +129,8 @@ export function classifyClaudeError(err: unknown): ClassifiedProviderError {
       logger.warn(
         'SDK',
         'Anthropic API rejected request with HTTP 400: this model does not support the `effort` parameter. ' +
-          'CLAUDE_CODE_EFFORT_LEVEL is likely leaking into the SDK subprocess env via ~/.claude-mem/.env — ' +
-          'remove it or scope it to models that support effort. See https://github.com/thedotmack/claude-mem/issues/2357.',
+          'CLAUDE_CODE_EFFORT_LEVEL is likely leaking into the SDK subprocess env via ~/.keepmind/.env — ' +
+          'remove it or scope it to models that support effort. See https://github.com/ManuelStaggl/keepmind/issues/2357.',
         { status: 400 }
       );
     }
@@ -245,7 +245,7 @@ export class ClaudeProvider {
         contentSessionId: session.contentSessionId,
         project: session.project,
         model: modelId,
-        env: isolatedEnv,  // Use isolated credentials from ~/.claude-mem/.env, not process.env
+        env: isolatedEnv,  // Use isolated credentials from ~/.keepmind/.env, not process.env
         pathToClaudeCodeExecutable: claudePath,
         abortController: session.abortController,
         ...(shouldResume && session.memorySessionId ? { resume: session.memorySessionId } : {}),
@@ -364,7 +364,7 @@ export class ClaudeProvider {
           }
 
           if (typeof textContent === 'string' && textContent.includes('Invalid API key')) {
-            throw new Error('Invalid API key: check your API key configuration in ~/.claude-mem/settings.json or ~/.claude-mem/.env');
+            throw new Error('Invalid API key: check your API key configuration in ~/.keepmind/settings.json or ~/.keepmind/.env');
           }
 
           await processAgentResponse(

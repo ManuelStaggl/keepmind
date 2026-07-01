@@ -32,7 +32,7 @@ export function getOpenClawConfigFilePath(): string {
 const OPENCLAW_MARKETPLACE_ROOTS = [
   path.join(
     process.env.CLAUDE_CONFIG_DIR || path.join(homedir(), '.claude'),
-    'plugins', 'marketplaces', 'thedotmack',
+    'plugins', 'marketplaces', 'keepmind',
   ),
   process.cwd(),
 ];
@@ -158,7 +158,7 @@ export function installOpenClawPlugin(): number {
   const skillsDirectory = findPluginSkillsDirectory();
 
   const extensionPackageJson = {
-    name: 'claude-mem',
+    name: 'keepmind',
     version: '1.0.0',
     type: 'module',
     main: 'dist/index.js',
@@ -301,7 +301,7 @@ Plugin installed to: ${extensionDirectory}
 Config updated: ${getOpenClawConfigFilePath()}
 
 Next steps:
-  1. Start claude-mem worker: npx claude-mem start
+  1. Start keepmind worker: npx keepmind start
   2. Restart OpenClaw to load the plugin
   3. Memory capture is automatic from then on
 `);

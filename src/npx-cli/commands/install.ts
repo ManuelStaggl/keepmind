@@ -155,10 +155,10 @@ import { detectInstalledIDEs } from './ide-detection.js';
 function registerMarketplace(): void {
   const knownMarketplaces = readJsonSafe<Record<string, any>>(knownMarketplacesPath(), {});
 
-  knownMarketplaces['thedotmack'] = {
+  knownMarketplaces['keepmind'] = {
     source: {
       source: 'github',
-      repo: 'thedotmack/claude-mem',
+      repo: 'ManuelStaggl/keepmind',
     },
     installLocation: marketplaceDirectory(),
     lastUpdated: new Date().toISOString(),
@@ -178,7 +178,7 @@ function registerPlugin(version: string): void {
   const cachePath = pluginCacheDirectory(version);
   const now = new Date().toISOString();
 
-  installedPlugins.plugins['claude-mem@thedotmack'] = [
+  installedPlugins.plugins['keepmind@keepmind'] = [
     {
       scope: 'user',
       installPath: cachePath,
@@ -195,7 +195,7 @@ function enablePluginInClaudeSettings(): void {
   const settings = readJsonSafe<Record<string, any>>(claudeSettingsPath(), {});
 
   if (!settings.enabledPlugins) settings.enabledPlugins = {};
-  settings.enabledPlugins['claude-mem@thedotmack'] = true;
+  settings.enabledPlugins['keepmind@keepmind'] = true;
 
   writeJsonFileAtomic(claudeSettingsPath(), settings);
 }
@@ -307,7 +307,7 @@ function makeIDETask(ideId: string, summary: InstallSummary): TaskDescriptor | n
           if (mcpResult === 0) {
             return `Cursor: hooks + MCP installed ${pc.green('OK')}`;
           }
-          return `Cursor: hooks installed; MCP setup failed — run \`npx claude-mem cursor mcp\` ${pc.yellow('!')}`;
+          return `Cursor: hooks installed; MCP setup failed — run \`npx keepmind cursor mcp\` ${pc.yellow('!')}`;
         },
       };
     }
@@ -830,7 +830,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
       CLAUDE_MEM_PROVIDER: 'claude',
       CLAUDE_MEM_CLAUDE_AUTH_METHOD: resolvedAuthMethod,
     });
-    if (wrote) log.info('Saved Claude Agent SDK configuration to ~/.claude-mem/settings.json');
+    if (wrote) log.info('Saved Claude Agent SDK configuration to ~/.keepmind/settings.json');
   };
 
   const useSubscriptionAuth = () => {
@@ -931,7 +931,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
     if (tokenCancelled || tokenInput.length === 0) {
       log.info('Gateway URL saved; existing gateway token preserved.');
     } else {
-      log.info('Configured Claude Agent SDK gateway in ~/.claude-mem/.env.');
+      log.info('Configured Claude Agent SDK gateway in ~/.keepmind/.env.');
     }
   };
 
@@ -942,7 +942,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
         return 'claude';
       }
       const wrote = mergeSettings({ CLAUDE_MEM_PROVIDER: options.provider });
-      if (wrote) log.info(`Saved provider=${options.provider} to ~/.claude-mem/settings.json`);
+      if (wrote) log.info(`Saved provider=${options.provider} to ~/.keepmind/settings.json`);
       log.warn(`Provider=${options.provider} requested non-interactively. API key prompt skipped — set CLAUDE_MEM_${options.provider.toUpperCase()}_API_KEY and CLAUDE_MEM_PROVIDER in settings.json or env manually if not already set.`);
       return options.provider;
     }
@@ -1026,7 +1026,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
   const existingKey = getSetting(keyEnvName as keyof SettingsDefaults) as string | undefined;
   if (existingKey && existingKey.trim().length > 0) {
     const wrote = mergeSettings({ CLAUDE_MEM_PROVIDER: selectedProvider });
-    if (wrote) log.info(`Saved provider=${selectedProvider} to ~/.claude-mem/settings.json`);
+    if (wrote) log.info(`Saved provider=${selectedProvider} to ~/.keepmind/settings.json`);
     return selectedProvider;
   }
 
@@ -1048,7 +1048,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
     [keyEnvName]: apiKey,
   });
   if (wrote) {
-    log.info(`Saved provider=${selectedProvider} to ~/.claude-mem/settings.json`);
+    log.info(`Saved provider=${selectedProvider} to ~/.keepmind/settings.json`);
   }
   return selectedProvider;
 }
@@ -1069,14 +1069,14 @@ async function promptClaudeModel(options: InstallOptions): Promise<void> {
     }
     const wrote = mergeSettings({ CLAUDE_MEM_MODEL: options.model });
     if (wrote) {
-      log.info(`Saved Claude model=${options.model} to ~/.claude-mem/settings.json`);
+      log.info(`Saved Claude model=${options.model} to ~/.keepmind/settings.json`);
     }
     return;
   }
   if (options.model && allowCustomModel) {
     const wrote = mergeSettings({ CLAUDE_MEM_MODEL: options.model });
     if (wrote) {
-      log.info(`Saved gateway model=${options.model} to ~/.claude-mem/settings.json`);
+      log.info(`Saved gateway model=${options.model} to ~/.keepmind/settings.json`);
     }
     return;
   }
@@ -1101,7 +1101,7 @@ async function promptClaudeModel(options: InstallOptions): Promise<void> {
     const selectedModel = String(result).trim();
     const wrote = mergeSettings({ CLAUDE_MEM_MODEL: selectedModel });
     if (wrote) {
-      log.info(`Saved gateway model=${selectedModel} to ~/.claude-mem/settings.json`);
+      log.info(`Saved gateway model=${selectedModel} to ~/.keepmind/settings.json`);
     }
     return;
   }
@@ -1126,7 +1126,7 @@ async function promptClaudeModel(options: InstallOptions): Promise<void> {
 
   const wrote = mergeSettings({ CLAUDE_MEM_MODEL: selectedModel });
   if (wrote) {
-    log.info(`Saved Claude model=${selectedModel} to ~/.claude-mem/settings.json`);
+    log.info(`Saved Claude model=${selectedModel} to ~/.keepmind/settings.json`);
   }
 }
 
@@ -1368,7 +1368,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   }
 
   const dot = pc.dim('·');
-  const segments = [`${pc.bold('claude-mem')} ${pc.cyan(`v${version}`)}`];
+  const segments = [`${pc.bold('keepmind')} ${pc.cyan(`v${version}`)}`];
   if (existingVersion && existingVersion !== version) {
     segments.push(`installed ${pc.yellow(`v${existingVersion}`)}`);
   } else if (existingVersion) {
@@ -1580,7 +1580,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
       title: selectedRuntime === 'server' ? 'Starting server daemon' : 'Starting worker daemon',
       task: async (message) => {
         if (selectedRuntime === 'server') {
-          return `Server runtime selected — start it with ${pc.bold('npx claude-mem server start')} ${pc.dim('(or via Docker compose)')}`;
+          return `Server runtime selected — start it with ${pc.bold('npx keepmind server start')} ${pc.dim('(or via Docker compose)')}`;
         }
         if (autoStartSkipped) {
           return isInteractive
@@ -1601,7 +1601,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
           case 'warming':
             return `Worker starting on port ${port} — finishing in background ${pc.yellow('⏳')}`;
           case 'dead':
-            return `Worker did not start — try \`npx claude-mem start\` manually ${pc.yellow('!')}`;
+            return `Worker did not start — try \`npx keepmind start\` manually ${pc.yellow('!')}`;
         }
       },
     },
@@ -1681,7 +1681,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   const finalWorkerState = workerStartResult as WorkerStartResult;
   const workerAlive = finalWorkerState !== 'dead' || workerReady;
   const runtimeLabel = selectedRuntime === 'server' ? 'Server' : 'Worker';
-  const runtimeStartCommand = selectedRuntime === 'server' ? 'npx claude-mem server start' : 'npx claude-mem start';
+  const runtimeStartCommand = selectedRuntime === 'server' ? 'npx keepmind server start' : 'npx keepmind start';
   const workerHeadline = autoStartSkipped
     ? `${pc.yellow('!')} ${runtimeLabel} autostart skipped — start it manually with ${pc.bold(runtimeStartCommand)}`
     : workerReady || finalWorkerState === 'ready'
@@ -1698,10 +1698,10 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
         `  ${pc.cyan('B.')} Front-load it: open Claude Code and run ${pc.bold('/learn-codebase')} to ingest the whole repo (~5 min, optional).`,
         ``,
         `Memory injection starts on your second session in a project.`,
-        `Everything stays in ${pc.cyan('~/.claude-mem')} on this machine.`,
+        `Everything stays in ${pc.cyan('~/.keepmind')} on this machine.`,
         ``,
         `${pc.dim('How it works: /how-it-works   ·   Disable first-session hint: CLAUDE_MEM_WELCOME_HINT_ENABLED=false')}`,
-        `${pc.dim('Note: close all Claude Code sessions before uninstalling, or ~/.claude-mem will be recreated by active hooks.')}`,
+        `${pc.dim('Note: close all Claude Code sessions before uninstalling, or ~/.keepmind will be recreated by active hooks.')}`,
       ]
     : workerAlive
     ? [
@@ -1714,13 +1714,13 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
         `  ${pc.cyan('B.')} Front-load it: open Claude Code and run ${pc.bold('/learn-codebase')} to ingest the whole repo (~5 min, optional).`,
         ``,
         `Memory injection starts on your second session in a project.`,
-        `Everything stays in ${pc.cyan('~/.claude-mem')} on this machine.`,
+        `Everything stays in ${pc.cyan('~/.keepmind')} on this machine.`,
         ``,
         `${pc.dim('How it works: /how-it-works   ·   Disable first-session hint: CLAUDE_MEM_WELCOME_HINT_ENABLED=false')}`,
-        `${pc.dim('Note: close all Claude Code sessions before uninstalling, or ~/.claude-mem will be recreated by active hooks.')}`,
+        `${pc.dim('Note: close all Claude Code sessions before uninstalling, or ~/.keepmind will be recreated by active hooks.')}`,
       ]
     : [
-        `${pc.yellow('!')} Worker not yet ready on port ${pc.cyan(String(workerPort))} -- still starting up; check ${pc.bold('claude-mem status')} later, or start manually: ${pc.bold('npx claude-mem start')}`,
+        `${pc.yellow('!')} Worker not yet ready on port ${pc.cyan(String(workerPort))} -- still starting up; check ${pc.bold('keepmind status')} later, or start manually: ${pc.bold('npx keepmind start')}`,
         ``,
         `${pc.bold('First success:')} keep ${pc.underline(`http://localhost:${workerPort}`)} open in a browser, then open Claude Code in any project. Observations stream in as Claude reads, edits, and runs commands.`,
         ``,
@@ -1729,10 +1729,10 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
         `  ${pc.cyan('B.')} Front-load it: open Claude Code and run ${pc.bold('/learn-codebase')} to ingest the whole repo (~5 min, optional).`,
         ``,
         `Memory injection starts on your second session in a project.`,
-        `Everything stays in ${pc.cyan('~/.claude-mem')} on this machine.`,
+        `Everything stays in ${pc.cyan('~/.keepmind')} on this machine.`,
         ``,
         `${pc.dim('How it works: /how-it-works   ·   Disable first-session hint: CLAUDE_MEM_WELCOME_HINT_ENABLED=false')}`,
-        `${pc.dim('Note: close all Claude Code sessions before uninstalling, or ~/.claude-mem will be recreated by active hooks.')}`,
+        `${pc.dim('Note: close all Claude Code sessions before uninstalling, or ~/.keepmind will be recreated by active hooks.')}`,
       ];
 
   if (isInteractive) {

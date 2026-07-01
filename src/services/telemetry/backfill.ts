@@ -33,7 +33,7 @@ import {
  *  - one `install_inferred` person event at noon UTC of the inferred
  *    install day.
  *
- * Idempotency: a completion marker (~/.claude-mem/backfill.json) is the
+ * Idempotency: a completion marker (~/.keepmind/backfill.json) is the
  * primary gate; deterministic per-event UUIDs minimize damage in the
  * crash-retry window (PostHog dedupe is best-effort, merge-time).
  */

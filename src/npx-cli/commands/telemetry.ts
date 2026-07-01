@@ -1,5 +1,5 @@
 /**
- * `npx claude-mem telemetry [status|enable|disable]` — manage anonymous usage
+ * `npx keepmind telemetry [status|enable|disable]` — manage anonymous usage
  * analytics. Telemetry is ON by default (opt-out): anonymous events only,
  * identified by a random install UUID. Turn it off anytime with
  * `telemetry disable`, CLAUDE_MEM_TELEMETRY=0, or DO_NOT_TRACK=1.
@@ -102,7 +102,7 @@ const SOURCE_LABELS: Record<TelemetryConsentSource, string> = {
 };
 
 function printTelemetryUsage(): void {
-  console.error(`Usage: ${pc.bold('npx claude-mem telemetry [status|enable|disable]')}`);
+  console.error(`Usage: ${pc.bold('npx keepmind telemetry [status|enable|disable]')}`);
   console.error('  status   Show whether telemetry is on and which setting decided it (default)');
   console.error('  enable   Turn anonymous usage analytics back on (interactive)');
   console.error('  disable  Opt out of telemetry');
@@ -183,7 +183,7 @@ async function runTelemetryEnable(): Promise<void> {
   });
 
   p.log.success(`Telemetry enabled. Config: ${getTelemetryConfigPath()}`);
-  p.outro(`Change your mind anytime: ${pc.cyan('npx claude-mem telemetry disable')}`);
+  p.outro(`Change your mind anytime: ${pc.cyan('npx keepmind telemetry disable')}`);
 }
 
 function runTelemetryDisable(): void {

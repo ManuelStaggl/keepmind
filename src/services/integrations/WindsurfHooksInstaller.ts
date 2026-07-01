@@ -167,7 +167,7 @@ export async function installWindsurfHooks(): Promise<number> {
   const workerServicePath = findWorkerServicePath();
   if (!workerServicePath) {
     console.error('Could not find worker-service.cjs');
-    console.error('   Expected at: ~/.claude/plugins/marketplaces/thedotmack/plugin/scripts/worker-service.cjs');
+    console.error('   Expected at: ~/.claude/plugins/marketplaces/keepmind/plugin/scripts/worker-service.cjs');
     return 1;
   }
 
@@ -220,7 +220,7 @@ Events registered:
   - post_cascade_response (full AI response)
 
 Next steps:
-  1. Start claude-mem worker: claude-mem start
+  1. Start keepmind worker: keepmind start
   2. Restart Windsurf to load the hooks
   3. Context is injected via .windsurf/rules/claude-mem-context.md (workspace-level)
 `);

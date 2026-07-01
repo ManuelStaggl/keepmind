@@ -57,7 +57,7 @@ function installMcpIntegration(config: McpInstallerConfig): () => Promise<number
     const mcpServerPath = getMcpServerAbsolutePath();
     if (!mcpServerPath) {
       console.error('Could not find MCP server script');
-      console.error('   Expected at: ~/.claude/plugins/marketplaces/thedotmack/plugin/scripts/mcp-server.cjs');
+      console.error('   Expected at: ~/.claude/plugins/marketplaces/keepmind/plugin/scripts/mcp-server.cjs');
       return 1;
     }
 
@@ -113,7 +113,7 @@ function writeMcpConfigAndContext(
   }
   summaryLines.push('');
   summaryLines.push('Next steps:');
-  summaryLines.push('  1. Start claude-mem worker: npx claude-mem start');
+  summaryLines.push('  1. Start keepmind worker: npx keepmind start');
   summaryLines.push(`  2. Restart ${config.ideLabel} to pick up the MCP server`);
   summaryLines.push('');
   console.log(summaryLines.join('\n'));
@@ -188,7 +188,7 @@ export async function installGooseMcpIntegration(): Promise<number> {
   const mcpServerPath = getMcpServerAbsolutePath();
   if (!mcpServerPath) {
     console.error('Could not find MCP server script');
-    console.error('   Expected at: ~/.claude/plugins/marketplaces/thedotmack/plugin/scripts/mcp-server.cjs');
+    console.error('   Expected at: ~/.claude/plugins/marketplaces/keepmind/plugin/scripts/mcp-server.cjs');
     return 1;
   }
 
@@ -253,7 +253,7 @@ Note: This is an MCP-only integration providing search tools and context.
 Transcript capture is not available for Goose.
 
 Next steps:
-  1. Start claude-mem worker: npx claude-mem start
+  1. Start keepmind worker: npx keepmind start
   2. Restart Goose to pick up the MCP server
 `);
 }

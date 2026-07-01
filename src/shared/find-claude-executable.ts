@@ -254,7 +254,7 @@ function discoverCandidates(): string[] {
 function updateInstructions(): string {
   return (
     'Update it (`claude update`, or `npm install -g @anthropic-ai/claude-code@latest` for npm installs), ' +
-    'remove stale duplicate installs, or set CLAUDE_CODE_PATH in ~/.claude-mem/settings.json to a current CLI.'
+    'remove stale duplicate installs, or set CLAUDE_CODE_PATH in ~/.keepmind/settings.json to a current CLI.'
   );
 }
 
@@ -378,6 +378,6 @@ export function findClaudeExecutable(logComponent: Component = 'SDK'): string {
   throw new Error(
     'Claude executable not found. Please either:\n' +
     '1. Add "claude" to your system PATH, or\n' +
-    '2. Set CLAUDE_CODE_PATH in ~/.claude-mem/settings.json'
+    '2. Set CLAUDE_CODE_PATH in ~/.keepmind/settings.json'
   );
 }
