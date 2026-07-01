@@ -29,7 +29,11 @@ function listReleases() {
 }
 
 function fetchReleaseBody(tagName) {
-  return exec(`gh release view ${tagName} --json body --jq '.body'`).trim();
+  // Parse the JSON in Node rather than piping through `--jq '.body'`: execSync
+  // runs via cmd.exe on Windows, which does not strip single quotes, so jq
+  // received a literal '.body' and failed. --json alone is shell-quote-free.
+  const json = exec(`gh release view ${tagName} --json body`);
+  return (JSON.parse(json).body ?? '').trim();
 }
 
 function formatDate(isoDate) {

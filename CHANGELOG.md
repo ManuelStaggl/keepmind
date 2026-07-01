@@ -4,6 +4,74 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.1.1] - 2026-07-01
+
+## Fixes
+
+- **doctor**: The "Marketplace deps" check probed `~/.claude/plugins/marketplaces/keepmind/node_modules` — a path neither `install` nor `repair` ever populates (`install` writes to the marketplace `plugin/` subdir, `repair` to the versioned cache dir). It reported a false failure on healthy installs, and its own recommended remediation (`npx keepmind repair`) could not clear it. The check now scans the cache dir for any version carrying `node_modules` (with a marketplace-plugin fallback) and is renamed to **"Plugin deps"**.
+- **release/CI**: Fixed the npm-publish pipeline so tagged releases build and pass the clean-room smoke gate:
+  - Track `plugin/.mcp.json` (a committed manifest the build verifies and the tarball ships) — the broad `.mcp.json` ignore rule had silently excluded it, breaking CI checkout.
+  - Renamed stale `claude-mem` references in the clean-room smoke test to `keepmind`.
+  - Bumped the publish workflow to Node 22 to satisfy `engines >=22.5` (worker uses `node:sqlite`).
+
+**Full Changelog**: https://github.com/ManuelStaggl/keepmind/compare/v1.1.0...v1.1.1
+
+## [1.1.0] - 2026-07-01
+
+## Fixes & improvements
+
+- **fix: keepmind never blocks your prompt when the worker is unreachable.** A transient worker hiccup or a slow first-boot vector backfill could escalate to a hard block on prompt submission (exit 2). keepmind now fails open — it surfaces a visible warning but always lets your prompt through.
+- **fix: the worker stays responsive during large backfills.** Vector-sync backfill now yields between embed batches so the worker's health endpoint isn't starved — this previously surfaced as "worker unreachable" hook failures during big post-migration backfills.
+- **feat: `keepmind doctor` now probes API TLS reachability.** It detects corporate TLS-interception certificate failures (e.g. `CERT_HAS_EXPIRED`) and prints the remediation, with a note about the Windows bundled-runtime CA limitation — turning a previously-silent "empty context" failure into an actionable diagnosis.
+- **docs: corrected data-dir paths** in the development guide to `~/.keepmind`.
+
+npm: `npx keepmind@1.1.0` (published separately by the maintainer).
+
+## [1.0.1] - 2026-07-01
+
+**keepmind v1.0.1** — a pre-public cleanup release that removes inherited upstream cruft so a fresh install is self-contained and unbranded.
+
+## Removed
+- **"CMEM Online" upsell** — the installer no longer shows a claude-mem SaaS pitch, and no longer POSTs your email to `cmem.ai/api/waitlist`. keepmind never phones home.
+- **OpenClaw integration** — the messaging-gateway feed (Telegram/Discord/Slack streaming) is gone: the `openclaw/` package, its installer, IDE-list/setup entries, build step, docs page, and the obsolete Vercel deploy workflow. If you don't run an OpenClaw gateway, you lose nothing.
+
+## Improved
+- **Clear install docs** — the README now states plainly that `npx keepmind@latest install` is the **one required setup step**. The `/plugin` marketplace flow alone only copies files; it does not install the runtime (worker, Bun/uv, deps), so nothing gets captured until you run the installer.
+
+## Install / upgrade
+```bash
+npx keepmind@latest install
+```
+Existing v1.0.0 users: re-run the installer to upgrade — migrated memories are preserved.
+
+**Requirements:** Node ≥ 22.5. Bun and uv are installed automatically at setup time.
+
+## [1.0.0] - 2026-07-01
+
+**keepmind v1.0.0 — first public release.**
+
+keepmind is a node-only, cross-platform fork of claude-mem: persistent memory for AI coding assistants (Claude Code, Codex, Cursor, and more). It captures observations from your sessions, compresses them with the Claude Agent SDK, and injects relevant context into future sessions — so your assistant remembers past work.
+
+## Highlights
+
+- **Node-only runtime** — the worker runs on Node's built-in `node:sqlite`; Bun is no longer required at runtime.
+- **In-process vector search** — semantic memory via `sqlite-vec` + transformers.js embeddings; no Chroma subprocess to manage.
+- **Windows-first, cross-platform** — path/locale normalization, portable worker lifecycle, and a green test suite on Windows.
+- **Telemetry-free** — the analytics/telemetry subsystem was removed entirely.
+- **`node:test` suite** — migrated off `bun:test`; runs on `node --test` (1867 passing).
+- **Interactive claude-mem migration** — first-run setup detects an existing claude-mem install, imports its memories losslessly (content-hash verified), and can remove claude-mem entirely — with an automatic backup — so only keepmind runs. Also headless: `npx keepmind migrate --purge --yes`.
+
+## Notable fixes
+
+- Worker lifecycle CLI (`start` / `stop` / `status` / `restart`) runs the worker under Node from the cache directory, resolving runtime deps correctly.
+- Deterministic cross-platform output (forward-slash relative paths, locale-independent number formatting).
+- `db.get()` returns `null` on empty results (bun:sqlite contract parity).
+- `isPidFileRecent` clamps age to ≥ 0, fixing a Windows filesystem-timestamp edge case.
+
+## Requirements
+
+- Node.js ≥ 22.5. Bun and uv are auto-installed by the installer where needed.
+
 ## [13.9.1] - 2026-06-29
 
 ## What's Changed
