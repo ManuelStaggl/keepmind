@@ -1,7 +1,8 @@
-Claude-Mem
-Copyright 2026 Alex Newman
+keepmind
+Copyright 2026 Manuel Staggl
 
-This product includes software developed for the Claude-Mem project.
+This product is a node-only fork of claude-mem.
+Original work: Copyright 2026 Alex Newman (thedotmack/claude-mem).
 
 Licensed under the Apache License, Version 2.0.
 

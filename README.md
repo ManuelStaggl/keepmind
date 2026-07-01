@@ -50,6 +50,8 @@
 
 <h4 align="center">Persistent memory compression system built for <a href="https://claude.com/claude-code" target="_blank">Claude Code</a>.</h4>
 
+<p align="center"><sub><strong>keepmind</strong> is a node-only fork of <a href="https://github.com/thedotmack/claude-mem">thedotmack/claude-mem</a> (Apache-2.0).</sub></p>
+
 <p align="center">
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License">

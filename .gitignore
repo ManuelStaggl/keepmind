@@ -37,7 +37,7 @@ src/ui/viewer.html
 
 plugin/.cli-installed
 
-plugin/scripts/claude-mem
+plugin/scripts/keepmind
 
 CONTRIB_NOTES.md
 
