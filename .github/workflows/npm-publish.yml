@@ -8,15 +8,23 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # OIDC trusted publishing: the runner mints a short-lived id-token that npm
+    # verifies against the package's configured trusted publisher — no stored
+    # NPM_TOKEN secret. Requires id-token: write.
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          # Must satisfy package.json engines (>=22.5.0): the worker uses
-          # node:sqlite, which is unavailable on Node 20 and made the
-          # smoke:clean-room worker-boot check exit 1.
-          node-version: '22'
+          # Node 24 ships an npm new enough for OIDC; also satisfies
+          # package.json engines (>=22.5, the worker uses node:sqlite).
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+      # Trusted publishing needs npm >= 11.5.1; guarantee it regardless of the
+      # npm bundled with the Node runtime above.
+      - run: npm install -g npm@latest
       - name: Install Bun (required by smoke:clean-room)
         uses: oven-sh/setup-bun@v2
         with:
@@ -24,6 +32,6 @@ jobs:
       - run: npm install --ignore-scripts
       - run: npm run build
       - run: npm run smoke:clean-room
+      # No NODE_AUTH_TOKEN — auth comes from the OIDC id-token. npm publishes
+      # with provenance automatically for trusted-publisher runs.
       - run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
