@@ -143,12 +143,31 @@ export const mock: MockNamespace = Object.assign(
 export function spyOn<T extends Record<string, any>, K extends keyof T>(obj: T, key: K): MockFn {
   const original = obj[key];
   let restored = false;
-  const restore = () => { if (!restored) { restored = true; obj[key] = original; } };
+  let installed = false;
+  // ES module namespace exports (e.g. `import * as m` of a tsx-compiled src
+  // module) are exotic: their own-property descriptor reports writable:true, but
+  // the namespace's [[Set]] always throws, so assignment fails at runtime. bun
+  // could patch such bindings; node cannot. When the assignment throws we degrade
+  // to a tracking spy that leaves the original in place rather than crashing —
+  // this matches bun's documented best-effort behavior for module-namespace
+  // spies (see tests/env-isolation.test.ts, where the load-bearing assertions are
+  // behavioral, not call-observation). CJS-backed builtins ('net', 'fs') and
+  // plain objects (logger, class statics) stay writable, so the normal
+  // replace-and-restore path still applies to them. `installed` guards restore so
+  // it never re-throws on a binding that was never replaced.
+  const restore = () => {
+    if (restored || !installed) return;
+    restored = true;
+    try { obj[key] = original; } catch { /* frozen — nothing to restore */ }
+  };
   const spy = makeMock(
     typeof original === 'function' ? (original.bind(obj) as MockFactory) : undefined,
     restore,
   );
-  obj[key] = spy as unknown as T[K];
+  try {
+    obj[key] = spy as unknown as T[K];
+    installed = true;
+  } catch { /* frozen namespace export — leave original in place */ }
   activeSpyRestores.push(restore);
   return spy;
 }

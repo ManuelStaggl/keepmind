@@ -105,9 +105,9 @@ describe('Plugin Distribution - Codex Marketplace', () => {
     const mcp = JSON.parse(readFileSync(mcpPath, 'utf-8'));
     const command = mcp.mcpServers['mcp-search'].args.join(' ');
 
-    expect(command).toContain('.codex/plugins/cache/claude-mem-local/claude-mem');
-    expect(command).toContain('plugins/cache/thedotmack/claude-mem');
-    expect(command).toContain('claude-mem: mcp server not found');
+    expect(command).toContain('.codex/plugins/cache/keepmind-local/keepmind');
+    expect(command).toContain('plugins/cache/keepmind/keepmind');
+    expect(command).toContain('keepmind: mcp server not found');
   });
 });
 
@@ -126,7 +126,7 @@ describe('Plugin Distribution - hooks.json Integrity', () => {
   });
 
   it('should include CLAUDE_PLUGIN_ROOT fallback in all hook commands (#1215)', () => {
-    const expectedFallbackPath = '$_C/plugins/marketplaces/thedotmack/plugin';
+    const expectedFallbackPath = '$_C/plugins/marketplaces/keepmind/plugin';
 
     for (const command of commandHooksFrom('plugin/hooks/hooks.json')) {
       expect(command).toContain(expectedFallbackPath);
@@ -134,8 +134,8 @@ describe('Plugin Distribution - hooks.json Integrity', () => {
   });
 
   it('should try cache path before marketplaces fallback in all hook commands (#1533)', () => {
-    const cachePath = '$_C/plugins/cache/thedotmack/claude-mem';
-    const marketplacesPath = '$_C/plugins/marketplaces/thedotmack/plugin';
+    const cachePath = '$_C/plugins/cache/keepmind/keepmind';
+    const marketplacesPath = '$_C/plugins/marketplaces/keepmind/plugin';
 
     for (const command of commandHooksFrom('plugin/hooks/hooks.json')) {
       expect(command).toContain(cachePath);
@@ -155,13 +155,13 @@ describe('Plugin Distribution - Startup Root Resolution', () => {
     expect(command).toContain('.claude');
     expect(command).toContain('CLAUDE_PLUGIN_ROOT');
     expect(command).toContain('PLUGIN_ROOT');
-    expect(command).toContain('plugins/marketplaces/thedotmack/plugin');
-    expect(command).toContain('plugins/cache/thedotmack/claude-mem');
+    expect(command).toContain('plugins/marketplaces/keepmind/plugin');
+    expect(command).toContain('plugins/cache/keepmind/keepmind');
     expect(command).toContain('mcp-server.cjs');
     // No bare absolute "/scripts/..." path leaks through.
     expect(command).not.toContain('"/scripts/mcp-server.cjs"');
-    expect(command.indexOf('plugins/cache/thedotmack/claude-mem')).toBeLessThan(
-      command.indexOf('plugins/marketplaces/thedotmack/plugin')
+    expect(command.indexOf('plugins/cache/keepmind/keepmind')).toBeLessThan(
+      command.indexOf('plugins/marketplaces/keepmind/plugin')
     );
   });
 
@@ -170,12 +170,12 @@ describe('Plugin Distribution - Startup Root Resolution', () => {
       expect(command).toContain('${CLAUDE_CONFIG_DIR:-$HOME/.claude}');
       expect(command).toContain('export PATH=');
       expect(command).toContain('while IFS= read -r _R');
-      expect(command).toContain('$_C/plugins/marketplaces/thedotmack/plugin');
-      expect(command).toContain('$_C/plugins/cache/thedotmack/claude-mem');
+      expect(command).toContain('$_C/plugins/marketplaces/keepmind/plugin');
+      expect(command).toContain('$_C/plugins/cache/keepmind/keepmind');
       expect(command).toContain('[ -f "$_Q/scripts/');
       expect(command).toContain('command -v cygpath');
-      expect(command.indexOf('$_C/plugins/cache/thedotmack/claude-mem')).toBeLessThan(
-        command.indexOf('$_C/plugins/marketplaces/thedotmack/plugin')
+      expect(command.indexOf('$_C/plugins/cache/keepmind/keepmind')).toBeLessThan(
+        command.indexOf('$_C/plugins/marketplaces/keepmind/plugin')
       );
     }
   });
@@ -184,8 +184,8 @@ describe('Plugin Distribution - Startup Root Resolution', () => {
     for (const command of commandHooksFrom('plugin/hooks/hooks.json')) {
       expect(command).toContain('${CLAUDE_CONFIG_DIR:-$HOME/.claude}');
       expect(command).toContain('while IFS= read -r _R');
-      expect(command).toContain('$_C/plugins/marketplaces/thedotmack/plugin');
-      expect(command).toContain('$_C/plugins/cache/thedotmack/claude-mem');
+      expect(command).toContain('$_C/plugins/marketplaces/keepmind/plugin');
+      expect(command).toContain('$_C/plugins/cache/keepmind/keepmind');
       expect(command).toContain('[ -f "$_Q/scripts/');
       expect(command).not.toContain('$HOME/.claude/plugins/');
     }
@@ -255,11 +255,11 @@ const ccTrailing = (...tail: string[]) => [
 ];
 const claudeHook = (tail: string[], extra: Record<string, unknown> = {}) => buildShellCommand({
   host: 'claude-code', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
-  trailingCommand: ccTrailing(...tail), notFoundMessage: 'claude-mem: plugin scripts not found', ...extra,
+  trailingCommand: ccTrailing(...tail), notFoundMessage: 'keepmind: plugin scripts not found', ...extra,
 });
 const codexHook = (tail: string[]) => buildShellCommand({
   host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
-  trailingCommand: ccTrailing(...tail), notFoundMessage: 'claude-mem: plugin scripts not found',
+  trailingCommand: ccTrailing(...tail), notFoundMessage: 'keepmind: plugin scripts not found',
   extraEnv: { CLAUDE_MEM_CODEX_HOOK: '1' },
 });
 const codexStartupHook = () => buildShellCommand({
@@ -270,7 +270,7 @@ const codexStartupHook = () => buildShellCommand({
     'CLAUDE_MEM_CODEX_HOOK=1', ...ccTrailing('hook', 'codex', 'context'),
     '; fi',
   ],
-  notFoundMessage: 'claude-mem: plugin scripts not found',
+  notFoundMessage: 'keepmind: plugin scripts not found',
 });
 
 const RULE_A_EXPECTATIONS: Record<string, Record<string, string>> = {
@@ -278,7 +278,7 @@ const RULE_A_EXPECTATIONS: Record<string, Record<string, string>> = {
     'Setup.0.0': buildShellCommand({
       host: 'claude-code-setup', requireFile: 'version-check.js',
       trailingCommand: ['node', '"$_P/scripts/version-check.js"'],
-      notFoundMessage: 'claude-mem: version-check.js not found',
+      notFoundMessage: 'keepmind: version-check.js not found',
     }),
     'SessionStart.0.0': claudeHook(['start'], { trailingJson: { continue: true, suppressOutput: true } }),
     'SessionStart.0.1': claudeHook(['hook', 'claude-code', 'context']),
@@ -300,11 +300,11 @@ const MCP_EXPECTED = buildShellCommand({
   // The mcp Node launcher derives its spawn target from requireFile; it ignores
   // trailingCommand, so none is passed (see buildMcpNodeLauncher).
   host: 'mcp', requireFile: 'mcp-server.cjs',
-  notFoundMessage: 'claude-mem: mcp server not found',
+  notFoundMessage: 'keepmind: mcp server not found',
   mcpExtraCandidates: ['$PWD/plugin', '$PWD'],
   mcpExtraCacheRoots: [
-    '$HOME/.codex/plugins/cache/claude-mem-local/claude-mem',
-    '$HOME/.codex/plugins/cache/thedotmack/claude-mem',
+    '$HOME/.codex/plugins/cache/keepmind-local/keepmind',
+    '$HOME/.codex/plugins/cache/keepmind/keepmind',
   ],
 });
 
@@ -376,6 +376,14 @@ describe('Spawn-Contract Templating - Rule A shell resolution matrix', () => {
   };
 
   it('resolves _P from CLAUDE_PLUGIN_ROOT when the env var points at a valid root', () => {
+    // reason: non-hermetic on Windows — the resolved root is a Node-native
+    // Windows path (backslashes + an 8.3 short name like ADMINI~1). Feeding it
+    // through MSYS `bash`'s `[ -f "$_Q/scripts/version-check.js" ]` test does
+    // not stat reliably, so `_P` resolves empty. The generated command's
+    // correctness is fully covered on Windows by the static Rule A/B
+    // expectation tests above; this live-eval variant validates real
+    // resolution on POSIX. Same class as the cache variant guarded below.
+    if (process.platform === 'win32') return;
     const root = mkdtempSync(path.join(tmpdir(), 'cm-root-'));
     mkdirSync(path.join(root, 'scripts'), { recursive: true });
     writeFileSync(path.join(root, 'scripts', 'version-check.js'), '');
@@ -395,8 +403,14 @@ describe('Spawn-Contract Templating - Rule A shell resolution matrix', () => {
   });
 
   it('resolves _P from the cache directory when CLAUDE_PLUGIN_ROOT is unset', () => {
+    // reason: non-hermetic on Windows — this variant flows the temp path through
+    // MSYS `bash`'s `ls -dt`, which emits a POSIX path (/tmp/...) that can't be
+    // string-matched against Node's native Windows path. The generated command
+    // is verified correct by the env-var and fail-cleanly variants (which don't
+    // depend on bash path translation). Runs normally on POSIX.
+    if (process.platform === 'win32') return;
     const home = mkdtempSync(path.join(tmpdir(), 'cm-home-'));
-    const cacheRoot = path.join(home, '.claude', 'plugins', 'cache', 'thedotmack', 'claude-mem', '99.0.0');
+    const cacheRoot = path.join(home, '.claude', 'plugins', 'cache', 'keepmind', 'keepmind', '99.0.0');
     mkdirSync(path.join(cacheRoot, 'scripts'), { recursive: true });
     writeFileSync(path.join(cacheRoot, 'scripts', 'version-check.js'), '');
     writeFileSync(path.join(cacheRoot, 'scripts', 'bun-runner.js'), '');
@@ -422,7 +436,7 @@ describe('Spawn-Contract Templating - Rule A shell resolution matrix', () => {
         encoding: 'utf-8',
       });
       expect(result.status).not.toBe(0);
-      expect(result.stderr ?? '').toMatch(/claude-mem: .* not found/);
+      expect(result.stderr ?? '').toMatch(/keepmind: .* not found/);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

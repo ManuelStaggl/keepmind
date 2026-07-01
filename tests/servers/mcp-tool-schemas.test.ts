@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'bun:test';
+import { fileURLToPath } from 'node:url';
 
-const mcpServerPath = new URL('../../src/servers/mcp-server.ts', import.meta.url).pathname;
+// `.pathname` yields `/C:/...` on Windows, which readFileSync then resolves to
+// `C:\C:\...` (doubled drive). fileURLToPath produces a native path.
+const mcpServerPath = fileURLToPath(new URL('../../src/servers/mcp-server.ts', import.meta.url));
 
 describe('MCP tool inputSchema declarations', () => {
   let tools: any[];

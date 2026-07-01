@@ -210,6 +210,7 @@ describe('SQLiteSearchStrategy', () => {
       expect(mockSessionSearch.findByConcept).toHaveBeenCalledWith('test-concept', {
         limit: 20,
         project: 'my-project',
+        platformSource: undefined,
         dateRange: { start: '2025-01-01' },
         orderBy: 'date_desc'
       });
@@ -272,6 +273,8 @@ describe('SQLiteSearchStrategy', () => {
       expect(mockSessionSearch.findByType).toHaveBeenCalledWith('feature', {
         limit: 15,
         project: 'test-project',
+        platformSource: undefined,
+        dateRange: undefined,
         orderBy: 'date_asc'
       });
     });
@@ -315,6 +318,7 @@ describe('SQLiteSearchStrategy', () => {
       expect(mockSessionSearch.findByFile).toHaveBeenCalledWith('/src/index.ts', {
         limit: 25,
         project: 'file-project',
+        platformSource: undefined,
         dateRange: { end: '2025-12-31' },
         orderBy: 'date_desc'
       });

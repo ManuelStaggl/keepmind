@@ -275,31 +275,16 @@ describe('ChromaSync Vector Sync Integration', () => {
   });
 
   describe('Process leak prevention (Issue #761)', () => {
-    it('should have transport cleanup in ChromaMcpManager error handlers', async () => {
-      const sourceFile = await Bun.file(
-        new URL('../../src/services/sync/ChromaMcpManager.ts', import.meta.url)
-      ).text();
-
-      expect(sourceFile).toContain('await this.disposeCurrentSubprocess()');
-      expect(sourceFile).toContain('this.transport = null');
-      expect(sourceFile).toContain('this.connected = false');
-    });
-
+    // The chroma-mcp/uvx subprocess backend (formerly ChromaMcpManager) was
+    // replaced by an in-process vector store (VectorSync, sqlite-vec +
+    // transformers.js). There is no subprocess/transport to leak anymore, so
+    // the historical source-inspection assertions for transport cleanup no
+    // longer apply. What remains meaningful is that close() is always safe.
     it('should reset state after close regardless of connection status', async () => {
       const { ChromaSync } = await import('../../src/services/sync/ChromaSync.js');
       const sync = new ChromaSync(testProject);
 
       await expect(sync.close()).resolves.toBeUndefined();
-    });
-
-    it('should clean up transport in ChromaMcpManager close() method', async () => {
-      const sourceFile = await Bun.file(
-        new URL('../../src/services/sync/ChromaMcpManager.ts', import.meta.url)
-      ).text();
-
-      expect(sourceFile).toContain('await this.disposeCurrentSubprocess()');
-      expect(sourceFile).toContain('this.transport = null');
-      expect(sourceFile).toContain('this.connected = false');
     });
   });
 });

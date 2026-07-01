@@ -33,6 +33,10 @@ mock.module('../../../src/shared/hook-settings.js', () => ({
 
 const workerCallLog: Array<{ path: string; options: any }> = [];
 mock.module('../../../src/shared/worker-utils.js', () => ({
+  // Spread the real module first so transitively-imported consumers (e.g.
+  // server-client.ts imports fetchWithTimeout) still see every named export —
+  // node's strict ESM module-mock instantiation fails on any missing export.
+  ...realWorkerUtilsSnapshot,
   ensureWorkerRunning: () => Promise.resolve(true),
   getWorkerPort: () => 37777,
   workerHttpRequest: (apiPath: string, options?: any) => {

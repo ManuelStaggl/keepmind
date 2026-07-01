@@ -7,7 +7,9 @@ describe('getProjectName', () => {
   describe('tilde expansion', () => {
     it('resolves bare ~ to home directory basename', () => {
       const home = homedir();
-      const expected = home.split('/').pop() || home.split('\\').pop() || '';
+      // Split on both separators — on Windows home has no '/', so splitting on
+      // '/' alone returns the whole path and the || never falls through.
+      const expected = home.split(/[\\/]/).filter(Boolean).pop() || '';
       expect(getProjectName('~')).toBe(expected);
     });
 
@@ -17,7 +19,9 @@ describe('getProjectName', () => {
 
     it('resolves ~/ to home directory basename', () => {
       const home = homedir();
-      const expected = home.split('/').pop() || home.split('\\').pop() || '';
+      // Split on both separators — on Windows home has no '/', so splitting on
+      // '/' alone returns the whole path and the || never falls through.
+      const expected = home.split(/[\\/]/).filter(Boolean).pop() || '';
       expect(getProjectName('~/')).toBe(expected);
     });
   });

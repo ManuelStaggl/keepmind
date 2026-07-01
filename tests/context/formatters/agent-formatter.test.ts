@@ -96,7 +96,7 @@ describe('AgentFormatter', () => {
       const result = renderAgentHeader('my-project');
 
       expect(result).toHaveLength(2);
-      expect(result[0]).toMatch(/^# \[my-project\] recent context, \d{4}-\d{2}-\d{2} \d{1,2}:\d{2}[ap]m [A-Z]{3,4}$/);
+      expect(result[0]).toMatch(/^# \[my-project\] recent context, \d{4}-\d{2}-\d{2} \d{1,2}:\d{2}[ap]m [A-Z]{3,4}([+-]\d{1,2})?$/);
       expect(result[1]).toBe('');
     });
 
@@ -109,7 +109,7 @@ describe('AgentFormatter', () => {
     it('should handle empty project name', () => {
       const result = renderAgentHeader('');
 
-      expect(result[0]).toMatch(/^# \[\] recent context, \d{4}-\d{2}-\d{2} \d{1,2}:\d{2}[ap]m [A-Z]{3,4}$/);
+      expect(result[0]).toMatch(/^# \[\] recent context, \d{4}-\d{2}-\d{2} \d{1,2}:\d{2}[ap]m [A-Z]{3,4}([+-]\d{1,2})?$/);
     });
   });
 
@@ -243,7 +243,10 @@ describe('AgentFormatter', () => {
 
       const result = renderAgentTableRow(obs, '10:00 AM', config);
 
-      expect(result).toBe('5 10:00a I Test Observation');
+      // ModeManager mock above is dead (ESM hoists the static AgentFormatter import
+      // above mock.module, so the real `code` mode loaded by preload.ts is used):
+      // discovery renders as its real icon '○'.
+      expect(result).toBe('5 10:00a ○ Test Observation');
     });
 
     it('should use quote mark for repeated time', () => {
@@ -296,7 +299,8 @@ describe('AgentFormatter', () => {
 
       expect(joined).toContain('~');
       expect(joined).toContain('t');
-      expect(joined).toContain('W 250');
+      // Real `code` mode work_emoji for discovery is '⌕' (mock is dead — see above).
+      expect(joined).toContain('⌕ 250');
     });
   });
 

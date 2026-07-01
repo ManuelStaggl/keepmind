@@ -1,14 +1,29 @@
 
-import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
-import * as fs from 'fs';
+import { describe, it, expect, beforeEach, afterEach, spyOn, mock } from 'bun:test';
 import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync, readFileSync, readdirSync } from 'fs';
+import { createRequire } from 'node:module';
 import path from 'path';
 import { tmpdir } from 'os';
 import { Database } from 'bun:sqlite';
-import { runOneTimeV12_4_3Cleanup } from '../../src/services/infrastructure/CleanupV12_4_3.js';
 import { SessionStore } from '../../src/services/sqlite/SessionStore.js';
 import { OBSERVER_SESSIONS_PROJECT } from '../../src/shared/paths.js';
 import { logger } from '../../src/utils/logger.js';
+
+// The source imports `statfsSync` as a NAMED ESM import; under the node+tsx ESM
+// loader that binds to node's frozen `fs` namespace, which cannot be spied via
+// property reassignment. Mock the whole `fs` module with a pass-through wrapper
+// whose `statfsSync` delegates to a swappable impl, then import the module under
+// test AFTER the mock so its binding resolves to the wrapper. `logger` is not
+// mocked, so it stays the same singleton the tests spy in beforeEach.
+const realFs = createRequire(import.meta.url)('fs') as typeof import('fs');
+let statfsImpl: typeof realFs.statfsSync = realFs.statfsSync;
+const fsMockFactory = () => ({
+  ...realFs,
+  statfsSync: (...args: Parameters<typeof realFs.statfsSync>) => statfsImpl(...args),
+  default: realFs,
+});
+mock.module('fs', fsMockFactory);
+const { runOneTimeV12_4_3Cleanup } = await import('../../src/services/infrastructure/CleanupV12_4_3.js');
 
 let loggerSpies: ReturnType<typeof spyOn>[] = [];
 
@@ -173,7 +188,7 @@ describe('runOneTimeV12_4_3Cleanup', () => {
     const dbPath = path.join(tmpDataDir, 'claude-mem.db');
     seedDatabase(dbPath, { observerSessions: 2, stuckCount: 10 });
 
-    const statfsSpy = spyOn(fs, 'statfsSync').mockImplementation(() => ({
+    const fakeStatfs = (() => ({
       type: 0,
       bsize: 0, // ← the bug: should be 4096 on APFS
       blocks: 4096,
@@ -181,12 +196,14 @@ describe('runOneTimeV12_4_3Cleanup', () => {
       bavail: 977028249,
       files: 0,
       ffree: 0,
-    }) as unknown as ReturnType<typeof fs.statfsSync>);
+    })) as unknown as typeof realFs.statfsSync;
+    const originalStatfsImpl = statfsImpl;
+    statfsImpl = fakeStatfs;
 
     try {
       runOneTimeV12_4_3Cleanup(tmpDataDir);
     } finally {
-      statfsSpy.mockRestore();
+      statfsImpl = originalStatfsImpl;
     }
 
     const markerPath = path.join(tmpDataDir, '.cleanup-v12.4.3-applied');

@@ -125,12 +125,6 @@ describe('GracefulShutdown', () => {
         })
       };
 
-      const mockChromaMcpManager = {
-        stop: mock(async () => {
-          callOrder.push('chromaMcpManager.stop');
-        })
-      };
-
       writePidFile({ pid: 12345, port: 37777, startedAt: new Date().toISOString() });
       expect(existsSync(PID_FILE)).toBe(true);
 
@@ -138,8 +132,7 @@ describe('GracefulShutdown', () => {
         server: mockServer,
         sessionManager: mockSessionManager,
         mcpClient: mockMcpClient,
-        dbManager: mockDbManager,
-        chromaMcpManager: mockChromaMcpManager
+        dbManager: mockDbManager
       };
 
       await performGracefulShutdown(config);
@@ -148,7 +141,6 @@ describe('GracefulShutdown', () => {
       expect(callOrder).toContain('serverClose');
       expect(callOrder).toContain('sessionManager.shutdownAll');
       expect(callOrder).toContain('mcpClient.close');
-      expect(callOrder).toContain('chromaMcpManager.stop');
       expect(callOrder).toContain('dbManager.close');
 
       expect(callOrder.indexOf('serverClose')).toBeLessThan(callOrder.indexOf('sessionManager.shutdownAll'));
@@ -156,8 +148,6 @@ describe('GracefulShutdown', () => {
       expect(callOrder.indexOf('sessionManager.shutdownAll')).toBeLessThan(callOrder.indexOf('mcpClient.close'));
 
       expect(callOrder.indexOf('mcpClient.close')).toBeLessThan(callOrder.indexOf('dbManager.close'));
-
-      expect(callOrder.indexOf('chromaMcpManager.stop')).toBeLessThan(callOrder.indexOf('dbManager.close'));
     }, 15000);
 
     it('should remove its OWN PID file during shutdown (owner guard)', async () => {
@@ -246,7 +236,7 @@ describe('GracefulShutdown', () => {
       expect(mockSessionManager.shutdownAll).toHaveBeenCalledTimes(1);
     });
 
-    it('should stop chroma server before database close', async () => {
+    it('should close mcp client before database close', async () => {
       const callOrder: string[] = [];
 
       const mockSessionManager: ShutdownableService = {
@@ -267,23 +257,16 @@ describe('GracefulShutdown', () => {
         })
       };
 
-      const mockChromaMcpManager = {
-        stop: mock(async () => {
-          callOrder.push('chromaMcpManager');
-        })
-      };
-
       const config: GracefulShutdownConfig = {
         server: null,
         sessionManager: mockSessionManager,
         mcpClient: mockMcpClient,
-        dbManager: mockDbManager,
-        chromaMcpManager: mockChromaMcpManager
+        dbManager: mockDbManager
       };
 
       await performGracefulShutdown(config);
 
-      expect(callOrder).toEqual(['sessionManager', 'mcpClient', 'chromaMcpManager', 'dbManager']);
+      expect(callOrder).toEqual(['sessionManager', 'mcpClient', 'dbManager']);
     });
 
     it('should handle shutdown when PID file does not exist', async () => {

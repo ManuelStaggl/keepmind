@@ -113,8 +113,13 @@ afterAll(() => {
 describe('fileContextHandler — #2094 (no Read mutation)', () => {
   it('injects timeline context but never sets updatedInput on an unconstrained Read', async () => {
     const future = Date.now() + 60_000;
-    fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(
-      makeObservationsResponse([{ id: 1, created_at_epoch: future }])
+    // Return a FRESH Response per call: this is the first handler invocation in
+    // the process, so executeWithWorkerFallback runs the one-time worker warmup
+    // (ensureWorkerAliveOnce → isWorkerPortAlive/checkVersionMatch), which fetches
+    // and consumes a body before the data fetch. A single shared Response
+    // (mockResolvedValue) would throw "Body already read" on the second read.
+    fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(makeObservationsResponse([{ id: 1, created_at_epoch: future }]))
     );
 
     const result = await fileContextHandler.execute({

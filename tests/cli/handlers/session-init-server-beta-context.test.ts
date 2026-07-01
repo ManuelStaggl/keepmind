@@ -166,7 +166,7 @@ describe('sessionInitHandler server semantic injection', () => {
     `;
 
     const result = Bun.spawnSync({
-      cmd: [process.execPath, '--eval', script],
+      cmd: [process.execPath, '--import', 'tsx', '--eval', script],
       cwd: process.cwd(),
       env,
       stdout: 'pipe',

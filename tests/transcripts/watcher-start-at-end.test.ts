@@ -17,7 +17,10 @@ mock.module('../../src/cli/handlers/session-init.js', () => ({
 }));
 
 import { logger } from '../../src/utils/logger.js';
-import { TranscriptWatcher } from '../../src/services/transcripts/watcher.js';
+// TranscriptWatcher is imported dynamically inside the test, AFTER the
+// mock.module above registers — a static (hoisted) import would bind watcher.js
+// to the REAL session-init handler before the mock takes effect (node:test's
+// mock.module only affects imports resolved after it runs).
 
 const waitForAsyncTail = () => new Promise(resolve => setTimeout(resolve, 50));
 
@@ -80,6 +83,7 @@ describe('TranscriptWatcher startAtEnd', () => {
       schema,
       startAtEnd: true,
     };
+    const { TranscriptWatcher } = await import('../../src/services/transcripts/watcher.js');
     const watcher = new TranscriptWatcher({ version: 1, watches: [watch] }, statePath);
 
     await (watcher as any).addTailer(filePath, watch, schema);

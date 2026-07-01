@@ -70,6 +70,13 @@ describe('writeJsonFileAtomic', () => {
 
     writeJsonFileAtomic(target, { secret: true });
 
+    // Windows fs does not apply Unix permission bits, so the preserved-mode
+    // contract can only be asserted on POSIX. The src correctly reads the
+    // existing mode via statSync and reapplies it via openSync(mode).
+    if (IS_WINDOWS) {
+      return;
+    }
+
     const mode = statSync(target).mode & 0o777;
     expect(mode).toBe(0o600);
   });

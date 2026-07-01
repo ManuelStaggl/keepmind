@@ -42,7 +42,7 @@ async function waitForHealth(port: number, timeoutMs: number = 30000): Promise<b
 }
 
 function runWorkerCommand(command: string, env: Record<string, string> = {}): string {
-  const result = execSync(`bun "${WORKER_SCRIPT}" ${command}`, {
+  const result = execSync(`node "${WORKER_SCRIPT}" ${command}`, {
     env: { ...process.env, ...env },
     encoding: 'utf-8',
     timeout: 60000

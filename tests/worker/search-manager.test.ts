@@ -268,7 +268,7 @@ describe('SearchManager platform-scoped Chroma hydration', () => {
     );
   });
 
-  it('falls back to scoped SQLite/FTS when platform-scoped Chroma returns zero matches', async () => {
+  it('fuses scoped BM25/FTS results when platform-scoped Chroma returns zero matches', async () => {
     const observation = {
       id: 9,
       memory_session_id: 'cursor-memory-id',
@@ -330,9 +330,9 @@ describe('SearchManager platform-scoped Chroma hydration', () => {
         searchUserPrompts,
       } as any,
       {
-        getObservationsByIds: mock(() => []),
-        getSessionSummariesByIds: mock(() => []),
-        getUserPromptsByIds: mock(() => []),
+        getObservationsByIds: mock(() => [observation]),
+        getSessionSummariesByIds: mock(() => [session]),
+        getUserPromptsByIds: mock(() => [prompt]),
       } as any,
       { queryChroma } as any,
       {} as any,
@@ -368,13 +368,13 @@ describe('SearchManager platform-scoped Chroma hydration', () => {
     }));
     expect(telemetry).toEqual(expect.objectContaining({
       result_count: 3,
-      search_strategy: 'fts',
+      search_strategy: 'chroma',
       chroma_available: true,
-      fallback_reason: 'chroma_error',
+      fallback_reason: 'none',
     }));
   });
 
-  it('keeps unscoped Chroma zero matches final without SQLite/FTS fallback', async () => {
+  it('runs the BM25/FTS side of the hybrid even when unscoped Chroma returns zero matches', async () => {
     const searchObservations = mock(() => []);
     const searchSessions = mock(() => []);
     const searchUserPrompts = mock(() => []);
@@ -406,9 +406,9 @@ describe('SearchManager platform-scoped Chroma hydration', () => {
       format: 'json',
     }, telemetry);
 
-    expect(searchObservations).not.toHaveBeenCalled();
-    expect(searchSessions).not.toHaveBeenCalled();
-    expect(searchUserPrompts).not.toHaveBeenCalled();
+    expect(searchObservations).toHaveBeenCalled();
+    expect(searchSessions).toHaveBeenCalled();
+    expect(searchUserPrompts).toHaveBeenCalled();
     expect(result).toEqual(expect.objectContaining({
       observations: [],
       sessions: [],

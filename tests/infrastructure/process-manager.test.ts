@@ -303,110 +303,88 @@ describe('ProcessManager', () => {
   });
 
   describe('resolveWorkerRuntimePath', () => {
-    it('should reuse execPath when already running under Bun on Linux', () => {
+    // keepmind is a Node-only fork: the worker runtime resolver targets Node,
+    // not Bun. Note the bare "node" candidate is always in the list, so the
+    // resolver never falls through to lookupInPath / null on either platform.
+    it('should reuse execPath when already running under Node on Linux', () => {
       const resolved = resolveWorkerRuntimePath({
         platform: 'linux',
-        execPath: '/home/alice/.bun/bin/bun'
+        execPath: '/usr/bin/node'
       });
 
-      expect(resolved).toBe('/home/alice/.bun/bin/bun');
+      expect(resolved).toBe('/usr/bin/node');
     });
 
-    it('should look up Bun on non-Windows when caller is Node (e.g. MCP server)', () => {
+    it('should look up a known Node path on non-Windows when execPath is not Node', () => {
       const resolved = resolveWorkerRuntimePath({
         platform: 'linux',
-        execPath: '/usr/bin/node',
+        execPath: '/opt/some-runtime/bin/runtime',
         env: {} as NodeJS.ProcessEnv,
         homeDirectory: '/home/alice',
-        pathExists: candidatePath => candidatePath === '/home/alice/.bun/bin/bun',
+        pathExists: candidatePath => candidatePath === '/usr/local/bin/node',
         lookupInPath: () => null
       });
 
-      expect(resolved).toBe('/home/alice/.bun/bin/bun');
+      expect(resolved).toBe('/usr/local/bin/node');
     });
 
-    it('should preserve bare BUN env command on non-Windows so spawn resolves it via PATH', () => {
+    it('should prefer configured NODE env path on non-Windows when it exists', () => {
       const resolved = resolveWorkerRuntimePath({
         platform: 'linux',
-        execPath: '/usr/bin/node',
-        env: { BUN: 'bun' } as NodeJS.ProcessEnv,
+        execPath: '/opt/some-runtime/bin/runtime',
+        env: { NODE: '/custom/bin/node' } as NodeJS.ProcessEnv,
         homeDirectory: '/home/alice',
-        pathExists: () => false,
+        pathExists: candidatePath => candidatePath === '/custom/bin/node',
         lookupInPath: () => null
       });
 
-      expect(resolved).toBe('bun');
+      expect(resolved).toBe('/custom/bin/node');
     });
 
-    it('should fall back to PATH lookup on non-Windows when no known Bun candidate exists', () => {
+    it('should fall back to the bare "node" command on non-Windows when no absolute candidate exists', () => {
       const resolved = resolveWorkerRuntimePath({
         platform: 'linux',
-        execPath: '/usr/bin/node',
-        env: {} as NodeJS.ProcessEnv,
-        homeDirectory: '/home/alice',
-        pathExists: () => false,
-        lookupInPath: () => '/custom/bin/bun'
-      });
-
-      expect(resolved).toBe('/custom/bin/bun');
-    });
-
-    it('should return null on non-Windows when Bun cannot be resolved', () => {
-      const resolved = resolveWorkerRuntimePath({
-        platform: 'linux',
-        execPath: '/usr/bin/node',
+        execPath: '/opt/some-runtime/bin/runtime',
         env: {} as NodeJS.ProcessEnv,
         homeDirectory: '/home/alice',
         pathExists: () => false,
         lookupInPath: () => null
       });
 
-      expect(resolved).toBeNull();
+      expect(resolved).toBe('node');
     });
 
-    it('should reuse execPath when already running under Bun on Windows', () => {
+    it('should reuse execPath when already running under Node on Windows', () => {
       const resolved = resolveWorkerRuntimePath({
         platform: 'win32',
-        execPath: 'C:\\Users\\alice\\.bun\\bin\\bun.exe'
+        execPath: 'C:\\Program Files\\nodejs\\node.exe'
       });
 
-      expect(resolved).toBe('C:\\Users\\alice\\.bun\\bin\\bun.exe');
+      expect(resolved).toBe('C:\\Program Files\\nodejs\\node.exe');
     });
 
-    it('should prefer configured Bun path from environment when available', () => {
+    it('should prefer configured NODE env path on Windows when it exists', () => {
       const resolved = resolveWorkerRuntimePath({
         platform: 'win32',
-        execPath: 'C:\\Program Files\\nodejs\\node.exe',
-        env: { BUN: 'C:\\tools\\bun.exe' } as NodeJS.ProcessEnv,
-        pathExists: candidatePath => candidatePath === 'C:\\tools\\bun.exe',
+        execPath: 'C:\\some-runtime\\runtime.exe',
+        env: { NODE: 'C:\\tools\\node.exe' } as NodeJS.ProcessEnv,
+        pathExists: candidatePath => candidatePath === 'C:\\tools\\node.exe',
         lookupInPath: () => null
       });
 
-      expect(resolved).toBe('C:\\tools\\bun.exe');
+      expect(resolved).toBe('C:\\tools\\node.exe');
     });
 
-    it('should fall back to PATH lookup when no Bun candidate exists', () => {
+    it('should fall back to the bare "node" command on Windows when no absolute candidate exists', () => {
       const resolved = resolveWorkerRuntimePath({
         platform: 'win32',
-        execPath: 'C:\\Program Files\\nodejs\\node.exe',
-        env: {} as NodeJS.ProcessEnv,
-        pathExists: () => false,
-        lookupInPath: () => 'C:\\Program Files\\Bun\\bun.exe'
-      });
-
-      expect(resolved).toBe('C:\\Program Files\\Bun\\bun.exe');
-    });
-
-    it('should return null when Bun cannot be resolved on Windows', () => {
-      const resolved = resolveWorkerRuntimePath({
-        platform: 'win32',
-        execPath: 'C:\\Program Files\\nodejs\\node.exe',
+        execPath: 'C:\\some-runtime\\runtime.exe',
         env: {} as NodeJS.ProcessEnv,
         pathExists: () => false,
         lookupInPath: () => null
       });
 
-      expect(resolved).toBeNull();
+      expect(resolved).toBe('node');
     });
   });
 

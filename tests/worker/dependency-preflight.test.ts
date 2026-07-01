@@ -20,7 +20,7 @@ describe('worker dependency preflight', () => {
     resetDependencyStatusesForTesting();
   });
 
-  it('records missing uvx using PATH/file checks without checking Claude for Gemini', () => {
+  it('does not check Claude for a non-Claude provider and treats uvx as satisfied (in-process vector search)', () => {
     let claudeChecked = false;
 
     const snapshot = runWorkerDependencyPreflight({
@@ -41,12 +41,10 @@ describe('worker dependency preflight', () => {
     });
 
     expect(claudeChecked).toBe(false);
-    expect(snapshot.degraded).toBe(true);
-    expect(getDependencyStatus('uvx')).toMatchObject({
-      dependency: 'uvx',
-      kind: 'vector_search_unavailable',
-    });
-    expect(getDependencyStatus('uvx')?.remediation).toContain('uv/uvx');
+    // Vector search moved in-process (sqlite-vec + transformers.js), so a missing
+    // uvx no longer degrades the worker — the 'uvx' dependency is always cleared.
+    expect(snapshot.degraded).toBe(false);
+    expect(getDependencyStatus('uvx')).toBeNull();
   });
 
   it('clears stale Claude CLI setup status when a non-Claude provider is selected', () => {

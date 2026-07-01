@@ -397,7 +397,7 @@ describe('updateFolderClaudeMdFiles', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const callUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
-    expect(callUrl).toContain(encodeURIComponent('/home/user/my-project/src/utils'));
+    expect(callUrl).toContain(encodeURIComponent(join('/home/user/my-project', 'src', 'utils')));
   });
 
   it('should accept absolute paths within projectRoot and use them directly', async () => {
@@ -478,7 +478,7 @@ describe('updateFolderClaudeMdFiles', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const callUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
-    expect(callUrl).toContain(encodeURIComponent('/home/user/my-project/src/utils'));
+    expect(callUrl).toContain(encodeURIComponent(join('/home/user/my-project', 'src', 'utils')));
     expect(callUrl.replace('http://', '')).not.toContain('//');
   });
 
@@ -534,7 +534,7 @@ describe('updateFolderClaudeMdFiles', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const callUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
-    expect(callUrl).toContain(encodeURIComponent('/home/user/project/src/utils'));
+    expect(callUrl).toContain(encodeURIComponent(join('/home/user/project', 'src', 'utils')));
   });
 
   it('should handle empty string paths gracefully with projectRoot', async () => {
@@ -556,7 +556,7 @@ describe('updateFolderClaudeMdFiles', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const callUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
-    expect(callUrl).toContain(encodeURIComponent('/home/user/project/src'));
+    expect(callUrl).toContain(encodeURIComponent(join('/home/user/project', 'src')));
   });
 });
 
@@ -797,20 +797,23 @@ describe('issue #859 - skip folders with active CLAUDE.md', () => {
     } as Response));
     global.fetch = fetchMock;
 
+    // Use a platform-native absolute root so path validation (path.resolve on
+    // win32 adds a drive letter) accepts these absolute inputs.
+    const root = join(tempDir, 'issue859-multi');
     await updateFolderClaudeMdFiles(
       [
-        '/project/src/utils/CLAUDE.md',  // Should skip /project/src/utils
-        '/project/src/services/api.ts'   
+        join(root, 'src', 'utils', 'CLAUDE.md'),  // Should skip <root>/src/utils
+        join(root, 'src', 'services', 'api.ts')
       ],
       'test-project',
       37777,
-      '/project'
+      root
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const callUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
-    expect(callUrl).toContain(encodeURIComponent('/project/src/services'));
-    expect(callUrl).not.toContain(encodeURIComponent('/project/src/utils'));
+    expect(callUrl).toContain(encodeURIComponent(join(root, 'src', 'services')));
+    expect(callUrl).not.toContain(encodeURIComponent(join(root, 'src', 'utils')));
   });
 
   it('should handle relative CLAUDE.md paths with projectRoot', async () => {
@@ -837,20 +840,21 @@ describe('issue #859 - skip folders with active CLAUDE.md', () => {
     } as Response));
     global.fetch = fetchMock;
 
+    const root = join(tempDir, 'issue859-specific');
     await updateFolderClaudeMdFiles(
       [
-        '/project/src/a/CLAUDE.md',
-        '/project/src/b/CLAUDE.md',
-        '/project/src/c/file.ts'
+        join(root, 'src', 'a', 'CLAUDE.md'),
+        join(root, 'src', 'b', 'CLAUDE.md'),
+        join(root, 'src', 'c', 'file.ts')
       ],
       'test-project',
       37777,
-      '/project'
+      root
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const callUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
-    expect(callUrl).toContain(encodeURIComponent('/project/src/c'));
+    expect(callUrl).toContain(encodeURIComponent(join(root, 'src', 'c')));
   });
 
   it('should still exclude project root even when CLAUDE.md filter would allow it', async () => {
@@ -1069,22 +1073,23 @@ describe('CLAUDE.local.md support', () => {
     } as Response));
     global.fetch = fetchMock;
 
+    const root = join(tempDir, 'local-md-either');
     await updateFolderClaudeMdFiles(
       [
-        '/project/src/a/CLAUDE.md',          // Skip folder a (regular)
-        '/project/src/b/CLAUDE.local.md',    // Skip folder b (local)
-        '/project/src/c/file.ts'             
+        join(root, 'src', 'a', 'CLAUDE.md'),          // Skip folder a (regular)
+        join(root, 'src', 'b', 'CLAUDE.local.md'),    // Skip folder b (local)
+        join(root, 'src', 'c', 'file.ts')
       ],
       'test-project',
       37777,
-      '/project'
+      root
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const callUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
-    expect(callUrl).toContain(encodeURIComponent('/project/src/c'));
-    expect(callUrl).not.toContain(encodeURIComponent('/project/src/a'));
-    expect(callUrl).not.toContain(encodeURIComponent('/project/src/b'));
+    expect(callUrl).toContain(encodeURIComponent(join(root, 'src', 'c')));
+    expect(callUrl).not.toContain(encodeURIComponent(join(root, 'src', 'a')));
+    expect(callUrl).not.toContain(encodeURIComponent(join(root, 'src', 'b')));
   });
 });
 

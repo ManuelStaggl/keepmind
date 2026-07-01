@@ -6,6 +6,7 @@ import {
   _internals,
 } from '../../src/shared/find-claude-executable.js';
 import { logger } from '../../src/utils/logger.js';
+import { join } from 'path';
 
 /**
  * All probing goes through the _internals seam, so these tests swap its
@@ -134,9 +135,14 @@ describe('findClaudeExecutable candidate selection', () => {
   it('falls back to known install locations when PATH has no claude', () => {
     installFakes();
     whichOutput = null;
-    fakeClis.set('/home/tester/.local/bin/claude', { version: '2.1.176', supportsDontAsk: true });
+    // The source builds the known-location path with path.join, which uses the
+    // real process separator (backslash on Windows) regardless of the simulated
+    // darwin platform. Mirror that join here so the fake fs key matches the
+    // path the resolver actually probes — identical to the literal on POSIX.
+    const knownPath = join('/home/tester', '.local', 'bin', 'claude');
+    fakeClis.set(knownPath, { version: '2.1.176', supportsDontAsk: true });
 
-    expect(findClaudeExecutable('SDK')).toBe('/home/tester/.local/bin/claude');
+    expect(findClaudeExecutable('SDK')).toBe(knownPath);
   });
 
   it('dedupes PATH repeats and symlink aliases to a single probe', () => {

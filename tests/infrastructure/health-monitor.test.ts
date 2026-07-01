@@ -61,10 +61,13 @@ describe('HealthMonitor', () => {
     });
 
     it('should return false for other socket errors', async () => {
+      // EADDRINUSE and EACCES are both treated as "port in use" (EACCES is the
+      // win32 signal for an exclusively-held port). Any OTHER error means the
+      // bind failed for an unrelated reason, so the port is reported free.
       const createServerMock = mock(() => ({
         once: mock((event: string, cb: Function) => {
           if (event === 'error') {
-            setTimeout(() => cb({ code: 'EACCES' }), 0);
+            setTimeout(() => cb({ code: 'EINVAL' }), 0);
           }
         }),
         listen: mock(() => {})
