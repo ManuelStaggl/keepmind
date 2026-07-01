@@ -1211,8 +1211,8 @@ async function main() {
   ) {
     logger.info(
       'SYSTEM',
-      'claude-mem plugin is disabled in Claude settings — skipping worker lifecycle command (set CLAUDE_MEM_FORCE_START=1 to override)',
-      { command: command ?? '(none)', settingsKey: 'claude-mem@thedotmack' }
+      'keepmind plugin is disabled in Claude settings — skipping worker lifecycle command (set CLAUDE_MEM_FORCE_START=1 to override)',
+      { command: command ?? '(none)', settingsKey: 'keepmind@keepmind' }
     );
     process.exit(0);
   }
@@ -1644,7 +1644,7 @@ export function formatDependencyHealthHint(health: WorkerHealthSnapshot): string
     return `${status.dependency}: ${status.kind}`;
   });
 
-  return `  Dependencies: degraded (${labels.join(', ')}). Run npx claude-mem doctor or open Settings for remediation.`;
+  return `  Dependencies: degraded (${labels.join(', ')}). Run npx keepmind doctor or open Settings for remediation.`;
 }
 
 /**

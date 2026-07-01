@@ -4,7 +4,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { logger } from '../utils/logger.js';
 
-const PLUGIN_SETTINGS_KEY = 'claude-mem@thedotmack';
+const PLUGIN_SETTINGS_KEY = 'keepmind@keepmind';
 
 export function isPluginDisabledInClaudeSettings(): boolean {
   try {
