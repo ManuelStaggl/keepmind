@@ -1518,6 +1518,20 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
       tasks.push({
         title: 'Installing marketplace dependencies',
         task: async (message) => {
+          // The worker (marketplace/plugin/scripts/worker-service.cjs) resolves
+          // its runtime deps — zod (incl. the zod/v3 subpath), sqlite-vec,
+          // @huggingface/transformers — from marketplace/plugin/node_modules.
+          // npm in the marketplace ROOT hits the tree-sitter ERESOLVE and never
+          // populates plugin/node_modules, and cpSync of the source's bun-linked
+          // node_modules is unreliable on Windows — so install the plugin deps
+          // with bun (frozen lockfile), exactly as the cache install does.
+          const { bunPath } = await ensureBun();
+          const stopPlugin = startHeartbeat(message, 'Installing plugin dependencies (bun install)…');
+          try {
+            await installPluginDependencies(join(marketplaceDirectory(), 'plugin'), bunPath);
+          } finally {
+            stopPlugin();
+          }
           // runNpmInstallInMarketplace throws InstallAbortError on a real
           // failure (non-ERESOLVE, or ERESOLVE that --legacy-peer-deps could
           // not fix). We deliberately do NOT swallow it here — the top-level
