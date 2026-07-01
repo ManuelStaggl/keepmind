@@ -55,10 +55,10 @@ Create the settings file manually:
 
 ```bash
 # Create settings directory
-mkdir -p ~/.claude-mem
+mkdir -p ~/.keepmind
 
 # Create settings file with OpenRouter configuration
-cat > ~/.claude-mem/settings.json << 'EOF'
+cat > ~/.keepmind/settings.json << 'EOF'
 {
   "CLAUDE_MEM_PROVIDER": "openrouter",
   "CLAUDE_MEM_OPENROUTER_API_KEY": "YOUR_OPENROUTER_API_KEY"
@@ -181,7 +181,7 @@ OpenRouter charges per token. To manage costs:
 Ensure your settings file exists with the correct format:
 
 ```bash
-cat ~/.claude-mem/settings.json
+cat ~/.keepmind/settings.json
 ```
 
 Should output something like:

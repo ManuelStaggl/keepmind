@@ -90,7 +90,7 @@ curl -X POST http://localhost:37777/api/corpus \
   }'
 ```
 
-Under the hood, `CorpusBuilder` searches your observations, hydrates full records, parses structured fields (facts, concepts, files), calculates stats, and writes everything to `~/.claude-mem/corpora/hooks-expertise.corpus.json`.
+Under the hood, `CorpusBuilder` searches your observations, hydrates full records, parses structured fields (facts, concepts, files), calculates stats, and writes everything to `~/.keepmind/corpora/hooks-expertise.corpus.json`.
 
 ### 2. Prime the Knowledge Agent
 
@@ -156,7 +156,7 @@ reprime_corpus ──┘                          |
                         SessionStore         |   query() + resume
                                              |
                                         CorpusStore
-                                    (~/.claude-mem/corpora/)
+                                    (~/.keepmind/corpora/)
 ```
 
 **Key insight:** The Agent SDK's `resume` option lets you prime a session once (upload the corpus), save the `session_id`, and resume it for every future question. The corpus stays in context permanently -- no re-uploading, no prompt caching tricks. The 1M token context window makes this viable: 2,000 observations at ~300 tokens each fits comfortably.

@@ -15,7 +15,7 @@ icon: plug
 ```typescript
 // Resolve the worker port at runtime. The default is per-user (37700 + uid % 100),
 // or whatever the user set via CLAUDE_MEM_WORKER_PORT / settings.json. Read it from
-// process.env.CLAUDE_MEM_WORKER_PORT, then ~/.claude-mem/settings.json
+// process.env.CLAUDE_MEM_WORKER_PORT, then ~/.keepmind/settings.json
 // (CLAUDE_MEM_WORKER_PORT key), then fall back to the deterministic default.
 const WORKER_BASE_URL = `http://127.0.0.1:${workerPort}`;
 ```
@@ -317,7 +317,7 @@ GET /api/stats
     "port": 37742
   },
   "database": {
-    "path": "~/.claude-mem/claude-mem.db",
+    "path": "~/.keepmind/keepmind.db",
     "size": 1048576,
     "observations": 500,
     "sessions": 50,

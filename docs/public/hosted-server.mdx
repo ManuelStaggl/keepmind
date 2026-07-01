@@ -16,7 +16,7 @@ flow may shift as we wire up the dashboard. Pin a version if you're integrating.
 
 The hosted server is the cloud side of claude-mem: a Postgres-backed HTTP service
 (`/v1`) plus a separate BullMQ generation worker. Where the local plugin keeps
-memory in `~/.claude-mem/claude-mem.db` on your machine, the hosted server keeps
+memory in `~/.keepmind/keepmind.db` on your machine, the hosted server keeps
 it per **team** and per **project** in Postgres, and exposes it back to any MCP
 client over an authenticated link.
 

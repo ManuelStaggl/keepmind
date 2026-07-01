@@ -123,13 +123,13 @@ npm run publish:npm
 
 ## Viewing Stored Context
 
-Context is stored in SQLite database at `~/.claude-mem/claude-mem.db`.
+Context is stored in SQLite database at `~/.keepmind/keepmind.db`.
 
 Query the database directly:
 
 ```bash
 # Open database
-sqlite3 ~/.claude-mem/claude-mem.db
+sqlite3 ~/.keepmind/keepmind.db
 
 # View recent sessions
 SELECT session_id, project, created_at, status

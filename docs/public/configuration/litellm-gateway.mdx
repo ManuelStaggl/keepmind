@@ -41,8 +41,8 @@ The LiteLLM integration is intentionally small. There is no custom LiteLLM provi
 
 At runtime:
 
-1. The installer or user writes gateway settings to `~/.claude-mem/.env`.
-2. `~/.claude-mem/settings.json` keeps `CLAUDE_MEM_PROVIDER` set to `claude`.
+1. The installer or user writes gateway settings to `~/.keepmind/.env`.
+2. `~/.keepmind/settings.json` keeps `CLAUDE_MEM_PROVIDER` set to `claude`.
 3. The worker starts the Claude Agent SDK with an isolated environment.
 4. The SDK reads `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`.
 5. LiteLLM receives the SDK's Anthropic-format request.
@@ -54,7 +54,7 @@ The code paths involved are:
 | Layer | Responsibility |
 | --- | --- |
 | `src/npx-cli/commands/install.ts` | Prompts for "LiteLLM or custom gateway", stores the gateway URL/token, and allows custom gateway model names |
-| `src/shared/EnvManager.ts` | Stores credentials in `~/.claude-mem/.env`, blocks shell-leaked auth vars, and injects only explicit claude-mem credentials |
+| `src/shared/EnvManager.ts` | Stores credentials in `~/.keepmind/.env`, blocks shell-leaked auth vars, and injects only explicit claude-mem credentials |
 | `src/services/worker/ClaudeProvider.ts` | Starts the Claude Agent SDK for observation extraction with the isolated environment |
 | `src/services/worker/knowledge/KnowledgeAgent.ts` | Uses the same isolated SDK path for knowledge corpus Q&A |
 
@@ -80,7 +80,7 @@ LiteLLM must expose an Anthropic-compatible endpoint for Claude Code / Claude Ag
 export ANTHROPIC_BASE_URL=http://localhost:4000
 ```
 
-For claude-mem, that value goes in `~/.claude-mem/.env`, not your shell, so the background worker uses it consistently across restarts.
+For claude-mem, that value goes in `~/.keepmind/.env`, not your shell, so the background worker uses it consistently across restarts.
 
 ### Minimal LiteLLM Example
 
@@ -130,11 +130,11 @@ Choose:
 5. Your LiteLLM key/token if the proxy requires one
 6. The model alias LiteLLM should receive
 
-The installer stores provider settings in `~/.claude-mem/settings.json` and gateway credentials in `~/.claude-mem/.env`.
+The installer stores provider settings in `~/.keepmind/settings.json` and gateway credentials in `~/.keepmind/.env`.
 
 ### Option 2: Manual Files
 
-Edit `~/.claude-mem/settings.json`:
+Edit `~/.keepmind/settings.json`:
 
 ```json
 {
@@ -144,10 +144,10 @@ Edit `~/.claude-mem/settings.json`:
 }
 ```
 
-Edit `~/.claude-mem/.env`:
+Edit `~/.keepmind/.env`:
 
 ```bash
-# ~/.claude-mem/.env
+# ~/.keepmind/.env
 ANTHROPIC_BASE_URL=http://127.0.0.1:4000
 ANTHROPIC_AUTH_TOKEN=sk-litellm-local
 ```
@@ -164,14 +164,14 @@ npm run worker:restart
 
 claude-mem deliberately does not trust whatever Anthropic credentials happen to be exported in your shell or project `.env` file.
 
-The worker blocks inherited `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, and stale `CLAUDE_CODE_OAUTH_TOKEN` values. It then re-injects only the credentials stored in `~/.claude-mem/.env`.
+The worker blocks inherited `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, and stale `CLAUDE_CODE_OAUTH_TOKEN` values. It then re-injects only the credentials stored in `~/.keepmind/.env`.
 
 This avoids two common failure modes:
 
 - A project-level `ANTHROPIC_API_KEY` silently bypasses LiteLLM and bills the public Anthropic API.
 - An expired Claude Code OAuth token overrides a configured gateway token and causes confusing auth failures.
 
-If `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, or `ANTHROPIC_API_KEY` is present in `~/.claude-mem/.env`, the worker treats that as explicit gateway/API configuration and skips Claude OAuth lookup. This prevents a configured gateway from falling back to `api.anthropic.com`.
+If `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, or `ANTHROPIC_API_KEY` is present in `~/.keepmind/.env`, the worker treats that as explicit gateway/API configuration and skips Claude OAuth lookup. This prevents a configured gateway from falling back to `api.anthropic.com`.
 
 ## Model Names
 
@@ -219,7 +219,7 @@ When a Claude Code session produces transcript events, claude-mem's worker queue
 
 1. The worker loads pending messages for a memory session.
 2. `ClaudeProvider` builds the observation prompt and selected model.
-3. `buildIsolatedEnvWithFreshOAuth()` loads `~/.claude-mem/.env`.
+3. `buildIsolatedEnvWithFreshOAuth()` loads `~/.keepmind/.env`.
 4. The SDK subprocess starts with `ANTHROPIC_BASE_URL` pointing at LiteLLM.
 5. LiteLLM receives the Anthropic-format request.
 6. LiteLLM routes to the configured upstream model.
@@ -262,7 +262,7 @@ Check LiteLLM's logs for a corresponding request to the configured model alias. 
 
 - `CLAUDE_MEM_PROVIDER` is `claude`
 - `CLAUDE_MEM_CLAUDE_AUTH_METHOD` is `gateway`
-- `ANTHROPIC_BASE_URL` is in `~/.claude-mem/.env`
+- `ANTHROPIC_BASE_URL` is in `~/.keepmind/.env`
 - The worker was restarted after manual edits
 - The LiteLLM URL does not include an extra `/v1` suffix for the unified Anthropic endpoint
 
@@ -274,15 +274,15 @@ The model name sent by claude-mem does not match a LiteLLM `model_name`. Make `C
 
 ### claude-mem still uses Anthropic directly
 
-Check `~/.claude-mem/.env`. Gateway settings must be stored there. Shell exports are not the reliable configuration source for the worker.
+Check `~/.keepmind/.env`. Gateway settings must be stored there. Shell exports are not the reliable configuration source for the worker.
 
 Also make sure `ANTHROPIC_BASE_URL` is present. A token alone authenticates a gateway, but the base URL is what redirects traffic away from the default Anthropic endpoint.
 
 ### Authentication fails
 
-If LiteLLM uses a master key or virtual key, store it as `ANTHROPIC_AUTH_TOKEN` in `~/.claude-mem/.env`. The Claude Agent SDK sends this value as gateway authorization.
+If LiteLLM uses a master key or virtual key, store it as `ANTHROPIC_AUTH_TOKEN` in `~/.keepmind/.env`. The Claude Agent SDK sends this value as gateway authorization.
 
-If you previously configured a direct Anthropic API key, remove `ANTHROPIC_API_KEY` from `~/.claude-mem/.env` for gateway mode unless your gateway explicitly expects that variable.
+If you previously configured a direct Anthropic API key, remove `ANTHROPIC_API_KEY` from `~/.keepmind/.env` for gateway mode unless your gateway explicitly expects that variable.
 
 ### Requests fail after changing files
 
