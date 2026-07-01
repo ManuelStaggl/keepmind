@@ -44,6 +44,7 @@ ${pc.bold('Runtime Commands')} (requires Bun, delegates to installed plugin):
   ${pc.cyan('npx keepmind search <query>')}       Search observations
   ${pc.cyan('npx keepmind adopt [--dry-run] [--branch <name>]')}    Stamp merged worktrees into parent project
   ${pc.cyan('npx keepmind cleanup [--dry-run]')}    Run one-time v12.4.3 pollution cleanup (or preview counts)
+  ${pc.cyan('npx keepmind migrate [--from <dir>] [--dry-run]')}    Import an existing claude-mem database (lossless, non-destructive)
   ${pc.cyan('npx keepmind transcript watch')}     Start transcript watcher
 
 ${pc.bold('IDE Identifiers')}:
@@ -191,6 +192,12 @@ async function main(): Promise<void> {
     case 'cleanup': {
       const { runCleanupCommand } = await import('./commands/runtime.js');
       runCleanupCommand(args.slice(1));
+      break;
+    }
+
+    case 'migrate': {
+      const { runMigrateCommand } = await import('./commands/migrate.js');
+      await runMigrateCommand(args.slice(1));
       break;
     }
 
