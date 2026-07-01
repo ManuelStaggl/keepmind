@@ -33,7 +33,7 @@ export function expireStaleObservations(db: Database, opts: ExpiryOptions): Expi
   const cutoff = now - ttlMs;
   const limit = opts.limit ?? 200;
 
-  // Guard: the bitemporal/last_used columns must exist (added by migration v35/v36).
+  // Guard: the bitemporal/last_used columns must exist (added by migration v37/v38).
   const cols = db.query('PRAGMA table_info(observations)').all() as Array<{ name: string }>;
   if (!cols.some(c => c.name === 'valid_to') || !cols.some(c => c.name === 'last_used_at')) {
     return { candidates: 0, expired: 0, mode: opts.hardDelete ? 'hard' : 'soft' };

@@ -120,7 +120,7 @@ export class SessionStore {
   // Phase 4 / Step 5 — bi-temporal supersession columns. Additive + idempotent.
   // valid_from backfills to created_at_epoch; valid_to NULL = currently valid.
   private addObservationBitemporalColumns(): void {
-    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(35) as SchemaVersion | undefined;
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(37) as SchemaVersion | undefined;
     const cols = this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[];
     const has = (n: string) => cols.some(c => c.name === n);
     if (applied && has('valid_from') && has('valid_to') && has('subject_key')) return;
@@ -132,13 +132,13 @@ export class SessionStore {
     this.db.run('CREATE INDEX IF NOT EXISTS idx_obs_subject_valid ON observations(project, subject_key, valid_to)');
 
     if (!applied) {
-      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(35, new Date().toISOString());
+      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(37, new Date().toISOString());
     }
   }
 
   // Phase 4 / Step 6 — auto-expiry: last_used_at (reset-on-use timer). Additive.
   private addObservationLastUsedColumn(): void {
-    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(36) as SchemaVersion | undefined;
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(38) as SchemaVersion | undefined;
     const cols = this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[];
     const hasColumn = cols.some(c => c.name === 'last_used_at');
     if (applied && hasColumn) return;
@@ -147,14 +147,14 @@ export class SessionStore {
     this.db.run('CREATE INDEX IF NOT EXISTS idx_obs_last_used ON observations(last_used_at)');
 
     if (!applied) {
-      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(36, new Date().toISOString());
+      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(38, new Date().toISOString());
     }
   }
 
   // Phase 4 / Step 3 — importance scoring. Additive, idempotent: NULL = unscored
   // (ranked as the neutral mid-score via COALESCE in the inject path).
   private addObservationImportanceColumn(): void {
-    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(34) as SchemaVersion | undefined;
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(36) as SchemaVersion | undefined;
     const cols = this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[];
     const hasColumn = cols.some(c => c.name === 'importance');
     if (applied && hasColumn) return;
@@ -165,7 +165,7 @@ export class SessionStore {
     this.db.run('CREATE INDEX IF NOT EXISTS idx_observations_importance ON observations(importance)');
 
     if (!applied) {
-      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(34, new Date().toISOString());
+      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(36, new Date().toISOString());
     }
   }
 
