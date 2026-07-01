@@ -12,7 +12,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Must satisfy package.json engines (>=22.5.0): the worker uses
+          # node:sqlite, which is unavailable on Node 20 and made the
+          # smoke:clean-room worker-boot check exit 1.
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
       - name: Install Bun (required by smoke:clean-room)
         uses: oven-sh/setup-bun@v2
