@@ -7,7 +7,7 @@ import { SettingsDefaultsManager, type SettingsDefaults } from "./SettingsDefaul
 import { MARKETPLACE_ROOT, DATA_DIR, paths } from "./paths.js";
 import { loadFromFileOnce } from "./hook-settings.js";
 import { validateWorkerPidFile } from "../supervisor/index.js";
-import { emitBlockingError } from "./hook-io.js";
+import { emitDiagnostic } from "./hook-io.js";
 import { checkVersionMatch } from "../services/infrastructure/index.js";
 // Imported from ProcessManager.js directly (not the infrastructure barrel):
 // tests mock the barrel module wholesale, and the resolver must stay real.
@@ -634,12 +634,16 @@ export async function recordWorkerUnreachable(): Promise<number> {
 
   const threshold = getFailLoudThreshold();
   if (next.consecutiveFailures >= threshold) {
-    // #2292 fix: BLOCKING_FEEDBACK. emitBlockingError flushes the Phase 2
-    // stderr buffer (so preceding logger.warn lines also surface) and writes
-    // via the bypass channel + exits 2. Previously this raw process.stderr.write
-    // was swallowed by hookCommand's blanket no-op, so the user/model never saw it.
-    emitBlockingError(
-      `keepmind worker unreachable for ${next.consecutiveFailures} consecutive hooks.`
+    // Fail OPEN, never block. A memory plugin must never lock the user out of
+    // their own prompt: a transient worker hiccup or a slow first-boot vector
+    // backfill (which can starve /health for a while) previously tripped
+    // emitBlockingError → exit 2, which Claude Code treats as a hard block on
+    // UserPromptSubmit. We now surface the same message loudly via the bypass
+    // channel (emitDiagnostic) WITHOUT exiting, so the operator sees it but the
+    // prompt always goes through. (Supersedes the #2292 blocking behavior.)
+    emitDiagnostic(
+      `keepmind worker unreachable for ${next.consecutiveFailures} consecutive hooks — ` +
+      `continuing without memory capture. Run \`keepmind doctor\` to diagnose.`
     );
   }
   return next.consecutiveFailures;

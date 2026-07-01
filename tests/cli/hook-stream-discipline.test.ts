@@ -39,8 +39,10 @@ afterEach(() => resetHookIoState());
 describe('#2292 — fail-loud diagnostic is no longer swallowed', () => {
   it('emitBlockingError surfaces the worker-unreachable message through the buffered window', () => {
     // Simulate hookCommand: install the stderr buffer that previously swallowed
-    // EVERYTHING (the #2292 no-op). recordWorkerUnreachable now calls
-    // emitBlockingError, which must bypass the buffer and reach real stderr.
+    // EVERYTHING (the #2292 no-op). emitBlockingError (still used by
+    // hook-command.ts for unrecoverable handler errors) must bypass the buffer
+    // and reach real stderr. NOTE: the worker-unreachable fail-loud path no
+    // longer blocks — it uses emitDiagnostic (see the source-contract test below).
     const real = captureRealStderr();
     const buffer = installHookStderrBuffer();
     try {
@@ -58,10 +60,13 @@ describe('#2292 — fail-loud diagnostic is no longer swallowed', () => {
     }
   });
 
-  it('worker-utils recordWorkerUnreachable routes through emitBlockingError (source contract)', () => {
+  it('worker-utils recordWorkerUnreachable routes through emitDiagnostic and never blocks (source contract)', () => {
     const src = readFileSync(join(REPO_ROOT, 'src', 'shared', 'worker-utils.ts'), 'utf-8');
-    // The fail-loud branch must NOT call process.stderr.write / process.exit directly.
-    expect(src).toContain('emitBlockingError(');
+    // Fail OPEN: the fail-loud branch surfaces via the bypass channel
+    // (emitDiagnostic) but must NEVER block the prompt (no emitBlockingError /
+    // exit 2), and must NOT write process.stderr / process.exit directly.
+    expect(src).toContain('emitDiagnostic(');
+    expect(src).not.toContain('emitBlockingError(');
     expect(src).not.toMatch(/process\.stderr\.write\(\s*\n\s*`claude-mem worker unreachable/);
   });
 });
