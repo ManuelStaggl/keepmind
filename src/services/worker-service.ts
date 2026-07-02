@@ -17,6 +17,7 @@ import { getAuthMethodDescription } from '../shared/EnvManager.js';
 import { logger } from '../utils/logger.js';
 import { ChromaSync } from './sync/ChromaSync.js';
 import { SqliteVecManager } from './vector/SqliteVecManager.js';
+import { vectorDepsAvailable, attemptVectorDepsSelfRepair } from './vector/vector-deps-repair.js';
 import { EmbedderService } from './vector/EmbedderService.js';
 import { configureSupervisorSignalHandlers, getSupervisor, startSupervisor } from '../supervisor/index.js';
 import { sanitizeEnv } from '../supervisor/env-sanitizer.js';
@@ -641,6 +642,20 @@ export class WorkerService implements WorkerRef {
           logger.info('SYSTEM', 'In-process vector store loaded (sqlite-vec)');
         } catch (error) {
           logger.error('SYSTEM', 'sqlite-vec failed to load — semantic search will degrade to keyword search', {}, error as Error);
+          // Common right after a plugin update that didn't reinstall node_modules:
+          // the native vector deps are simply missing. Try a one-time background
+          // reinstall and, on success, bring vector search up without a restart.
+          if (!vectorDepsAvailable()) {
+            attemptVectorDepsSelfRepair(() => {
+              try {
+                SqliteVecManager.instance().load();
+                EmbedderService.instance().warmup().catch(() => { /* best-effort */ });
+                logger.info('SYSTEM', 'In-process vector store loaded after self-repair');
+              } catch (reloadError) {
+                logger.warn('SYSTEM', 'Vector store still unavailable after self-repair', {}, reloadError as Error);
+              }
+            });
+          }
         }
         // Warm the embedder in the background so the first search isn't penalised
         // by the one-time model load/download. Best-effort; never blocks boot.
