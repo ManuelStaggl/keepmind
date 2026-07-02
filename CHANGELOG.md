@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.1.3] - 2026-07-02
+
+## 🐛 Bug Fixes
+
+### Fixed worker startup deadlock on reused/stale PID (Windows)
+
+On Windows, PIDs are recycled quickly. When `worker.pid` pointed at a PID that was still "alive" but belonged to an **unrelated** process (not our worker), the launcher waited only 3s for the port to answer and then gave up **without ever re-spawning** — and the daemon's own duplicate-guard trusted the same PID. Result: a permanent deadlock where the worker never came up. Symptom:
+
+```
+Worker daemon    ✗ no response on port 37777 — start with `npx keepmind start`
+Worker PID file  ✓ live (port 37777)
+```
+…and `npx keepmind start` did not help.
+
+**Fix:** the live-PID branch now waits the full cold-boot budget; if the port still never becomes healthy, the PID is treated as stale/reused, cleared, and a fresh daemon is spawned. A genuinely slow-booting worker is unaffected (it becomes healthy during the wait); a duplicate is prevented by the daemon's health-probe guard. Verified by reproducing the deadlock and confirming `start` now self-heals to a healthy worker.
+
+**`doctor` is now honest too:** a "live" PID whose daemon does not answer is reported as a warning (*"likely a reused/stale PID; clear with `npx keepmind restart`"*) instead of a misleading green "live".
+
+**If you are stuck on the old behavior:** update, then `npx keepmind restart`.
+
 ## [1.1.2] - 2026-07-02
 
 ## 🐛 Bug Fixes
