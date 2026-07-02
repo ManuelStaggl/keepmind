@@ -17,8 +17,22 @@ import { logger } from '../../src/utils/logger.js';
 // mocked, so it stays the same singleton the tests spy in beforeEach.
 const realFs = createRequire(import.meta.url)('fs') as typeof import('fs');
 let statfsImpl: typeof realFs.statfsSync = realFs.statfsSync;
+// Copy only CONFIGURABLE own properties into the mock namespace. node:test's
+// module-mock loader does ObjectDefineProperty(modExports, key, …) for every key
+// the factory returns; a non-configurable builtin export (notably `fs.constants`)
+// makes that throw "Cannot redefine property: constants" and crash the whole run
+// (seen on Node 24.18, not 24.16 — the experimental loader tightened between
+// patches). Omitted keys fall through to the real module on Node's mock loader,
+// so consumers that need `fs.constants` still get it; we only need statfsSync
+// swappable here anyway.
+const fsMock: Record<string, unknown> = {};
+for (const key of Object.keys(realFs)) {
+  const desc = Object.getOwnPropertyDescriptor(realFs, key);
+  if (desc && desc.configurable === false) continue;
+  fsMock[key] = (realFs as Record<string, unknown>)[key];
+}
 const fsMockFactory = () => ({
-  ...realFs,
+  ...fsMock,
   statfsSync: (...args: Parameters<typeof realFs.statfsSync>) => statfsImpl(...args),
   default: realFs,
 });
