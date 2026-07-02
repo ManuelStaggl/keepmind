@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.3.2] - 2026-07-02
+
+Feature release: proactive in-session update notices.
+
+## New
+- **You're now told about updates inside a running session.** Previously a new keepmind release was only visible via `npx keepmind doctor`. Starting with 1.3.2, keepmind checks npm in the background (worker-side, at most once/day, non-blocking) and, when a newer version is published, prepends a one-line notice to the SessionStart context:
+  `📦 keepmind X.Y.Z is available (you have A.B.C). Update with npx keepmind@latest update, then restart your editor.`
+  - The SessionStart hook only reads a local cache + compares versions — no network on the hot path, so it never slows or hangs a session.
+  - Compares against the running build, so the notice self-clears the moment you update (no stale false-positive).
+  - Offline / behind a corporate proxy: silent, retried later.
+  - Opt-out: `CLAUDE_MEM_UPDATE_CHECK_ENABLED=false`.
+
+Note: the notice logic ships *in* this version, so it informs you about releases *after* 1.3.2. Update once to 1.3.2 and future updates surface automatically.
+
 ## [1.3.1] - 2026-07-02
 
 Bugfix + hygiene release on top of 1.3.0.
