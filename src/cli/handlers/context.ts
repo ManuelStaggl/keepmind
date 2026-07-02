@@ -15,6 +15,7 @@ import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { logger } from '../../utils/logger.js';
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { readStaleMarker } from '../../shared/oauth-token.js';
+import { readUpdateHint } from '../../shared/update-check.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { callMcpToolOnce } from '../../shared/mcp-client.js';
 
@@ -91,6 +92,18 @@ export const contextHandler: EventHandler = {
       } else {
         logger.warn('HOOK', 'Context response was not a string', { type: typeof contextResult });
         return emptyResult;
+      }
+    }
+
+    // Proactive update notice: a one-line hint when a newer keepmind is on npm.
+    // Pure local cache read (the worker runs the networked poll on its own), so
+    // it never slows SessionStart; compares npm-latest against THIS build, so it
+    // self-clears right after an update. Opt-out: CLAUDE_MEM_UPDATE_CHECK_ENABLED
+    // =false. Prepended first so the (more urgent) stale-OAuth hint lands above.
+    if (String(settings.CLAUDE_MEM_UPDATE_CHECK_ENABLED ?? 'true').toLowerCase() !== 'false') {
+      const updateHint = readUpdateHint();
+      if (updateHint) {
+        additionalContext = additionalContext ? `${updateHint}\n\n${additionalContext}` : updateHint;
       }
     }
 

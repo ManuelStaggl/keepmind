@@ -14,6 +14,7 @@ import { countObservationsByProjects } from '../../../context/ObservationCompile
 import { SettingsDefaultsManager } from '../../../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../../../shared/paths.js';
 import { normalizePlatformSource } from '../../../../shared/platform-source.js';
+import { refreshUpdateCacheInBackground } from '../../../../shared/update-check.js';
 import type { ObservationSearchResult, SessionSummarySearchResult } from '../../../sqlite/types.js';
 
 // ESM-safe __dirname: bundled to CJS in production (where __dirname exists), but
@@ -373,6 +374,15 @@ export class SearchRoutes extends BaseRouteHandler {
     }
 
     const settings = this.getCachedSettings();
+
+    // Proactive update notice: kick a fire-and-forget, TTL-gated npm-latest poll
+    // (worker-side, long-lived) whose cached result the SessionStart hook reads
+    // to surface "update available". Never blocks this handler; no-op when fresh.
+    const updateCheckRaw = process.env.CLAUDE_MEM_UPDATE_CHECK_ENABLED ?? settings.CLAUDE_MEM_UPDATE_CHECK_ENABLED;
+    if (String(updateCheckRaw ?? 'true').toLowerCase() !== 'false') {
+      refreshUpdateCacheInBackground();
+    }
+
     // Env always wins over cached settings (mirrors SettingsDefaultsManager
     // applyEnvOverrides semantics). Reading process.env is free, so honoring it
     // here keeps the welcome-hint toggle responsive without waiting out the
