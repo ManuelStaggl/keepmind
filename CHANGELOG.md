@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.2.2] - 2026-07-02
+
+## 🔧 Self-healing vector search after plugin updates
+
+A Claude Code plugin update refreshes the plugin files but doesn't run `bun install`, so right after an update the native vector deps (`sqlite-vec`, `@huggingface/transformers`) were missing and **semantic search silently degraded to keyword search** until you manually re-ran `npx keepmind install`.
+
+Now the worker fixes this itself: on boot, if the native vector deps don't resolve **and** Bun is available, it runs a one-time background `bun install` in its own plugin dir, then loads the vector store and warms the embedder — no restart, no manual step. The HTTP server still comes up immediately (the repair never blocks boot); if Bun is absent it degrades cleanly with a clear hint.
+
+**Combined with plugin auto-update, updates are now fully hands-off:** plugin updates → worker recycles → missing deps self-install → semantic search re-enables.
+
+Verified in a clean room (plugin tree with no `node_modules`, Bun available): the worker boots, logs the self-repair, and semantic search comes up ~7s later with zero manual steps.
+
 ## [1.2.1] - 2026-07-02
 
 ## 🩺 Doctor now tells you when an update is available
