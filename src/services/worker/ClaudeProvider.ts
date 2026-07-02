@@ -202,6 +202,9 @@ export class ClaudeProvider {
     } else {
       modelId = session.modelOverride || this.getModelId();
       session.pinnedModel = typeof modelId === 'string' ? modelId : undefined;
+      // L3: a fresh (non-resumed) SDK session resets the bounded-context turn
+      // counter — this conversation's context window starts empty again.
+      session.contextTurnCount = 0;
     }
     session.lastModelId = typeof modelId === 'string' ? modelId : undefined;
     // Each query() starts a fresh SDK process, so its total_cost_usd
@@ -442,6 +445,10 @@ export class ClaudeProvider {
     // Perf plan L1: coalesce up to N buffered observations into one compression
     // turn. Read once per generator pass; 1 = unchanged one-turn-per-tool-use.
     const observationBatchMax = this.getObservationBatchMax();
+    // Perf plan L3: after this many compression turns in one resumed conversation
+    // force a fresh SDK session so the context window / resume payload stays
+    // bounded (else quadratic cost + eventual "prompt is too long"). 0 = off.
+    const maxContextTurns = this.getMaxContextTurns();
 
     const isInitPrompt = session.lastPromptNumber === 1;
     logger.info('SDK', 'Creating message generator', {
@@ -525,6 +532,26 @@ export class ClaudeProvider {
           parent_tool_use_id: null,
           isSynthetic: true
         };
+
+        // L3: bound the resumed conversation. Count this ingest turn; once we hit
+        // the cap, request a fresh SDK session (forceInit) and end this generator.
+        // Ending the prompt stream lets the SDK finish the turn we just yielded;
+        // any still-buffered observations stay pending and are picked up by the
+        // fresh session (which resets contextTurnCount via startSession). Keeping
+        // conversationHistory trimmed bounds the in-memory array too.
+        session.contextTurnCount = (session.contextTurnCount ?? 0) + 1;
+        if (maxContextTurns > 0 && session.contextTurnCount >= maxContextTurns) {
+          session.forceInit = true;
+          if (session.conversationHistory.length > 2) {
+            session.conversationHistory = session.conversationHistory.slice(-2);
+          }
+          logger.info('SDK', 'L3 context cap reached — forcing a fresh SDK session', {
+            sessionDbId: session.sessionDbId,
+            turns: session.contextTurnCount,
+            maxContextTurns,
+          });
+          return;
+        }
       } else if (message.type === 'summarize') {
         const summaryPrompt = buildSummaryPrompt({
           id: session.sessionDbId,
@@ -574,5 +601,25 @@ export class ClaudeProvider {
       // fall through to safe default
     }
     return 1;
+  }
+
+  /**
+   * Max compression turns in one resumed Claude conversation before a fresh
+   * session is forced (perf plan L3). 0 = unbounded (legacy). Clamped to a sane
+   * floor of 4 when enabled so a misconfiguration can't thrash the session with
+   * a fresh init on nearly every turn. Invalid/negative → the default (40).
+   */
+  private getMaxContextTurns(): number {
+    try {
+      const settings = SettingsDefaultsManager.loadFromFile(paths.settings());
+      const raw = parseInt(settings.CLAUDE_MEM_MAX_CONTEXT_MESSAGES, 10);
+      if (Number.isFinite(raw)) {
+        if (raw <= 0) return 0;             // explicit unbounded
+        return Math.max(raw, 4);
+      }
+    } catch {
+      // fall through to safe default
+    }
+    return 40;
   }
 }

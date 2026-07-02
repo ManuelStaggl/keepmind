@@ -43,6 +43,14 @@ export interface ActiveSession {
    * implicitly on forceInit (a fresh session re-resolves + re-pins).
    */
   pinnedModel?: string;
+  /**
+   * Compression turns issued into the current resumed Claude SDK conversation
+   * since the last fresh session (perf plan L3). When it reaches
+   * CLAUDE_MEM_MAX_CONTEXT_MESSAGES the generator forces a fresh session
+   * (forceInit) so the SDK context window / resume payload stays bounded. Reset
+   * to 0 whenever a fresh (non-resumed) session starts.
+   */
+  contextTurnCount?: number;
   lastSummaryStored?: boolean;
   pendingAgentId?: string | null;
   pendingAgentType?: string | null;

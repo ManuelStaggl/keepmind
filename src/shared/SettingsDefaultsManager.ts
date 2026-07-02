@@ -43,6 +43,8 @@ export interface SettingsDefaults {
   CLAUDE_MEM_CONTEXT_SESSION_COUNT: string;
   /** Max observations coalesced into ONE compression turn (perf plan L1). '1' = one turn per tool-use (default, unchanged behavior); >1 batches buffered observations under backlog to cut turn count. */
   CLAUDE_MEM_OBSERVATION_BATCH_MAX: string;
+  /** Max compression turns in ONE resumed Claude SDK conversation before a fresh session is forced (perf plan L3). Bounds the resume/context-window growth (quadratic cost + eventual "prompt is too long"). '0' = unbounded (legacy behavior). */
+  CLAUDE_MEM_MAX_CONTEXT_MESSAGES: string;
   CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY: string;
   CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE: string;
   CLAUDE_MEM_CONTEXT_SHOW_TERMINAL_OUTPUT: string;
@@ -124,6 +126,7 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_CONTEXT_FULL_FIELD: 'narrative',
     CLAUDE_MEM_CONTEXT_SESSION_COUNT: '5',
     CLAUDE_MEM_OBSERVATION_BATCH_MAX: '1',
+    CLAUDE_MEM_MAX_CONTEXT_MESSAGES: '40',  // Claude path: force a fresh SDK session after N compression turns (perf plan L3). 0 = unbounded.
     CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY: 'true',
     CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE: 'false',
     CLAUDE_MEM_CONTEXT_SHOW_TERMINAL_OUTPUT: 'true',
