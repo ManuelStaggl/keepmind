@@ -187,15 +187,26 @@ export class VectorSync {
     if (files_read.length > 0) baseMetadata.files_read = files_read.join(',');
     if (files_modified.length > 0) baseMetadata.files_modified = files_modified.join(',');
 
-    if (obs.narrative) {
-      documents.push({ id: `obs_${obs.id}_narrative`, document: obs.narrative, metadata: { ...baseMetadata, field_type: 'narrative' } });
+    // R1 (perf plan): collapse the former 5.4-vectors/item chunking (one doc per
+    // narrative/text + one per fact) down to ≤2 docs/item. The search read path
+    // already dedupes results by `${doc_type}:${sqlite_id}` (SqliteVecManager
+    // .queryKnn), so per-field/per-fact rows never surfaced independently —
+    // they only inflated vectors.db. One "primary" doc (title + subtitle +
+    // narrative + text, the human-readable gist) and one "facts" doc (all facts
+    // joined) preserve recall on both the prose and the atomic-fact signal while
+    // cutting stored vectors ~2.7×.
+    const primaryText = [obs.title, obs.subtitle, obs.narrative, obs.text]
+      .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+      .join('\n\n');
+    if (primaryText) {
+      documents.push({ id: `obs_${obs.id}_primary`, document: primaryText, metadata: { ...baseMetadata, field_type: 'primary' } });
     }
-    if (obs.text) {
-      documents.push({ id: `obs_${obs.id}_text`, document: obs.text, metadata: { ...baseMetadata, field_type: 'text' } });
+    const factsText = facts
+      .filter((f: unknown): f is string => typeof f === 'string' && f.trim().length > 0)
+      .join('\n');
+    if (factsText) {
+      documents.push({ id: `obs_${obs.id}_facts`, document: factsText, metadata: { ...baseMetadata, field_type: 'facts' } });
     }
-    facts.forEach((fact: string, index: number) => {
-      documents.push({ id: `obs_${obs.id}_fact_${index}`, document: fact, metadata: { ...baseMetadata, field_type: 'fact', fact_index: index } });
-    });
 
     return documents;
   }
@@ -216,12 +227,23 @@ export class VectorSync {
       prompt_number: summary.prompt_number || 0
     };
 
-    if (summary.request) documents.push({ id: `summary_${summary.id}_request`, document: summary.request, metadata: { ...baseMetadata, field_type: 'request' } });
-    if (summary.investigated) documents.push({ id: `summary_${summary.id}_investigated`, document: summary.investigated, metadata: { ...baseMetadata, field_type: 'investigated' } });
-    if (summary.learned) documents.push({ id: `summary_${summary.id}_learned`, document: summary.learned, metadata: { ...baseMetadata, field_type: 'learned' } });
-    if (summary.completed) documents.push({ id: `summary_${summary.id}_completed`, document: summary.completed, metadata: { ...baseMetadata, field_type: 'completed' } });
-    if (summary.next_steps) documents.push({ id: `summary_${summary.id}_next_steps`, document: summary.next_steps, metadata: { ...baseMetadata, field_type: 'next_steps' } });
-    if (summary.notes) documents.push({ id: `summary_${summary.id}_notes`, document: summary.notes, metadata: { ...baseMetadata, field_type: 'notes' } });
+    // R1 (perf plan): collapse the former 6-docs/summary chunking into ≤2 docs.
+    // "context" = what the session was about + what was found (request +
+    // investigated + learned); "outcome" = what changed and what's next
+    // (completed + next_steps + notes). Result dedupe by `${doc_type}:${sqlite_id}`
+    // means these never surfaced separately anyway.
+    const contextText = [summary.request, summary.investigated, summary.learned]
+      .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+      .join('\n\n');
+    if (contextText) {
+      documents.push({ id: `summary_${summary.id}_context`, document: contextText, metadata: { ...baseMetadata, field_type: 'context' } });
+    }
+    const outcomeText = [summary.completed, summary.next_steps, summary.notes]
+      .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+      .join('\n\n');
+    if (outcomeText) {
+      documents.push({ id: `summary_${summary.id}_outcome`, document: outcomeText, metadata: { ...baseMetadata, field_type: 'outcome' } });
+    }
 
     return documents;
   }
