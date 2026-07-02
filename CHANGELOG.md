@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.1.2] - 2026-07-02
+
+## 🐛 Bug Fixes
+
+### Fixed Windows crash on session end (`SessionEnd` hook)
+
+The `session-release` hook made an HTTP request to the worker and then called `process.exit(0)` while an undici keep-alive socket was still live. On Windows this raced libuv's teardown and aborted with:
+
+```
+Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94
+```
+
+The hook exit path now routes through a hardened exit (mirroring the already-fixed launcher path): it destroys the global fetch dispatcher, sets `process.exitCode`, and lets the idle event loop drain instead of calling `process.exit()` synchronously — with an unref'd safety timer as a force-exit fallback. `exitGraceful` / `emitBlockingError` now return a promise the hook-command callers await; the `skipExit` test seam stays synchronous.
+
+**Impact:** `/exit` (and any SessionEnd) no longer prints a libuv assertion on Windows.
+
 ## [1.1.1] - 2026-07-01
 
 ## Fixes
