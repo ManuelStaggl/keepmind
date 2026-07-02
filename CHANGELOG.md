@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.3.3] - 2026-07-02
+
+Removes the scary exit-time message.
+
+## Fixed
+- **No more `SessionEnd hook … failed: Hook cancelled` on exit.** Claude Code SIGTERMs (cancels) its own SessionEnd hooks during exit teardown, which printed that red message to every user when they closed a session — even though keepmind's cleanup actually completed. The message comes from Claude Code and cannot be suppressed by a hook, so the durable fix is to not register a SessionEnd hook at all.
+
+## Changed (worker lifecycle)
+- The worker now shuts down based on **inactivity** (default 5 min with no worker request) instead of a SessionStart/SessionEnd refcount, and lazy-respawns on the next hook. This removes the need for the SessionEnd (`session-release`) hook entirely while keeping prompt idle shutdown.
+- Ephemeral scratch working-memory is evaporated on idle shutdown (previously per-session on SessionEnd).
+- The `session-release` handler and `/api/session/release` endpoint remain for back-compat with older installs.
+
+Net effect for users: the worker may idle a few minutes longer after your last activity before exiting (and comes back automatically), and the confusing exit-time error is gone for good.
+
 ## [1.3.2] - 2026-07-02
 
 Feature release: proactive in-session update notices.
