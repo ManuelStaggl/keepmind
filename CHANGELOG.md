@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.2.0] - 2026-07-02
+
+## ⚡ Performance: faster hooks and lighter memory footprint
+
+### Hooks are ~3–6× faster
+Every Claude Code hook used to spawn a process that loaded the entire ~2.7 MB worker daemon bundle just to make one HTTP call, then ran a PowerShell CIM lookup to verify the worker PID — together the bulk of a ~1 s per-hook cost, and enough to make Claude Code cancel the SessionEnd hook mid-flight (*"Hook cancelled"*).
+
+- **Slim hook client (P1):** a dedicated ~340 KB `hook-client.cjs` handles hooks (read payload → POST to daemon → emit result); the full daemon bundle is no longer parsed on every hook. A build-time leak guard keeps it slim.
+- **Skip redundant PID check (P3):** when the worker already answers on its port, the hook returns immediately and skips the ~250 ms Windows CIM PID-ownership lookup.
+- **Measured:** hook process ~500 ms → **~150 ms** (single process); bundle parse ~380 ms → ~30 ms.
+
+### Lower token usage per session
+- File-context injection (fires on every tracked `Read`): 4-line header collapsed to one; results per file 15 → 5. Saves thousands of tokens over a session.
+- SessionStart: default session count 10 → 5; long summary fields truncated. (`CLAUDE_MEM_CONTEXT_SESSION_COUNT` still configurable.)
+- Observer idle timeout 3 min → 4.5 min so a follow-up turn reuses the warm prompt cache.
+
+### Smaller, self-maintaining data dir
+- The maintenance loop now checkpoints/VACUUMs `vectors.db` (its WAL previously grew unbounded).
+- Daily logs pruned after 14 days; one-time migration backups pruned after 30 days.
+
+All changes are backward-compatible. Combined with 1.1.2–1.1.5, the Windows/corporate startup and shutdown path is now both robust and fast.
+
 ## [1.1.5] - 2026-07-02
 
 ## 🩺 Doctor: Bun is optional, not a required failure
