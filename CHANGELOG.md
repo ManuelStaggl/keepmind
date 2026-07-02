@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.3.0] - 2026-07-02
+
+Performance & resource release: fewer LLM tokens per session, a leaner vector store, and correctness fixes.
+
+## Token / cost
+- **L3 — bounded Claude conversation context.** New `CLAUDE_MEM_MAX_CONTEXT_MESSAGES` (default `40`, `0`=unbounded) forces a fresh SDK session after N compression turns, so the resume payload stops growing quadratically and long sessions no longer drift toward "prompt is too long".
+- **L4 — Observer identity/format moved to the SDK system prompt.** The ~1k-token identity + `<observation>` format scaffold is now a cached, resume-independent prefix instead of being re-injected into every user turn.
+- **L5 — model pinned per resumed conversation.** Tier routing can no longer flip the model mid-conversation and invalidate the model-scoped prompt cache.
+
+## Resources
+- **R1 — vector chunking collapsed to ~2 vectors/item** (was ~5.4): one "primary" doc + one "facts" doc per observation, two docs per summary. Search recall is preserved (results already dedupe per entity). Existing vectors converge as items re-sync.
+- **R2 — expiry now purges vectors.** Expiring/deleting an observation removes its `vec_documents` rows, so `vectors.db` no longer grows unbounded and expired observations stop surfacing in semantic search.
+
+## Fixes / infra
+- **repair** now reinstalls native deps into the marketplace `plugin/` dir (not just the cache), so a marketplace-run worker's vector search actually recovers.
+- **P2 — hooks skip the ~280 ms login-shell PATH probe** when a suitable node (≥22.5) is already resolvable; the fallback is unchanged for GUI/nvm setups that need it (~4× faster hook spawn where node is present).
+- **CI** runs on Node 22 so `node:sqlite` is available.
+
+## Known limitation
+- Renaming a repo/folder changes the basename-derived project key, so context stored under the old name isn't matched. A remap/adopt flow is not yet included; worktree adoption is unaffected.
+
 ## [1.2.2] - 2026-07-02
 
 ## 🔧 Self-healing vector search after plugin updates
