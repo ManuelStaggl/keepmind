@@ -15,7 +15,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # node:sqlite (used by the worker + the clean-room smoke) needs Node
+          # >=22.5, and package.json engines require >=22.5.0. Node 20 failed
+          # with "No such built-in module: node:sqlite". Matches windows.yml.
+          node-version: '22'
 
       - name: Install Bun (worker runtime + test runner)
         uses: oven-sh/setup-bun@v2
@@ -55,7 +58,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # node:sqlite (used by the worker + the clean-room smoke) needs Node
+          # >=22.5, and package.json engines require >=22.5.0. Node 20 failed
+          # with "No such built-in module: node:sqlite". Matches windows.yml.
+          node-version: '22'
 
       - name: Install Bun (worker runtime + test runner)
         uses: oven-sh/setup-bun@v2
@@ -98,7 +104,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # node:sqlite (used by the worker + the clean-room smoke) needs Node
+          # >=22.5, and package.json engines require >=22.5.0. Node 20 failed
+          # with "No such built-in module: node:sqlite". Matches windows.yml.
+          node-version: '22'
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
