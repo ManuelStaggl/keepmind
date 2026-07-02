@@ -736,6 +736,94 @@ function renderReport(report: DoctorReport): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Updates — is a newer keepmind published than the one installed/running?
+// ---------------------------------------------------------------------------
+
+const NPM_LATEST_URL = 'https://registry.npmjs.org/keepmind/latest';
+const UPDATE_CHECK_TIMEOUT_MS = 3000;
+
+/** Best-effort: the version that is actually installed/running on this machine. */
+function currentInstalledVersion(probe: WorkerProbe): string | null {
+  // Prefer the live worker's self-reported version; fall back to the installed
+  // plugin manifest so the check still works when the daemon is stopped.
+  const running = probe.health?.version;
+  if (typeof running === 'string' && running.trim()) return running.replace(/^v/, '');
+  try {
+    const manifest = join(marketplaceDirectory(), 'plugin', 'package.json');
+    if (existsSync(manifest)) {
+      const pkg = JSON.parse(readFileSync(manifest, 'utf-8')) as { version?: string };
+      if (typeof pkg.version === 'string' && pkg.version.trim()) return pkg.version.replace(/^v/, '');
+    }
+  } catch {
+    // fall through — version simply unknown
+  }
+  return null;
+}
+
+/** Latest version published to npm, or null when the registry can't be reached. */
+async function fetchLatestNpmVersion(): Promise<string | null> {
+  try {
+    const res = await fetch(NPM_LATEST_URL, { signal: AbortSignal.timeout(UPDATE_CHECK_TIMEOUT_MS) });
+    if (!res.ok) return null;
+    const body = await res.json() as { version?: string };
+    return typeof body.version === 'string' && body.version.trim() ? body.version.replace(/^v/, '') : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Numeric x.y.z compare (prerelease tags ignored). >0 if a is newer than b. */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map(n => parseInt(n, 10) || 0);
+  const pb = b.split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
+async function buildUpdatesGroup(probe: WorkerProbe): Promise<CheckGroup> {
+  const current = currentInstalledVersion(probe);
+  const latest = await fetchLatestNpmVersion();
+
+  let check: CheckResult;
+  if (!current) {
+    check = {
+      name: 'Version',
+      status: 'skip',
+      detail: 'could not determine the installed keepmind version',
+      required: false,
+    };
+  } else if (!latest) {
+    check = {
+      name: 'Version',
+      status: 'skip',
+      detail: `v${current} installed — could not reach npm to check for a newer version`,
+      required: false,
+    };
+  } else if (compareVersions(latest, current) > 0) {
+    check = {
+      name: 'Update available',
+      status: 'warn',
+      detail:
+        `v${current} installed, v${latest} on npm. In Claude Code: ` +
+        '`/plugin marketplace update keepmind` then `/plugin install keepmind@keepmind`. ' +
+        'Tip: enable auto-update (/plugin → Marketplaces → keepmind) so updates apply automatically.',
+      required: false,
+    };
+  } else {
+    check = {
+      name: 'Version',
+      status: 'ok',
+      detail: `v${current} (up to date)`,
+      required: false,
+    };
+  }
+  return { title: 'Updates', checks: [check] };
+}
+
 export async function runDoctorCommand(argv: string[] = []): Promise<void> {
   const jsonOutput = argv.includes('--json');
   const dataDir = resolveDataDir();
@@ -744,6 +832,7 @@ export async function runDoctorCommand(argv: string[] = []): Promise<void> {
 
   const groups: CheckGroup[] = [
     buildRuntimeGroup(dataDir),
+    await buildUpdatesGroup(probe),
     buildProviderGroup(probe),
     buildWorkerGroup(probe),
     buildMemoryGroup(probe),
