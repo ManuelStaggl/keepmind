@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.1.4] - 2026-07-02
+
+## 🐛 Critical Bug Fix — worker now boots without plugin node_modules
+
+The worker daemon crashed on boot on any machine where the plugin's runtime dependencies were never installed — most notably when **Bun is absent and its auto-install is blocked by a corporate TLS proxy**. The worker never bound its port, so `npx keepmind doctor` reported *"no response on port 37777"* no matter how often you ran `start`/`restart`.
+
+Root cause: the worker bundle externalized dependencies that are then `require`d at module load, so a missing `node_modules` aborted the whole process (`Cannot find module 'zod/v3'`, then `Cannot find module 'sqlite-vec'`) before any handler ran.
+
+### Fixes
+- **zod is now bundled** into `worker-service.cjs` (it's pure JS; the bundled MCP SDK needs `zod/v3`+`zod/v4`). A build-time guard prevents it from ever being externalized again.
+- **Native deps are lazy-loaded**: `sqlite-vec` and `@huggingface/transformers` are required at first real use instead of at module top-level. If they're missing, semantic search **degrades gracefully to keyword/FTS search** instead of crashing the daemon.
+
+Verified in a clean room (full plugin tree, no `node_modules`): the daemon boots, initializes the SQLite DB (via the Node built-in `node:sqlite`), and answers `/api/health` with `initialized: true`. Core memory capture and keyword search work everywhere; semantic vector search activates automatically once the native deps are present.
+
+Combined with v1.1.3 (self-healing worker start on reused/stale PID) and v1.1.2 (SessionEnd libuv crash on Windows), the Windows/corporate startup path is now robust.
+
+**To update:** in Claude Code run `/plugin marketplace update keepmind` then `/plugin install keepmind@keepmind`, then `npx keepmind@1.1.4 restart`.
+
 ## [1.1.3] - 2026-07-02
 
 ## 🐛 Bug Fixes
