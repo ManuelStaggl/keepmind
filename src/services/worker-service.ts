@@ -161,16 +161,19 @@ const CLEAN_SHUTDOWN_SENTINEL_PATH = path.join(DATA_DIR, '.worker-clean-shutdown
  *     than this is swept (missed-SessionEnd guard). Default 6 h.
  *   - CLAUDE_MEM_SESSION_SWEEP_INTERVAL_MS: sweep cadence. Default 60 s.
  */
-function readLifecycleConfig(): { graceMs: number; staleMs: number; sweepIntervalMs: number } {
+function readLifecycleConfig(): { idleMs: number; checkIntervalMs: number } {
   const num = (raw: string | undefined, fallback: number): number => {
     if (raw === undefined) return fallback;
     const parsed = Number(raw);
     return Number.isFinite(parsed) ? parsed : fallback;
   };
+  // Activity-based idle shutdown: no worker request for `idleMs` → shut down
+  // (the worker lazy-respawns on the next hook). CLAUDE_MEM_SESSION_STALE_MS is
+  // read as a back-compat alias so existing overrides still work; the old
+  // per-session-refcount + sweep model was replaced (see SessionRefCounter).
   return {
-    graceMs: num(process.env.CLAUDE_MEM_IDLE_SHUTDOWN_GRACE_MS, 5 * 60 * 1000),
-    staleMs: num(process.env.CLAUDE_MEM_SESSION_STALE_MS, 6 * 60 * 60 * 1000),
-    sweepIntervalMs: num(process.env.CLAUDE_MEM_SESSION_SWEEP_INTERVAL_MS, 60 * 1000),
+    idleMs: num(process.env.CLAUDE_MEM_IDLE_SHUTDOWN_GRACE_MS ?? process.env.CLAUDE_MEM_SESSION_STALE_MS, 5 * 60 * 1000),
+    checkIntervalMs: num(process.env.CLAUDE_MEM_SESSION_SWEEP_INTERVAL_MS, 60 * 1000),
   };
 }
 
@@ -284,9 +287,8 @@ export class WorkerService implements WorkerRef {
 
     const lifecycle = readLifecycleConfig();
     this.sessionRefCounter = new SessionRefCounter({
-      graceMs: lifecycle.graceMs,
-      staleMs: lifecycle.staleMs,
-      sweepIntervalMs: lifecycle.sweepIntervalMs,
+      idleMs: lifecycle.idleMs,
+      checkIntervalMs: lifecycle.checkIntervalMs,
       onIdleShutdown: () => { void this.idleShutdown(); },
     });
 
@@ -388,10 +390,19 @@ export class WorkerService implements WorkerRef {
       return;
     });
 
-    // Session-lifecycle refcount endpoints (requirement B). SessionStart hooks
-    // acquire; SessionEnd hooks release. The worker self-shuts-down a short
-    // grace period after the last release. sessionId comes from the hook's
-    // body (preferred) or query string.
+    // Activity-based idle lifecycle: every non-health request resets the idle
+    // clock so the worker only self-shuts-down after real inactivity. Registered
+    // here (before the real routes below) so it runs first for them; /api/health
+    // is excluded so liveness probes don't keep an idle worker alive forever.
+    this.server.app.use((req, _res, next) => {
+      if (!req.path.startsWith('/api/health')) this.sessionRefCounter.recordActivity();
+      next();
+    });
+
+    // Session-lifecycle endpoints. SessionStart hooks POST acquire (counts as
+    // activity). There is no SessionEnd hook anymore — shutdown is driven by
+    // inactivity (see SessionRefCounter) — but the release endpoint is kept for
+    // back-compat with older installs. sessionId comes from the body or query.
     const readSessionId = (req: import('express').Request): string => {
       const fromBody = (req.body && typeof req.body === 'object')
         ? (req.body as Record<string, unknown>).sessionId
@@ -503,6 +514,14 @@ export class WorkerService implements WorkerRef {
    */
   private async idleShutdown(): Promise<void> {
     try {
+      // No session is active at idle shutdown — evaporate ephemeral scratch
+      // working-memory now (previously done per-session on the removed SessionEnd
+      // hook) so it doesn't accumulate across the worker's lifetime.
+      try {
+        this.dbManager.getSessionStore().evaporateAllScratch();
+      } catch (error) {
+        logger.debug('SYSTEM', 'scratch evaporation on idle shutdown failed', {}, error instanceof Error ? error : new Error(String(error)));
+      }
       await this.shutdown('stop');
     } catch (error: unknown) {
       logger.error('SYSTEM', 'Idle shutdown sequence failed', {}, error instanceof Error ? error : new Error(String(error)));
@@ -559,7 +578,10 @@ export class WorkerService implements WorkerRef {
     try {
       this.maintenanceLoop = new MaintenanceLoop({
         getStore: () => this.dbManager.getSessionStore(),
-        activeSessions: () => this.sessionRefCounter.size(),
+        // Activity-based: treat the worker as "busy" (skip maintenance) only when
+        // there was worker activity in the last 30s. size() no longer decrements
+        // (no SessionEnd release), so gate on recency of activity instead.
+        activeSessions: () => (this.sessionRefCounter.msSinceActivity() < 30_000 ? 1 : 0),
         getConfig: () => loadMemoryQualityConfig(true),
       });
       this.maintenanceLoop.start();

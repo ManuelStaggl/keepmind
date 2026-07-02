@@ -2549,6 +2549,24 @@ export class SessionStore {
   }
 
   /**
+   * Evaporate ALL ephemeral scratch observations. Called on idle shutdown, when
+   * no session is active — this replaces the per-session evaporation that used to
+   * run on the (now-removed) SessionEnd hook, so scratch working-memory rows
+   * don't accumulate across the worker's lifetime.
+   */
+  evaporateAllScratch(): number {
+    try {
+      const res = this.db.prepare("DELETE FROM observations WHERE type = 'scratch'").run();
+      const n = Number(res.changes ?? 0);
+      if (n > 0) logger.info('DB', 'Evaporated all scratch observations on idle shutdown', { count: n });
+      return n;
+    } catch (error) {
+      logger.warn('DB', 'evaporateAllScratch failed', {}, error instanceof Error ? error : new Error(String(error)));
+      return 0;
+    }
+  }
+
+  /**
    * Phase 4 / Step 4 — heuristic near-dup reconciliation on the write path.
    * Returns a decision against same-project recent candidates. NEVER deletes.
    * Only consulted when memoryQuality.reconcile.enabled. On NOOP the caller

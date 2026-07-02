@@ -102,7 +102,12 @@ function shellTemplateManifest(buildShellCommand) {
         'PostToolUse.0.0': claudeHook(['hook', 'claude-code', 'observation']),
         'PreToolUse.0.0': claudeHook(['hook', 'claude-code', 'file-context']),
         'Stop.0.0': claudeHook(['hook', 'claude-code', 'summarize']),
-        'SessionEnd.0.0': claudeHook(['hook', 'claude-code', 'session-release']),
+        // NOTE: no SessionEnd hook. Claude Code SIGTERMs (cancels) its own
+        // SessionEnd hooks during exit teardown, which printed a scary
+        // "SessionEnd hook … Hook cancelled" to every user on exit. Worker
+        // shutdown is now driven by inactivity (see SessionRefCounter), so the
+        // session-release SessionEnd hook was removed. The release handler +
+        // /api/session/release endpoint remain for back-compat only.
         'PreCompact.0.0': claudeHook(['hook', 'claude-code', 'precompact']),
       },
     },

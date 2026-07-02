@@ -89,18 +89,6 @@
         ]
       }
     ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "shell": "bash",
-            "command": "command -v node >/dev/null 2>&1 && case \"$(node -v 2>/dev/null)\" in v22.[5-9]*|v22.[1-9][0-9]*|v2[3-9]*|v[3-9][0-9]*|v[1-9][0-9][0-9]*) _NODE_OK=1;; esac; [ \"${_NODE_OK:-0}\" = 1 ] || export PATH=\"$($SHELL -lc 'echo $PATH' 2>/dev/null):$PATH\"; _C=\"${CLAUDE_CONFIG_DIR:-$HOME/.claude}\"; _E=\"${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}\"; _F=; _P=$({ [ -n \"$_E\" ] && printf '%s\\n' \"$_E\"; ls -dt \"$_C/plugins/cache/keepmind/keepmind\"/[0-9]*/ 2>/dev/null; printf '%s\\n' \"$_C/plugins/marketplaces/keepmind/plugin\"; } | while IFS= read -r _R; do _R=\"${_R%/}\"; [ -d \"$_R/plugin/scripts\" ] && _Q=\"$_R/plugin\" || _Q=\"$_R\"; [ -f \"$_Q/scripts/bun-runner.js\" ] && [ -f \"$_Q/scripts/worker-service.cjs\" ] && [ -z \"$_F\" ] && { _F=1; printf '%s\\n' \"$_Q\"; }; done); [ -n \"$_P\" ] || { echo \"keepmind: plugin scripts not found\" >&2; exit 1; }; command -v cygpath >/dev/null 2>&1 && { _W=$(cygpath -w \"$_P\" 2>/dev/null); [ -n \"$_W\" ] && _P=\"$_W\"; }; node \"$_P/scripts/bun-runner.js\" \"$_P/scripts/worker-service.cjs\" hook claude-code session-release",
-            "timeout": 60
-          }
-        ]
-      }
-    ],
     "PreCompact": [
       {
         "hooks": [
