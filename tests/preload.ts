@@ -41,7 +41,10 @@ if (typeof g.require === 'undefined') {
     for (const line of stack.split('\n').slice(2)) {
       if (line.includes('preload.ts')) continue;
       if (line.includes('node:')) continue;
-      const m = line.match(/\(?(file:\/\/\/[^):]+|[A-Za-z]:[\\/][^):]+)(?::\d+:\d+)?\)?$/);
+      // The trailing `\/[^():]+` alternative matches bare POSIX absolute paths
+      // (`/home/…`) that tsx emits under Linux/CI — without it a relative
+      // require() resolved from the project root instead of the caller.
+      const m = line.match(/\(?(file:\/\/\/[^):]+|[A-Za-z]:[\\/][^):]+|\/[^():]+)(?::\d+:\d+)?\)?$/);
       if (m) {
         const raw = m[1];
         try { return raw.startsWith('file:') ? fileURLToPath(raw) : raw; } catch { return raw; }

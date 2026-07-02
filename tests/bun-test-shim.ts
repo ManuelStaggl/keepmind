@@ -19,8 +19,17 @@ function callerFileUrl(): string | undefined {
   const stack = new Error().stack ?? '';
   for (const line of stack.split('\n').slice(1)) {
     if (line.includes('bun-test-shim')) continue;
-    // Match `(file:///…:line:col)` / `at file:///…` or a bare `(C:\…:line:col)`.
-    const m = line.match(/\(?(file:\/\/\/[^):]+|[A-Za-z]:[\\/][^):]+)(?::\d+:\d+)?\)?$/);
+    // Skip node internal frames (`at node:internal/...`). They contain a `/`
+    // mid-string, so the bare-POSIX-path alternative below would otherwise match
+    // them (`/modules/esm/...`) and return garbage instead of the real caller.
+    if (line.includes('node:')) continue;
+    // Match a frame's file location as `(file:///…:line:col)` / `at file:///…`,
+    // a Windows drive path (`C:\…`), or a bare POSIX absolute path (`/home/…`).
+    // The POSIX alternative is load-bearing under Linux/CI, where tsx emits bare
+    // `/…` paths (no `file://` prefix) — without it callerFileUrl() returned
+    // undefined and mock.module() resolved relative specifiers against this shim
+    // instead of the test file (ERR_MODULE_NOT_FOUND on a truncated path).
+    const m = line.match(/\(?(file:\/\/\/[^):]+|[A-Za-z]:[\\/][^):]+|\/[^():]+)(?::\d+:\d+)?\)?$/);
     if (m) {
       const raw = m[1];
       return raw.startsWith('file:') ? raw : pathToFileURL(raw).href;
