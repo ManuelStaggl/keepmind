@@ -11,9 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           # Node 24 (matches npm-publish.yml). node:sqlite needs Node >=22.5, but
           # the test runner also uses --experimental-test-module-mocks, whose
@@ -61,9 +61,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           # node:sqlite (used by the worker + the clean-room smoke) needs Node
           # >=22.5, and package.json engines require >=22.5.0. Node 20 failed

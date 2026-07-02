@@ -15,8 +15,8 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           # Node 24 ships an npm new enough for OIDC; also satisfies
           # package.json engines (>=22.5, the worker uses node:sqlite).
