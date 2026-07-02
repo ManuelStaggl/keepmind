@@ -23,7 +23,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import { promisify } from 'node:util';
 import { DATA_DIR, DB_PATH } from '../../shared/paths.js';
 import { Database } from '../../storage/db.js';
@@ -313,8 +313,14 @@ async function archiveDirectory(dataDir: string, timestamp: string): Promise<str
     return dest;
   }
 
+  // Archive the ACTUAL data dir passed in — not a hardcoded `$HOME/.claude-mem`.
+  // The old form ignored `dataDir` and tarred `~/.claude-mem`, which fails
+  // whenever the data dir is elsewhere (a CLAUDE_MEM_DATA_DIR override, the
+  // renamed `~/.keepmind`, or a test temp dir) — `tar` errors on the missing
+  // path, backupOk stays false, and the data dir is then kept. Use the dir's
+  // parent as `-C` and its basename as the archive member so any path works.
   const dest = join(backupsDir, `claude-mem-${stamp}.tar.gz`);
-  await execFileAsync('tar', ['-czf', dest, '-C', homedir(), '.claude-mem'], { timeout: 120000 });
+  await execFileAsync('tar', ['-czf', dest, '-C', dirname(dataDir), basename(dataDir)], { timeout: 120000 });
   return dest;
 }
 

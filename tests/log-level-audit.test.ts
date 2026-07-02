@@ -234,10 +234,14 @@ describe('Log Level Audit', () => {
   });
 
   it('should generate audit report for log level review', () => {
+    // Exercise the report generator, but do NOT dump the whole thing to stdout.
+    // The full audit is thousands of lines (every logger call in src/); flooding
+    // the node:test runner's result channel with it crashed the run on Node 24.18
+    // ("Unable to deserialize cloned data due to invalid or unsupported
+    // version"). No assertion depends on the text — just that it builds.
     const report = generateReport(allCalls);
-    console.log(report);
-
-    expect(true).toBe(true);
+    expect(report).toContain('LOG LEVEL AUDIT REPORT');
+    expect(report.length).toBeGreaterThan(0);
   });
 
   it('should have summary statistics', () => {
