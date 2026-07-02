@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.2.1] - 2026-07-02
+
+## 🩺 Doctor now tells you when an update is available
+
+`npx keepmind doctor` gained an **Updates** check: it compares your installed/running version against the latest published on npm and shows one of:
+
+- `✓ Version  v1.2.1 (up to date)`
+- `! Update available  v1.2.0 installed, v1.2.1 on npm` — with the exact update commands and a tip to enable Claude Code plugin auto-update so it applies automatically
+- `· Version  … (skipped)` when the registry is unreachable (3s timeout — never blocks or fails the doctor)
+
+This surfaces version staleness at a glance — the root cause behind "I updated but nothing changed".
+
+**Reminder:** enabling auto-update once (Claude Code → `/plugin` → Marketplaces → keepmind → Enable auto-update) makes future updates fully automatic — the plugin updates at startup and the worker recycles itself on the next hook. No manual steps.
+
 ## [1.2.0] - 2026-07-02
 
 ## ⚡ Performance: faster hooks and lighter memory footprint
