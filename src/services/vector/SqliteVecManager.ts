@@ -13,7 +13,7 @@
 //     are strict — integer columns MUST be bound as BigInt.
 //   • vec0 forbids `k = ?` and `LIMIT` together — use `k = ?` only.
 
-import * as sqliteVec from 'sqlite-vec';
+import { createRequire } from 'node:module';
 import { join } from 'path';
 import { mkdirSync } from 'fs';
 import { Database } from '../../storage/db.js';
@@ -68,6 +68,24 @@ function vecBlob(v: Float32Array): Uint8Array {
   return new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
 }
 
+/**
+ * Lazily resolve the `sqlite-vec` native module. It ships a per-platform .dll and
+ * therefore CANNOT be inlined into the worker bundle — it must resolve from
+ * node_modules at runtime. On installs where the plugin's native deps were never
+ * installed (e.g. Bun is absent and its auto-install failed behind a corporate
+ * proxy), the module is missing. A top-level `import` here previously crashed the
+ * ENTIRE worker on boot with `Cannot find module 'sqlite-vec'` before any handler
+ * ran, so the daemon never bound its port. Deferring the require to load() lets
+ * the worker boot; a missing native dep degrades vector search to unavailable
+ * (FTS/keyword search still works) instead of taking the whole daemon down.
+ */
+const requireNative = createRequire(import.meta.url);
+type SqliteVecModule = { getLoadablePath: () => string };
+let sqliteVecModule: SqliteVecModule | null = null;
+function loadSqliteVecModule(): SqliteVecModule {
+  return (sqliteVecModule ??= requireNative('sqlite-vec') as SqliteVecModule);
+}
+
 export class SqliteVecManager {
   private static _instance: SqliteVecManager | null = null;
   static instance(): SqliteVecManager {
@@ -83,7 +101,7 @@ export class SqliteVecManager {
     mkdirSync(VECTOR_DB_DIR, { recursive: true });
     const dbPath = join(VECTOR_DB_DIR, 'vectors.db');
     const db = new Database(dbPath);
-    db.loadExtension(sqliteVec.getLoadablePath());
+    db.loadExtension(loadSqliteVecModule().getLoadablePath());
     const { vec_version } = db.prepare('select vec_version() as vec_version').get() as { vec_version: string };
     this.vecVersion = vec_version;
     this.ensureSchema(db);

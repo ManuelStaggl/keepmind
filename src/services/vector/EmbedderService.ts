@@ -11,7 +11,8 @@
 // resolves the canonical quantized model (~23.7 MB on disk), cold-load ~2 s,
 // per-embed ~15-20 ms, output length 384, L2 norm ≈ 1.0.
 
-import { pipeline, env, type FeatureExtractionPipeline } from '@huggingface/transformers';
+import { createRequire } from 'node:module';
+import type { FeatureExtractionPipeline } from '@huggingface/transformers';
 import { join } from 'path';
 import { DATA_DIR } from '../../shared/paths.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
@@ -37,10 +38,31 @@ function setting(key: string, fallback: string): string {
   }
 }
 
-// transformers.js global env — cache the model on disk under our data dir so it
-// downloads once (not under node_modules/.cache) and is served offline after.
-env.cacheDir = join(DATA_DIR, 'vector-db', 'models');
-env.allowRemoteModels = true;
+// transformers.js (+ onnxruntime-node) ships native .node binaries and CANNOT be
+// inlined into the worker bundle — it must resolve from node_modules at runtime.
+// On installs without the plugin's native deps (e.g. Bun absent / auto-install
+// blocked by a corporate proxy) it is missing. A top-level `import` here crashed
+// the ENTIRE worker on boot with `Cannot find module '@huggingface/transformers'`
+// before any handler ran. Deferring the require to first real use lets the worker
+// boot; a missing dep degrades the embedder to unavailable (semantic search falls
+// back to keyword/FTS) instead of taking the daemon down.
+const requireNative = createRequire(import.meta.url);
+type TransformersModule = {
+  pipeline: (task: string, model: string, opts?: Record<string, unknown>) => Promise<unknown>;
+  env: Record<string, unknown>;
+};
+let transformersModule: TransformersModule | null = null;
+function loadTransformers(): TransformersModule {
+  if (transformersModule) return transformersModule;
+  const mod = requireNative('@huggingface/transformers') as TransformersModule;
+  // Cache the model on disk under our data dir so it downloads once (not under
+  // node_modules/.cache) and is served offline after. Configured here at first
+  // real use rather than at module load.
+  mod.env.cacheDir = join(DATA_DIR, 'vector-db', 'models');
+  mod.env.allowRemoteModels = true;
+  transformersModule = mod;
+  return mod;
+}
 
 export class EmbedderService {
   private static _instance: EmbedderService | null = null;
@@ -75,6 +97,10 @@ export class EmbedderService {
   private async getPipe(): Promise<FeatureExtractionPipeline> {
     if (this.pipe) return this.pipe;
     if (this.loading) return this.loading;
+    // Lazy-require the native transformers module (see loadTransformers above).
+    // A missing dep throws here and is handled by warmup()/embed() callers, which
+    // degrade to keyword search rather than crash the worker.
+    const { pipeline } = loadTransformers();
     const t0 = Date.now();
     this.loading = pipeline('feature-extraction', this.modelId, { dtype: this.dtype as never })
       .then((p) => {

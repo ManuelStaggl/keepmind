@@ -320,7 +320,15 @@ async function buildHooks() {
       logLevel: 'error', // Suppress warnings (import.meta warning is benign)
       external: [
         'node:sqlite',
-        'zod',
+        // NOTE: zod is deliberately NOT external here. This bundle runs as the
+        // worker daemon and is launched (e.g. `npx keepmind start`, or the
+        // Claude Code hook lazy-spawn) on machines where the plugin's
+        // node_modules were never installed — e.g. Bun is absent and its
+        // auto-install failed behind a corporate TLS proxy. The bundled MCP SDK
+        // requires `zod/v3`/`zod/v4` at module load, so an external zod made the
+        // worker crash on boot with `Cannot find module 'zod/v3'` and never bind
+        // its port. zod is pure JS, so we inline it (same rule the mcp-server
+        // bundle already enforces via the guard below).
         // In-process vector search natives: transformers.js pulls onnxruntime-node
         // (.node binaries) and sqlite-vec loads a per-platform .dll via
         // getLoadablePath() — none can be inlined; they must resolve from
@@ -356,6 +364,19 @@ async function buildHooks() {
     fs.chmodSync(`${hooksDir}/${WORKER_SERVICE.name}.cjs`, 0o755);
     const workerStats = fs.statSync(`${hooksDir}/${WORKER_SERVICE.name}.cjs`);
     console.log(`✓ worker-service built (${(workerStats.size / 1024).toFixed(2)} KB)`);
+
+    // Regression guard: the worker is launched on machines without plugin
+    // node_modules (Bun/deps not installed), so an external `require("zod/...")`
+    // crashes it on boot (`Cannot find module 'zod/v3'`). zod MUST stay bundled.
+    {
+      const workerBundle = fs.readFileSync(`${hooksDir}/${WORKER_SERVICE.name}.cjs`, 'utf-8');
+      const m = workerBundle.match(/require\(\s*["']zod(?:\/[^"']*)?["']\s*\)/);
+      if (m) {
+        throw new Error(
+          `worker-service.cjs contains external ${m[0]}. The worker runs without plugin node_modules on some installs, so zod must be bundled — do not add 'zod' to this bundle's external list.`
+        );
+      }
+    }
 
     // Advisory only — a sudden jump usually means a heavy server-only dependency
     // (better-auth, kysely, a database driver) leaked into the worker bundle via a
@@ -453,7 +474,9 @@ async function buildHooks() {
       outfile: `${hooksDir}/${CONTEXT_GENERATOR.name}.cjs`,
       minify: true,
       logLevel: 'error',
-      external: ['node:sqlite', 'zod'],
+      // zod bundled (not external): this runs as a SessionStart hook on machines
+      // that may have no plugin node_modules — see the worker-service note above.
+      external: ['node:sqlite'],
       define: {
         '__DEFAULT_PACKAGE_VERSION__': `"${version}"`
       },
@@ -465,6 +488,17 @@ async function buildHooks() {
     const contextGenStats = fs.statSync(`${hooksDir}/${CONTEXT_GENERATOR.name}.cjs`);
     console.log(`✓ context-generator built (${(contextGenStats.size / 1024).toFixed(2)} KB)`);
 
+    // Regression guard: SessionStart hook may run without plugin node_modules.
+    {
+      const cgBundle = fs.readFileSync(`${hooksDir}/${CONTEXT_GENERATOR.name}.cjs`, 'utf-8');
+      const m = cgBundle.match(/require\(\s*["']zod(?:\/[^"']*)?["']\s*\)/);
+      if (m) {
+        throw new Error(
+          `context-generator.cjs contains external ${m[0]}. This hook runs without plugin node_modules on some installs, so zod must be bundled — do not add 'zod' to its external list.`
+        );
+      }
+    }
+
     console.log(`\n🔧 Building transcript watcher...`);
     await build({
       entryPoints: [TRANSCRIPT_WATCHER.source],
@@ -475,11 +509,11 @@ async function buildHooks() {
       outfile: `${hooksDir}/${TRANSCRIPT_WATCHER.name}.cjs`,
       minify: true,
       logLevel: 'error',
-      // Externalize zod for consistency with worker-service / server-beta-service —
-      // any zod usage in the processor.ts import chain should resolve at runtime
-      // against plugin/node_modules instead of being inlined (avoids duplicate-
-      // instance hazards and keeps the bundle slim).
-      external: ['node:sqlite', 'zod'],
+      // zod bundled (not external): the transcript watcher is launched as a
+      // standalone hook process that may run without plugin node_modules (e.g.
+      // Bun/deps not installed behind a corporate proxy). An external zod made
+      // it crash on boot with `Cannot find module 'zod/v3'`. See worker-service.
+      external: ['node:sqlite'],
       define: {
         '__DEFAULT_PACKAGE_VERSION__': `"${version}"`
       },
@@ -493,6 +527,17 @@ async function buildHooks() {
     fs.chmodSync(`${hooksDir}/${TRANSCRIPT_WATCHER.name}.cjs`, 0o755);
     const transcriptWatcherStats = fs.statSync(`${hooksDir}/${TRANSCRIPT_WATCHER.name}.cjs`);
     console.log(`✓ transcript-watcher built (${(transcriptWatcherStats.size / 1024).toFixed(2)} KB)`);
+
+    // Regression guard: standalone hook process may run without plugin node_modules.
+    {
+      const twBundle = fs.readFileSync(`${hooksDir}/${TRANSCRIPT_WATCHER.name}.cjs`, 'utf-8');
+      const m = twBundle.match(/require\(\s*["']zod(?:\/[^"']*)?["']\s*\)/);
+      if (m) {
+        throw new Error(
+          `transcript-watcher.cjs contains external ${m[0]}. This hook runs without plugin node_modules on some installs, so zod must be bundled — do not add 'zod' to its external list.`
+        );
+      }
+    }
 
     // Advisory only — the watcher is meant to be a thin file-tail loop.
     const TRANSCRIPT_WATCHER_MAX_BYTES = 200 * 1024;
