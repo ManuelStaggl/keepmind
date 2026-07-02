@@ -69,6 +69,22 @@ export async function ensureWorkerStarted(
     return 'dead';
   }
 
+  // Fast path (perf plan P3): if a worker already answers on the port, it is
+  // alive and serving — return immediately and SKIP the PID-file ownership check
+  // below. On Windows that check shells out to PowerShell CIM (~250ms) to detect
+  // PID reuse, and it runs on EVERY hook (each hook is a fresh process, so the
+  // per-pid CIM cache never helps). A healthy port makes it entirely redundant.
+  // Only when the port is silent do we fall through to the (rarer, already-slow)
+  // stale-PID / respawn path, where the ownership check is worth its cost.
+  if (await waitForHealth(port, 1000)) {
+    const ready = await waitForReadiness(port, getPlatformTimeout(HOOK_TIMEOUTS.READINESS_WAIT));
+    if (!ready) {
+      logger.warn('SYSTEM', 'Worker is alive but readiness timed out — proceeding anyway');
+    }
+    logger.info('SYSTEM', 'Worker already running and healthy (fast path)');
+    return ready ? 'ready' : 'warming';
+  }
+
   const pidFileStatus = cleanStalePidFile();
   if (pidFileStatus === 'alive') {
     // A live PID means one of two things: (a) our worker is still cold-booting
@@ -96,14 +112,9 @@ export async function ensureWorkerStarted(
     // fall through to the spawn path below
   }
 
-  if (await waitForHealth(port, 1000)) {
-    const ready = await waitForReadiness(port, getPlatformTimeout(HOOK_TIMEOUTS.READINESS_WAIT));
-    if (!ready) {
-      logger.warn('SYSTEM', 'Worker is alive but readiness timed out — proceeding anyway');
-    }
-    logger.info('SYSTEM', 'Worker already running and healthy');
-    return ready ? 'ready' : 'warming';
-  }
+  // NOTE: the healthy-worker fast path is handled at the top of this function
+  // (before cleanStalePidFile) so the common case skips the Windows CIM lookup.
+  // By here the port is known-silent, so we go straight to the spawn path.
 
   const portInUse = await isPortInUse(port);
   if (portInUse) {
