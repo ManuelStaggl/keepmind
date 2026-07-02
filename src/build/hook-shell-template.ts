@@ -58,7 +58,20 @@ export interface ShellTemplateOptions {
   mcpExtraCacheRoots?: string[];
 }
 
-const CLAUDE_CODE_PATH_PRELUDE = `export PATH="$($SHELL -lc 'echo $PATH' 2>/dev/null):$PATH";`;
+// Perf plan P2: the login-shell PATH probe (`$SHELL -lc 'echo $PATH'`) costs
+// ~280 ms on every hook invocation. It exists ONLY because GUI-launched hosts
+// (macOS Claude Desktop) and nvm setups can hand the hook a minimal PATH with no
+// (or an outdated) `node`. So gate it: skip the probe when a suitable node
+// (>=22.5, the engines floor node:sqlite needs) is ALREADY resolvable, and run
+// the probe otherwise. The probe body is byte-identical to before, so the
+// load-bearing fallback semantics (issues #1215/#1533 — prepend the login-shell
+// PATH so an nvm/homebrew node shadows an older base-PATH one) are unchanged for
+// the case that needed them. bun-runner.js re-execs the worker via
+// process.execPath, so the shell only ever needs to launch that first `node`.
+const CLAUDE_CODE_PATH_PRELUDE =
+  `command -v node >/dev/null 2>&1 && ` +
+  `case "$(node -v 2>/dev/null)" in v22.[5-9]*|v22.[1-9][0-9]*|v2[3-9]*|v[3-9][0-9]*|v[1-9][0-9][0-9]*) _NODE_OK=1;; esac; ` +
+  `[ "\${_NODE_OK:-0}" = 1 ] || export PATH="$($SHELL -lc 'echo $PATH' 2>/dev/null):$PATH";`;
 
 const CLAUDE_CODE_SETUP_PATH_PRELUDE =
   'export PATH="$HOME/.nvm/versions/node/v$(ls \\"$HOME/.nvm/versions/node\\" 2>/dev/null | ' +
