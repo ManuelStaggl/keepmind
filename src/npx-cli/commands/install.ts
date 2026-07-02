@@ -1656,6 +1656,28 @@ export async function runRepairCommand(): Promise<void> {
         return `Runtime ready (Bun ${bunVersion}, uv ${uvVersion}) ${pc.green('OK')}`;
       },
     },
+    {
+      // The worker resolves its native deps (sqlite-vec, @huggingface/
+      // transformers, zod) from the MARKETPLACE plugin dir when present
+      // (resolveWorkerScriptPath prefers marketplace/plugin/scripts). Repairing
+      // only the cache left a marketplace-run worker with missing native deps —
+      // exactly the state `repair` is meant to fix. Mirror the install path:
+      // re-copy the plugin files and install deps into the marketplace plugin
+      // dir too. Skipped when no marketplace install exists (cache-only setup).
+      title: 'Reinstalling marketplace plugin dependencies',
+      task: async (message) => {
+        const marketplacePluginDir = join(marketplaceDirectory(), 'plugin');
+        if (!existsSync(marketplacePluginDir)) {
+          return `No marketplace install — skipped ${pc.dim('(cache-only)')}`;
+        }
+        message('Refreshing marketplace plugin files…');
+        copyPluginToMarketplace();
+        message('Installing marketplace plugin dependencies…');
+        const { bunPath } = await ensureBun();
+        await installPluginDependencies(marketplacePluginDir, bunPath);
+        return `Marketplace plugin deps installed ${pc.green('OK')}`;
+      },
+    },
   ]);
 
   if (isInteractive) {
