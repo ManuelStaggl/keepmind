@@ -67,7 +67,8 @@ function getTrackedFolders(workingDir: string): Set<string> {
     output = execSync('git ls-files', {
       cwd: workingDir,
       encoding: 'utf-8',
-      maxBuffer: 50 * 1024 * 1024
+      maxBuffer: 50 * 1024 * 1024,
+      windowsHide: true, // never flash a console window on Windows
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

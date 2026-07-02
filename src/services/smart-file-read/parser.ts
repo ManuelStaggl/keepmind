@@ -538,7 +538,7 @@ function runBatchQuery(queryFile: string, sourceFiles: string[], grammarPath: st
 
   let output: string;
   try {
-    output = execFileSync(bin, execArgs, { encoding: "utf-8", timeout: 30000, stdio: ["pipe", "pipe", "pipe"] });
+    output = execFileSync(bin, execArgs, { encoding: "utf-8", timeout: 30000, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
   } catch (error) {
     logger.debug('WORKER', `tree-sitter query failed for ${sourceFiles.length} file(s)`, undefined, error instanceof Error ? error : undefined);
     return new Map();

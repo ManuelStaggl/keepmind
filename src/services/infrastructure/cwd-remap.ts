@@ -25,7 +25,8 @@ type CwdClassification =
 function gitQuery(cwd: string, args: string[]): string | null {
   const r = spawnSync('git', ['-C', cwd, ...args], {
     encoding: 'utf8',
-    timeout: 5000
+    timeout: 5000,
+    windowsHide: true, // never flash a console window on Windows
   });
   if (r.status !== 0) return null;
   return (r.stdout ?? '').trim();

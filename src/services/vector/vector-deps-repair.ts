@@ -51,8 +51,8 @@ function findBun(): string | null {
   if (onDisk) return onDisk;
   try {
     const probe = IS_WINDOWS
-      ? spawnSync('bun --version', { shell: true, stdio: 'ignore', timeout: 3000 })
-      : spawnSync('bun', ['--version'], { stdio: 'ignore', timeout: 3000 });
+      ? spawnSync('bun --version', { shell: true, stdio: 'ignore', timeout: 3000, windowsHide: true })
+      : spawnSync('bun', ['--version'], { stdio: 'ignore', timeout: 3000, windowsHide: true });
     if (probe.status === 0) return 'bun';
   } catch {
     // fall through

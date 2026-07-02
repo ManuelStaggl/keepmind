@@ -24,6 +24,10 @@ function findGitRepoRoot(dir: string): string | null {
       cwd: dir,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
+      // windowsHide: this runs on EVERY hook (project-key resolution); without it
+      // Windows flashes a console window per invocation (the "terminal flashing"
+      // users report). Every spawn on a hot path must set it.
+      windowsHide: true,
     }).trim();
     return root || null;
   } catch {
