@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.1.5] - 2026-07-02
+
+## 🩺 Doctor: Bun is optional, not a required failure
+
+Follow-up to v1.1.4. Since vector search runs in-process and the worker now boots without plugin `node_modules`, **Bun is no longer required to run keepmind** — it only installs the native deps that power *semantic* vector search.
+
+Previously a missing Bun was reported as a **required** check failure, so a healthy, fully working install (worker up, DB up, capture + keyword search working) still printed *"1 required check(s) failed"* and looked broken. Bun is now an **optional warn** with actionable remediation.
+
+On a machine without Bun you now get: worker ✓, database ✓, and warns for Bun + semantic vector search (both optional), with **no false required failure**.
+
+**To enable full semantic vector search** (installs the native deps): `winget install Oven-sh.Bun` (Windows) or https://bun.sh, then `npx keepmind install`.
+
 ## [1.1.4] - 2026-07-02
 
 ## 🐛 Critical Bug Fix — worker now boots without plugin node_modules
