@@ -32,9 +32,17 @@ export interface ActiveSession {
    */
   consecutiveInvalidOutputs: number;
   forceInit?: boolean;
-  idleTimedOut?: boolean;  
+  idleTimedOut?: boolean;
   lastGeneratorActivity: number;
   modelOverride?: string;
+  /**
+   * Model pinned for the lifetime of the current resumed conversation (perf plan
+   * L5). Set when a fresh SDK session first resolves its model; reused on every
+   * generator restart that RESUMES that session, so tier routing can't flip the
+   * model mid-conversation and invalidate the model-scoped prompt cache. Cleared
+   * implicitly on forceInit (a fresh session re-resolves + re-pins).
+   */
+  pinnedModel?: string;
   lastSummaryStored?: boolean;
   pendingAgentId?: string | null;
   pendingAgentType?: string | null;

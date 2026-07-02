@@ -188,16 +188,27 @@ export class ClaudeProvider {
       throw error;
     }
 
-    const modelId = session.modelOverride || this.getModelId();
+    const hasRealMemorySessionId = !!session.memorySessionId;
+    const shouldResume = hasRealMemorySessionId && session.lastPromptNumber > 1 && !session.forceInit;
+
+    // L5: pin the model for the lifetime of a resumed conversation so tier
+    // routing (which recomputes modelOverride per session-init) can't flip the
+    // model on a generator restart and blow the model-scoped prompt cache. A
+    // fresh SDK session (not resuming, e.g. init or forceInit) re-resolves the
+    // model from tier routing and re-pins; a resume reuses the pinned model.
+    let modelId: string;
+    if (shouldResume && session.pinnedModel) {
+      modelId = session.pinnedModel;
+    } else {
+      modelId = session.modelOverride || this.getModelId();
+      session.pinnedModel = typeof modelId === 'string' ? modelId : undefined;
+    }
     session.lastModelId = typeof modelId === 'string' ? modelId : undefined;
     // Each query() starts a fresh SDK process, so its total_cost_usd
     // accumulator starts from zero — reset the per-turn cost baseline with it.
     session.lastResultTotalCostUsd = null;
 
     const messageGenerator = this.createMessageGenerator(session, cwdTracker);
-
-    const hasRealMemorySessionId = !!session.memorySessionId;
-    const shouldResume = hasRealMemorySessionId && session.lastPromptNumber > 1 && !session.forceInit;
 
     if (session.forceInit) {
       logger.info('SDK', 'forceInit flag set, starting fresh SDK session', {
