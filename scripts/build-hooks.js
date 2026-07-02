@@ -27,6 +27,11 @@ const TRANSCRIPT_WATCHER = {
   source: 'src/services/transcripts/transcript-watcher-entry.ts'
 };
 
+const HOOK_CLIENT = {
+  name: 'hook-client',
+  source: 'src/cli/hook-client-entry.ts'
+};
+
 function stripHardcodedDirname(filePath) {
   let content = fs.readFileSync(filePath, 'utf-8');
   const before = content.length;
@@ -547,6 +552,65 @@ async function buildHooks() {
       );
     }
 
+    console.log(`\n🔧 Building hook client...`);
+    const hookClientResult = await build({
+      entryPoints: [HOOK_CLIENT.source],
+      bundle: true,
+      platform: 'node',
+      target: 'node18',
+      format: 'cjs',
+      outfile: `${hooksDir}/${HOOK_CLIENT.name}.cjs`,
+      minify: true,
+      logLevel: 'error',
+      metafile: true,
+      // Only node:sqlite is external (a Node builtin some transitive util may
+      // touch). Everything the client actually uses — including zod — is bundled.
+      // The client must NOT pull in the daemon's native deps; the leak guard
+      // below fails the build if it does.
+      external: ['node:sqlite'],
+      define: {
+        '__DEFAULT_PACKAGE_VERSION__': `"${version}"`,
+        'import.meta.url': '__IMPORT_META_URL__'
+      },
+      banner: {
+        js: [
+          '#!/usr/bin/env node',
+          'var __filename = __filename || require("node:path").resolve(process.argv[1] || "");',
+          'var __dirname = __dirname || require("node:path").dirname(__filename);',
+          'var __IMPORT_META_URL__ = require("node:url").pathToFileURL(__filename).href;'
+        ].join('\n')
+      }
+    });
+
+    stripHardcodedDirname(`${hooksDir}/${HOOK_CLIENT.name}.cjs`);
+    fs.chmodSync(`${hooksDir}/${HOOK_CLIENT.name}.cjs`, 0o755);
+    const hookClientStats = fs.statSync(`${hooksDir}/${HOOK_CLIENT.name}.cjs`);
+    console.log(`✓ hook-client built (${(hookClientStats.size / 1024).toFixed(2)} KB)`);
+
+    // Leak guard: the whole point of this bundle is to stay tiny by excluding the
+    // daemon (Database, sqlite-vec, embedder, MCP server, routes). Inspect the
+    // actual bundled source files via the esbuild metafile and fail LOUD if a
+    // daemon-only module ever enters the hook path's import graph — a slow/broken
+    // hook client is exactly the regression this whole change removes.
+    {
+      const leakRe = /(src\/storage\/db\.ts|SqliteVecManager|EmbedderService|VectorSync|src\/services\/worker-service\.ts|src\/services\/sqlite\/|MaintenanceLoop|src\/servers\/mcp-server\.ts|@huggingface\/transformers|\bonnxruntime|\bsqlite-vec\b)/;
+      const leaked = Object.keys(hookClientResult.metafile.inputs).filter(f => leakRe.test(f));
+      if (leaked.length > 0) {
+        throw new Error(
+          `hook-client.cjs pulled in daemon-only modules: ${leaked.join(', ')}. The hook client must stay slim — audit the import chain from src/cli/hook-client-entry.ts (hook-command / handlers / worker-utils / worker-spawner) and keep the heavy import behind the worker-service entry only.`
+        );
+      }
+      if (/require\(\s*["']zod(?:\/[^"']*)?["']\s*\)/.test(fs.readFileSync(`${hooksDir}/${HOOK_CLIENT.name}.cjs`, 'utf-8'))) {
+        throw new Error(`hook-client.cjs contains an external require("zod"). zod must be bundled — do not add it to this bundle's external list.`);
+      }
+      const HOOK_CLIENT_MAX_BYTES = 700 * 1024;
+      if (hookClientStats.size > HOOK_CLIENT_MAX_BYTES) {
+        console.warn(
+          `⚠️  hook-client.cjs is ${(hookClientStats.size / 1024).toFixed(2)} KB (budget ${(HOOK_CLIENT_MAX_BYTES / 1024).toFixed(0)} KB). A heavy import may have leaked into the hook path.`
+        );
+      }
+    }
+
     console.log(`\n🔧 Building NPX CLI...`);
     const npxCliOutDir = 'dist/npx-cli';
     if (!fs.existsSync(npxCliOutDir)) {
@@ -629,6 +693,7 @@ async function buildHooks() {
       'plugin/hooks/hooks.json',
       'plugin/hooks/codex-hooks.json',
       'plugin/scripts/bun-runner.js',
+      'plugin/scripts/hook-client.cjs',
       'plugin/.claude-plugin/plugin.json',
       'plugin/.codex-plugin/plugin.json',
       'plugin/.mcp.json',

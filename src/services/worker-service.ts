@@ -40,7 +40,6 @@ import {
   removePidFileIfOwner,
   getPlatformTimeout,
   runOneTimeChromaMigration,
-  runOneTimeCwdRemap,
   cleanStalePidFile,
   verifyPidFileOwnership,
   spawnDaemon,
@@ -48,6 +47,7 @@ import {
   writeWorkerPortFile,
   removeWorkerPortFile
 } from './infrastructure/ProcessManager.js';
+import { runOneTimeCwdRemap } from './infrastructure/cwd-remap.js';
 import { runOneTimeV12_4_3Cleanup } from './infrastructure/CleanupV12_4_3.js';
 import {
   isPortInUse,

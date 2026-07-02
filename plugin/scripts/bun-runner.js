@@ -84,6 +84,19 @@ if (args.length === 0) {
 
 args[0] = fixBrokenScriptPath(args[0]);
 
+// Route hook events to the slim hook-client bundle instead of the full ~2.7MB
+// worker-service bundle. A hook only makes an HTTP call to the running daemon,
+// so parsing the entire daemon on every hook cost ~380ms — the dominant slice of
+// per-hook latency (perf plan P1). Lifecycle commands (start/stop/restart/status)
+// and everything else keep using worker-service.cjs. Fall back to the original
+// script if the slim client is absent (older/partial install).
+if (args.includes('hook')) {
+  const slimClient = join(dirname(args[0]), 'hook-client.cjs');
+  if (existsSync(slimClient)) {
+    args[0] = slimClient;
+  }
+}
+
 const bunPath = findNode();
 
 if (!bunPath) {
