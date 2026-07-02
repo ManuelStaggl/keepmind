@@ -76,7 +76,7 @@ async function executeHookPipeline(
   // MODEL_CONTEXT: the only stdout JSON emit, via the platform adapter.
   emitModelContext(adapter, result);
   const exitCode = result.exitCode ?? HOOK_EXIT_CODES.SUCCESS;
-  exitGraceful(options);
+  await exitGraceful(options);
   return exitCode;
 }
 
@@ -107,13 +107,13 @@ export async function hookCommand(platform: string, event: string, options: Hook
     if (error instanceof AdapterRejectedInput) {
       logger.warn('HOOK', `Adapter rejected input (${error.reason}), skipping hook`);
       emitModelContext(adapter, { continue: true, suppressOutput: true });
-      exitGraceful(options);
+      await exitGraceful(options);
       return HOOK_EXIT_CODES.SUCCESS;
     }
     if (isNonBlockingHookInputError(error)) {
       logger.warn('HOOK', `Hook input unavailable, skipping hook: ${error instanceof Error ? error.message : error}`);
       emitModelContext(adapter, { continue: true, suppressOutput: true });
-      exitGraceful(options);
+      await exitGraceful(options);
       return HOOK_EXIT_CODES.SUCCESS;
     }
     if (isWorkerUnavailableError(error)) {
@@ -125,14 +125,14 @@ export async function hookCommand(platform: string, event: string, options: Hook
       // when the count JUST reaches the threshold it sends the event and then
       // exits 2; exitGraceful below would kill a pending POST mid-flight.
       await recordWorkerUnreachable();
-      exitGraceful(options);
+      await exitGraceful(options);
       return HOOK_EXIT_CODES.SUCCESS;
     }
 
     logger.error('HOOK', `Hook error: ${error instanceof Error ? error.message : error}`, {}, error instanceof Error ? error : undefined);
     // BLOCKING_FEEDBACK: flush the buffered logger.error line to stderr and
     // exit 2 so the model receives it per Claude Code's hook contract.
-    emitBlockingError(
+    await emitBlockingError(
       `Hook error: ${error instanceof Error ? error.message : String(error)}`,
       options,
     );

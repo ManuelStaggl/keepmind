@@ -141,35 +141,93 @@ export interface ExitOptions {
   skipExit?: boolean;
 }
 
+/** Grace window for a natural event-loop drain before we force-exit. */
+const EXIT_DRAIN_FALLBACK_MS = 2000;
+
+/**
+ * Tear down Node's built-in fetch (undici) global dispatcher. Hook handlers
+ * (notably SessionEnd's session-release POST) leave keep-alive sockets + internal
+ * async handles open. On Windows, calling process.exit() with those handles still
+ * live races libuv's teardown and aborts with
+ * `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)` (src/win/async.c:94).
+ * Destroying the dispatcher closes those sockets/handles cleanly. Best-effort and
+ * idempotent. Mirrors destroyGlobalHttpDispatcher() in worker-service.ts (kept
+ * duplicated so src/shared/ carries no dependency on the services layer).
+ */
+async function destroyGlobalHttpDispatcher(): Promise<void> {
+  try {
+    const dispatcher = (globalThis as Record<symbol, unknown>)[Symbol.for('undici.globalDispatcher.1')] as
+      | { destroy?: () => Promise<void> }
+      | undefined;
+    if (dispatcher && typeof dispatcher.destroy === 'function') {
+      await dispatcher.destroy();
+    }
+  } catch {
+    // Best-effort: a teardown failure must never mask the hook's real result.
+  }
+}
+
+/**
+ * Crash-free hook exit. Why not a plain `process.exit(code)`? With the full
+ * worker bundle loaded, process.exit() on Windows forces a libuv teardown that
+ * double-closes an internal async handle and aborts with
+ * `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)` (src/win/async.c:94) —
+ * the exact SessionEnd `session-release` crash. Instead: close the fetch
+ * dispatcher, set process.exitCode, and let the now-idle loop drain and exit
+ * cleanly. The returned promise NEVER resolves so awaiting callers cannot fall
+ * through (they relied on process.exit halting); an unresolved promise is not a
+ * libuv handle, so it does not keep the loop alive. An unref'd safety timer
+ * force-exits only if some unexpected handle outlives the grace window (a forced
+ * exit — even if it 127s — beats a hung hook). Mirrors launcherExit() in
+ * worker-service.ts.
+ */
+function hardenedHookExit(code: number): Promise<never> {
+  process.exitCode = code;
+  const safety = setTimeout(() => process.exit(code), EXIT_DRAIN_FALLBACK_MS);
+  safety.unref?.();
+  void destroyGlobalHttpDispatcher();
+  return new Promise<never>(() => {});
+}
+
 /**
  * BLOCKING_FEEDBACK: flush buffered stderr (so preceding diagnostics reach the
  * operator/model), write `msg` to real stderr, then exit 2 so the model
- * receives it per Claude Code's hook contract. `skipExit` is the test seam
- * that mirrors HookCommandOptions.skipExit.
+ * receives it per Claude Code's hook contract. The exit routes through
+ * hardenedHookExit so a live fetch dispatcher never crashes the teardown on
+ * Windows. `skipExit` is the test seam that mirrors HookCommandOptions.skipExit;
+ * in that mode the (synchronous) stderr writes happen and the promise resolves
+ * immediately without exiting.
  */
-export function emitBlockingError(msg: string, options: ExitOptions = {}): void {
+export function emitBlockingError(msg: string, options: ExitOptions = {}): Promise<void> {
   if (bufferedChunks && bufferedChunks.length > 0) {
     bypassWrite(bufferedChunks.join(''));
     bufferedChunks = [];
   }
   bypassWrite(msg.endsWith('\n') ? msg : `${msg}\n`);
-  if (!options.skipExit) {
-    process.exit(2);
+  if (options.skipExit) {
+    return Promise.resolve();
   }
+  return hardenedHookExit(2);
 }
 
 /**
  * EXIT_SIGNAL: drop any buffered stderr (preserving the quiet-on-success /
  * Windows Terminal tab-management behavior) and exit 0. Caller is expected to
- * have already emitted any required stdout JSON envelope.
+ * have already emitted any required stdout JSON envelope. The exit routes through
+ * hardenedHookExit so a hook that just made a fetch (e.g. SessionEnd's
+ * session-release POST) tears its keep-alive sockets down before exit instead of
+ * crashing libuv on Windows. Returns a promise callers MUST await; in production
+ * it never resolves (the loop drains and the process exits 0), in skipExit test
+ * mode it resolves immediately.
  */
-export function exitGraceful(options: ExitOptions = {}): void {
+export function exitGraceful(options: ExitOptions = {}): Promise<void> {
   if (bufferedChunks) {
     bufferedChunks = [];
   }
-  if (!options.skipExit) {
-    process.exit(0);
+  if (options.skipExit) {
+    return Promise.resolve();
   }
+  return hardenedHookExit(0);
 }
 
 /**
