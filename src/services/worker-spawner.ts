@@ -8,6 +8,7 @@ import {
   spawnDaemon,
   touchPidFile,
   readPidFile,
+  removePidFile,
   isProcessAlive,
 } from './infrastructure/ProcessManager.js';
 import {
@@ -70,15 +71,29 @@ export async function ensureWorkerStarted(
 
   const pidFileStatus = cleanStalePidFile();
   if (pidFileStatus === 'alive') {
-    logger.info('SYSTEM', 'Worker PID file points to a live process, skipping duplicate spawn');
-    const healthy = await waitForHealth(port, getPlatformTimeout(HOOK_TIMEOUTS.PORT_IN_USE_WAIT));
+    // A live PID means one of two things: (a) our worker is still cold-booting
+    // (embedder + DB init, ~6-8s), or (b) the recorded PID was REUSED by an
+    // unrelated process after our worker died — common on Windows, where PID
+    // reuse combined with the fail-safe-to-"alive" ownership check
+    // (process-registry.ts verifyPidFileOwnership returns true when no start
+    // token is stored or the CIM lookup fails) makes a dead worker look alive.
+    // In case (b) the port will NEVER come up. The old code waited only 3s and
+    // then returned 'warming' WITHOUT ever re-spawning, so startup deadlocked
+    // permanently — the reported "PID file live, no response on port, `start`
+    // doesn't help" symptom. Wait the full cold-boot budget; if the port still
+    // isn't healthy, treat the PID as stale/reused, clear it, and fall through
+    // to (re)spawn below. A genuinely slow booter is protected by the daemon's
+    // own health-probe duplicate guard, which makes the loser exit 0.
+    logger.info('SYSTEM', 'Worker PID file points to a live process, waiting for it to become healthy');
+    const healthy = await waitForHealth(port, getPlatformTimeout(HOOK_TIMEOUTS.POST_SPAWN_WAIT));
     if (healthy) {
       const ready = await waitForReadiness(port, getPlatformTimeout(HOOK_TIMEOUTS.READINESS_WAIT));
       logger.info('SYSTEM', 'Worker became healthy while waiting on live PID');
       return ready ? 'ready' : 'warming';
     }
-    logger.warn('SYSTEM', 'Live PID detected but worker did not become healthy before timeout — likely still starting');
-    return 'warming';
+    logger.warn('SYSTEM', 'PID file marked live but worker never became healthy within the cold-boot window — treating it as a stale/reused PID and re-spawning');
+    removePidFile();
+    // fall through to the spawn path below
   }
 
   if (await waitForHealth(port, 1000)) {

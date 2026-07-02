@@ -505,10 +505,16 @@ function buildWorkerGroup(probe: WorkerProbe): CheckGroup {
       required: false,
     });
   } else if (probe.pidAlive) {
+    // A "live" PID whose daemon does NOT answer on the port is the classic
+    // reused/stale-PID trap on Windows: the recorded PID was recycled by an
+    // unrelated process, so it looks alive while no worker is actually serving.
+    // Reporting a green "live" here hid the real cause of "worker won't start".
     checks.push({
       name: 'Worker PID file',
-      status: 'ok',
-      detail: `live (port ${probe.pidPort})`,
+      status: probe.reachable ? 'ok' : 'warn',
+      detail: probe.reachable
+        ? `live (port ${probe.pidPort})`
+        : `PID alive but daemon not responding on port ${probe.pidPort} — likely a reused/stale PID; clear with \`npx keepmind restart\``,
       required: false,
     });
   } else {
