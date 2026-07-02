@@ -2,7 +2,7 @@
 import { DatabaseManager } from './DatabaseManager.js';
 import { SessionManager } from './SessionManager.js';
 import { logger } from '../../utils/logger.js';
-import { buildInitPrompt, buildBatchedObservationPrompt, buildSummaryPrompt, buildContinuationPrompt } from '../../sdk/prompts.js';
+import { buildInitPrompt, buildBatchedObservationPrompt, buildSummaryPrompt, buildContinuationPrompt, buildObserverSystemPrompt } from '../../sdk/prompts.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH, OBSERVER_SESSIONS_DIR, ensureDir, paths } from '../../shared/paths.js';
 import { buildIsolatedEnvWithFreshOAuth, getAuthMethodDescription } from '../../shared/EnvManager.js';
@@ -236,6 +236,10 @@ export class ClaudeProvider {
     }
 
     ensureDir(OBSERVER_SESSIONS_DIR);
+    // L4: the identity + output-format scaffold rides in the SDK systemPrompt
+    // (cached, resume-independent) instead of every user turn. Same active mode
+    // the message generator uses, so the format contract stays consistent.
+    const observerSystemPrompt = buildObserverSystemPrompt(ModeManager.getInstance().getActiveMode());
     const queryResult = query({
       prompt: messageGenerator,
       options: buildHardenedSdkOptions({
@@ -246,6 +250,7 @@ export class ClaudeProvider {
         model: modelId,
         env: isolatedEnv,  // Use isolated credentials from ~/.keepmind/.env, not process.env
         pathToClaudeCodeExecutable: claudePath,
+        systemPrompt: observerSystemPrompt,
         abortController: session.abortController,
         ...(shouldResume && session.memorySessionId ? { resume: session.memorySessionId } : {}),
         spawnClaudeCodeProcess: createSdkSpawnFactory(session.sessionDbId),

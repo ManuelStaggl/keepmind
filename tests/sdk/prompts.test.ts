@@ -1,6 +1,43 @@
 import { describe, expect, it } from 'bun:test';
 
-import { buildObservationPrompt, buildBatchedObservationPrompt } from '../../src/sdk/prompts.js';
+import {
+  buildObservationPrompt,
+  buildBatchedObservationPrompt,
+  buildObserverSystemPrompt,
+  buildInitPrompt,
+  buildContinuationPrompt,
+} from '../../src/sdk/prompts.js';
+
+// Minimal ModeConfig fixture carrying the distinctive marker strings the prompt
+// builders splice in, so we can assert WHERE each piece lands after the L4 split
+// (scaffold → systemPrompt, per-turn signal → user turn).
+const MODE: any = {
+  name: 'code',
+  observation_types: [{ id: 'discovery' }, { id: 'bugfix' }],
+  prompts: {
+    system_identity: 'IDENTITY_MARKER you do not have access to tools',
+    observer_role: 'ROLE_MARKER',
+    spatial_awareness: 'SPATIAL_MARKER',
+    recording_focus: 'FOCUS_MARKER',
+    skip_guidance: 'SKIP_MARKER',
+    output_format_header: 'FORMAT_HEADER_MARKER',
+    type_guidance: 'TYPE_GUIDANCE_MARKER',
+    field_guidance: 'FIELD_GUIDANCE_MARKER',
+    concept_guidance: 'CONCEPT_GUIDANCE_MARKER',
+    format_examples: 'FORMAT_EXAMPLES_MARKER',
+    footer: 'FOOTER_MARKER',
+    continuation_greeting: 'GREETING_MARKER',
+    continuation_instruction: 'CONTINUE_MARKER',
+    header_memory_start: 'MEMORY_START_MARKER',
+    header_memory_continued: 'MEMORY_CONTINUED_MARKER',
+    xml_title_placeholder: 't',
+    xml_subtitle_placeholder: 's',
+    xml_fact_placeholder: 'f',
+    xml_narrative_placeholder: 'n',
+    xml_concept_placeholder: 'c',
+    xml_file_placeholder: 'file',
+  },
+};
 
 describe('buildObservationPrompt', () => {
   it('instructs the observer to avoid prose skip responses', () => {
@@ -44,6 +81,42 @@ describe('buildBatchedObservationPrompt (L1 batching)', () => {
     // Batch-aware instruction.
     expect(prompt).toContain('2 tool uses from the primary session are shown above');
     expect(prompt).toContain('one or more <observation>');
+  });
+});
+
+describe('L4: identity/format scaffold lives in the system prompt, not the user turn', () => {
+  it('buildObserverSystemPrompt carries the identity + full format scaffold', () => {
+    const sys = buildObserverSystemPrompt(MODE);
+    expect(sys).toContain('IDENTITY_MARKER you do not have access to tools');
+    expect(sys).toContain('ROLE_MARKER');
+    expect(sys).toContain('FORMAT_HEADER_MARKER');
+    expect(sys).toContain('<observation>');
+    expect(sys).toContain('FORMAT_EXAMPLES_MARKER');
+    expect(sys).toContain('FOOTER_MARKER');
+    // The observation type enumeration is part of the stable format contract.
+    expect(sys).toContain('[ discovery | bugfix ]');
+  });
+
+  it('buildInitPrompt is slim: per-turn signal only, no re-injected identity/scaffold', () => {
+    const init = buildInitPrompt('proj', 'sess', 'DO_THE_THING', MODE);
+    expect(init).toContain('<user_request>DO_THE_THING</user_request>');
+    expect(init).toContain('MEMORY_START_MARKER');
+    // Identity + format scaffold must NOT be duplicated into the user turn.
+    expect(init).not.toContain('IDENTITY_MARKER');
+    expect(init).not.toContain('FORMAT_EXAMPLES_MARKER');
+    expect(init).not.toContain('<observation>');
+  });
+
+  it('buildContinuationPrompt is slim: greeting + request + continue cue, no identity/scaffold', () => {
+    const cont = buildContinuationPrompt('DO_MORE', 3, 'sess', MODE);
+    expect(cont).toContain('GREETING_MARKER');
+    expect(cont).toContain('<user_request>DO_MORE</user_request>');
+    expect(cont).toContain('CONTINUE_MARKER');
+    expect(cont).toContain('MEMORY_CONTINUED_MARKER');
+    // The whole point of L4: no identity/scaffold re-injection per continuation.
+    expect(cont).not.toContain('IDENTITY_MARKER');
+    expect(cont).not.toContain('FORMAT_EXAMPLES_MARKER');
+    expect(cont).not.toContain('<observation>');
   });
 });
 

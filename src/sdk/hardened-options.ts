@@ -74,6 +74,14 @@ export interface HardenedSdkOptionsInput {
   model: string;
   env: NodeJS.ProcessEnv;
   pathToClaudeCodeExecutable: string;
+  /**
+   * Custom system prompt (perf plan L4). When set, it REPLACES the default
+   * claude_code preset with a focused, cached identity/format prefix — the
+   * Observer needs no coding-agent preamble and this is where the "no tool
+   * access" guarantee is now asserted. Omit to keep the SDK default (e.g. the
+   * KnowledgeAgent, which carries its identity in the primed conversation).
+   */
+  systemPrompt?: string;
   /** Defaults to OBSERVER_SESSIONS_DIR. Never falls back to process.cwd(). */
   cwd?: string;
   abortController?: AbortController;
@@ -117,6 +125,7 @@ export function buildHardenedSdkOptions(input: HardenedSdkOptionsInput): Options
     cwd: input.cwd ?? OBSERVER_SESSIONS_DIR,
     env: input.env,
     pathToClaudeCodeExecutable: input.pathToClaudeCodeExecutable,
+    ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
     ...(input.abortController ? { abortController: input.abortController } : {}),
     ...(input.resume ? { resume: input.resume } : {}),
     ...(input.spawnClaudeCodeProcess ? { spawnClaudeCodeProcess: input.spawnClaudeCodeProcess } : {}),
