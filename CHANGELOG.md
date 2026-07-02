@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.3.1] - 2026-07-02
+
+Bugfix + hygiene release on top of 1.3.0.
+
+## Fixes
+- **Windows: no more flashing terminal windows.** Every runtime child process now spawns with `windowsHide: true`. The main culprit was the per-hook `git rev-parse` (project-key resolution) — it flashed a console window on essentially every tool use. Also fixed for the worker's git queries, the native-dep repair probe, tree-sitter queries, `git ls-files`, and the MCP launcher. A build-time guard test prevents regressions.
+- **`purge`: archive the actual data dir.** The POSIX archive path ignored its `dataDir` argument and tarred a hardcoded `$HOME/.claude-mem`; whenever the data dir was elsewhere (a `CLAUDE_MEM_DATA_DIR` override, the renamed `~/.keepmind`, or a temp dir) the archive failed and `purge` then KEPT the data dir. Now archives the real directory.
+
+## Performance
+- **Observation batching on by default (`CLAUDE_MEM_OBSERVATION_BATCH_MAX=3`).** Validated: coalescing engages only under backlog (a trickle still compresses one-at-a-time), cutting LLM turns/cost exactly when a burst piles up while leaving light sessions unchanged. Set `1` to restore strict one-turn-per-tool-use.
+
+## CI / tests
+- Test suite runs under Node (matches the shipped `node:sqlite` runtime), the orphaned docker e2e job is removed, and the workflows run on Node-24 action majors (checkout@v6/setup-node@v6) — clearing the Node 20 deprecation. Hardened the test-mocking substrate (caller resolution under Linux, builtin-mock safety on Node 24.x) with a canary that fails fast on future regressions.
+
 ## [1.3.0] - 2026-07-02
 
 Performance & resource release: fewer LLM tokens per session, a leaner vector store, and correctness fixes.
