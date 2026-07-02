@@ -359,12 +359,21 @@ function buildRuntimeGroup(dataDir: string): CheckGroup {
 
   checks.push(checkNodeVersion());
 
+  // Bun is OPTIONAL as of the in-process-vector-search era: the worker boots and
+  // runs core memory (capture + keyword/FTS search) on the Node built-in
+  // node:sqlite without it (zod is bundled; native deps lazy-load). Bun is only
+  // needed to INSTALL the native deps (@huggingface/transformers, sqlite-vec)
+  // that power SEMANTIC vector search — its absence degrades that one feature
+  // (already a non-required warn below), it does not break the install. Reporting
+  // it as a required failure made a healthy, working install look broken.
   const bunVersion = probeVersion('bun');
   checks.push({
     name: 'Bun runtime',
-    status: bunVersion ? 'ok' : 'fail',
-    detail: bunVersion ? `v${bunVersion.replace(/^v/, '')}` : 'not found on PATH — install: https://bun.sh',
-    required: true,
+    status: bunVersion ? 'ok' : 'warn',
+    detail: bunVersion
+      ? `v${bunVersion.replace(/^v/, '')}`
+      : 'not found — optional; core memory works without it, but it installs the native deps for semantic vector search. Install: `winget install Oven-sh.Bun` (Windows) or https://bun.sh, then `npx keepmind install`.',
+    required: false,
   });
 
   const installed = isPluginInstalled();
