@@ -90,12 +90,34 @@ export class MaintenanceLoop {
     const cfg = this.deps.getConfig();
     if (!cfg.expiry.enabled) return;
     const store = this.deps.getStore();
-    expireStaleObservations(store.db, {
+    const result = expireStaleObservations(store.db, {
       ttlDays: cfg.expiry.ttlDays,
       importanceFloor: cfg.expiry.importanceFloor,
       hardDelete: cfg.expiry.hardDelete,
       limit: 200,
     });
+
+    // R2: purge the expired observations' vectors so they stop surfacing in
+    // semantic search (they're already excluded from keyword search via
+    // valid_to) and vectors.db does not grow unbounded. Soft-expiry drops them
+    // too — an archived-but-recoverable row should not stay semantically live.
+    // Best-effort and isolated: a vec failure must never abort the DB expiry
+    // (which already committed), and deleteBySqliteIds no-ops when the vec store
+    // was never loaded (vector search degraded/disabled).
+    if (result.expiredIds.length > 0) {
+      try {
+        const vec = SqliteVecManager.instance();
+        if (vec.isLoaded()) {
+          const removed = vec.deleteBySqliteIds('observation', result.expiredIds);
+          logger.info('SYSTEM', 'MaintenanceLoop purged vectors for expired observations', {
+            observations: result.expiredIds.length,
+            vecRowsRemoved: removed,
+          });
+        }
+      } catch (error) {
+        logger.warn('SYSTEM', 'MaintenanceLoop vector purge for expired observations failed', {}, error instanceof Error ? error : new Error(String(error)));
+      }
+    }
   }
 
   // One-time backfill: redact historical rows written before Step 1 shipped.

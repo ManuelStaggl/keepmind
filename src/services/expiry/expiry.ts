@@ -20,6 +20,13 @@ export interface ExpiryResult {
   candidates: number;
   expired: number;
   mode: 'soft' | 'hard';
+  /**
+   * SQLite ids of the observations that were expired/deleted this run (perf plan
+   * R2). The caller uses these to purge the matching vec_documents rows so
+   * expired observations stop surfacing in semantic search and vectors.db does
+   * not grow unbounded. Empty when nothing was expired.
+   */
+  expiredIds: number[];
 }
 
 /**
@@ -36,7 +43,7 @@ export function expireStaleObservations(db: Database, opts: ExpiryOptions): Expi
   // Guard: the bitemporal/last_used columns must exist (added by migration v37/v38).
   const cols = db.query('PRAGMA table_info(observations)').all() as Array<{ name: string }>;
   if (!cols.some(c => c.name === 'valid_to') || !cols.some(c => c.name === 'last_used_at')) {
-    return { candidates: 0, expired: 0, mode: opts.hardDelete ? 'hard' : 'soft' };
+    return { candidates: 0, expired: 0, mode: opts.hardDelete ? 'hard' : 'soft', expiredIds: [] };
   }
   const hasFeedback = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='observation_feedback'").all() as { name: string }[]).length > 0;
   const feedbackClause = hasFeedback
@@ -54,7 +61,7 @@ export function expireStaleObservations(db: Database, opts: ExpiryOptions): Expi
   `;
   const ids = (db.prepare(selectSql).all(opts.importanceFloor, cutoff, limit) as { id: number }[]).map(r => r.id);
   if (ids.length === 0) {
-    return { candidates: 0, expired: 0, mode: opts.hardDelete ? 'hard' : 'soft' };
+    return { candidates: 0, expired: 0, mode: opts.hardDelete ? 'hard' : 'soft', expiredIds: [] };
   }
 
   const placeholders = ids.map(() => '?').join(',');
@@ -62,7 +69,7 @@ export function expireStaleObservations(db: Database, opts: ExpiryOptions): Expi
     if (opts.hardDelete) {
       db.prepare(`DELETE FROM observations WHERE id IN (${placeholders})`).run(...ids);
       logger.info('DB', 'Hard-deleted stale observations', { count: ids.length });
-      return { candidates: ids.length, expired: ids.length, mode: 'hard' };
+      return { candidates: ids.length, expired: ids.length, mode: 'hard', expiredIds: ids };
     }
     db.prepare(`
       UPDATE observations
@@ -71,9 +78,9 @@ export function expireStaleObservations(db: Database, opts: ExpiryOptions): Expi
        WHERE id IN (${placeholders})
     `).run(now, ...ids);
     logger.info('DB', 'Soft-expired stale observations (archived via valid_to)', { count: ids.length });
-    return { candidates: ids.length, expired: ids.length, mode: 'soft' };
+    return { candidates: ids.length, expired: ids.length, mode: 'soft', expiredIds: ids };
   } catch (error) {
     logger.warn('DB', 'expireStaleObservations failed', {}, error instanceof Error ? error : new Error(String(error)));
-    return { candidates: ids.length, expired: 0, mode: opts.hardDelete ? 'hard' : 'soft' };
+    return { candidates: ids.length, expired: 0, mode: opts.hardDelete ? 'hard' : 'soft', expiredIds: [] };
   }
 }

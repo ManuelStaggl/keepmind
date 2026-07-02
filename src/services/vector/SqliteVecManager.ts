@@ -267,6 +267,30 @@ export class SqliteVecManager {
     return out;
   }
 
+  /**
+   * Delete every vec row belonging to the given SQLite entity ids of one
+   * doc_type (perf plan R2). Deletes by the queryable `sqlite_id` + `doc_type`
+   * columns rather than parsing chunk_key, so it is robust across chunk-key
+   * schemes (e.g. the R1 primary/facts collapse). Best-effort: a no-op when the
+   * vec store was never loaded (vector search degraded/disabled) so a caller in
+   * the expiry path never forces a load. Returns the number of vec rows removed.
+   */
+  deleteBySqliteIds(docType: string, sqliteIds: number[]): number {
+    if (sqliteIds.length === 0) return 0;
+    if (!this.db) return 0; // vec store not loaded — nothing to clean up
+    const db = this.db;
+    const del = db.prepare('DELETE FROM vec_documents WHERE doc_type = ? AND sqlite_id = ?');
+    let removed = 0;
+    const run = db.transaction((ids: number[]) => {
+      for (const id of ids) {
+        const r = del.run(docType, bigIntOf(id));
+        removed += r.changes;
+      }
+    });
+    run(sqliteIds);
+    return removed;
+  }
+
   /** Patch merged_into_project for the given sqlite_ids (worktree adoption). */
   updateMergedIntoProject(sqliteIds: number[], mergedIntoProject: string): number {
     if (sqliteIds.length === 0) return 0;
