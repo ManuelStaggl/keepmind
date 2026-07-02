@@ -198,6 +198,30 @@ export class SessionMessageBuffer {
     return next;
   }
 
+  /**
+   * Claim up to `max` further unclaimed OBSERVATION messages, in buffer order,
+   * for coalescing into a single compression turn (perf plan L1). Stops at the
+   * first unclaimed non-observation (e.g. summarize) so ordering and the
+   * summarize turn are preserved. Returns them in the same shape drain() yields;
+   * callers MUST track the returned _persistentIds for confirm/reset just like
+   * drained messages.
+   */
+  claimAdditionalObservations(sessionDbId: number, max: number): PendingMessageWithId[] {
+    if (max <= 0) return [];
+    const list = this.buffers.get(sessionDbId);
+    if (!list) return [];
+    const claimed: PendingMessageWithId[] = [];
+    for (const m of list) {
+      if (m.claimed) continue;
+      if (m.message.type !== 'observation') break; // don't reorder past a summarize
+      m.claimed = true;
+      claimed.push({ ...m.message, _persistentId: m.id, _originalTimestamp: m.enqueuedAt });
+      if (claimed.length >= max) break;
+    }
+    if (claimed.length > 0) this.onMutate?.();
+    return claimed;
+  }
+
   private waitForMessage(sessionDbId: number, signal: AbortSignal, timeoutMs: number): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
       const events = this.getEvents(sessionDbId);

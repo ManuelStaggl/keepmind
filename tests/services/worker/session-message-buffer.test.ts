@@ -123,4 +123,53 @@ describe('SessionMessageBuffer (in-RAM observation buffer)', () => {
       { message_type: 'summarize', tool_name: null },
     ]);
   });
+
+  describe('claimAdditionalObservations (L1 batching)', () => {
+    test('claims up to max further unclaimed observations, in order, with ids', () => {
+      const buffer = new SessionMessageBuffer();
+      buffer.enqueue(1, obs('Read', 'a'));
+      buffer.enqueue(1, obs('Edit', 'b'));
+      buffer.enqueue(1, obs('Bash', 'c'));
+      const claimed = buffer.claimAdditionalObservations(1, 5);
+      expect(claimed.map(m => m.tool_name)).toEqual(['Read', 'Edit', 'Bash']);
+      expect(claimed[0]._persistentId).toBeGreaterThan(0);
+      expect(typeof claimed[0]._originalTimestamp).toBe('number');
+    });
+
+    test('respects the max cap', () => {
+      const buffer = new SessionMessageBuffer();
+      buffer.enqueue(1, obs('Read', 'a'));
+      buffer.enqueue(1, obs('Edit', 'b'));
+      buffer.enqueue(1, obs('Bash', 'c'));
+      expect(buffer.claimAdditionalObservations(1, 2).map(m => m.tool_name)).toEqual(['Read', 'Edit']);
+    });
+
+    test('stops at a summarize so ordering is preserved (never batches past it)', () => {
+      const buffer = new SessionMessageBuffer();
+      buffer.enqueue(1, obs('Read', 'a'));
+      buffer.enqueue(1, { type: 'summarize', last_assistant_message: 'done' });
+      buffer.enqueue(1, obs('Bash', 'c'));
+      const claimed = buffer.claimAdditionalObservations(1, 5);
+      expect(claimed.map(m => m.tool_name)).toEqual(['Read']); // stopped before summarize
+    });
+
+    test('skips already-claimed messages and claims only the rest', () => {
+      const buffer = new SessionMessageBuffer();
+      buffer.enqueue(1, obs('Read', 'a'));
+      buffer.enqueue(1, obs('Edit', 'b'));
+      buffer.enqueue(1, obs('Bash', 'c'));
+      // Claim the first via the same primitive (max 1), then batch the rest.
+      const first = buffer.claimAdditionalObservations(1, 1);
+      expect(first.map(m => m.tool_name)).toEqual(['Read']);
+      const rest = buffer.claimAdditionalObservations(1, 5);
+      expect(rest.map(m => m.tool_name)).toEqual(['Edit', 'Bash']);
+    });
+
+    test('returns [] for max<=0 or an unknown session', () => {
+      const buffer = new SessionMessageBuffer();
+      buffer.enqueue(1, obs('Read', 'a'));
+      expect(buffer.claimAdditionalObservations(1, 0)).toEqual([]);
+      expect(buffer.claimAdditionalObservations(999, 5)).toEqual([]);
+    });
+  });
 });

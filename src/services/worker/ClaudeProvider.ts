@@ -2,7 +2,7 @@
 import { DatabaseManager } from './DatabaseManager.js';
 import { SessionManager } from './SessionManager.js';
 import { logger } from '../../utils/logger.js';
-import { buildInitPrompt, buildObservationPrompt, buildSummaryPrompt, buildContinuationPrompt } from '../../sdk/prompts.js';
+import { buildInitPrompt, buildBatchedObservationPrompt, buildSummaryPrompt, buildContinuationPrompt } from '../../sdk/prompts.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH, OBSERVER_SESSIONS_DIR, ensureDir, paths } from '../../shared/paths.js';
 import { buildIsolatedEnvWithFreshOAuth, getAuthMethodDescription } from '../../shared/EnvManager.js';
@@ -423,6 +423,9 @@ export class ClaudeProvider {
     cwdTracker: { lastCwd: string | undefined }
   ): AsyncIterableIterator<SDKUserMessage> {
     const mode = ModeManager.getInstance().getActiveMode();
+    // Perf plan L1: coalesce up to N buffered observations into one compression
+    // turn. Read once per generator pass; 1 = unchanged one-turn-per-tool-use.
+    const observationBatchMax = this.getObservationBatchMax();
 
     const isInitPrompt = session.lastPromptNumber === 1;
     logger.info('SDK', 'Creating message generator', {
@@ -465,14 +468,32 @@ export class ClaudeProvider {
           session.lastPromptNumber = message.prompt_number;
         }
 
-        const obsPrompt = buildObservationPrompt({
+        // L1: coalesce this observation with any other buffered observations into
+        // one turn. drainAdditionalObservations claims their ids onto the session
+        // too, so confirm/reset still cover the whole batch. batchMax=1 (default)
+        // claims nothing extra → single-observation prompt identical to before.
+        const batch = [message];
+        if (observationBatchMax > 1) {
+          const extra = this.sessionManager.drainAdditionalObservations(
+            session.sessionDbId,
+            observationBatchMax - 1
+          );
+          for (const extraMsg of extra) {
+            if (extraMsg.prompt_number !== undefined) {
+              session.lastPromptNumber = extraMsg.prompt_number;
+            }
+            batch.push(extraMsg);
+          }
+        }
+
+        const obsPrompt = buildBatchedObservationPrompt(batch.map(m => ({
           id: 0, // Not used in prompt
-          tool_name: message.tool_name!,
-          tool_input: JSON.stringify(message.tool_input),
-          tool_output: JSON.stringify(message.tool_response),
+          tool_name: m.tool_name!,
+          tool_input: JSON.stringify(m.tool_input),
+          tool_output: JSON.stringify(m.tool_response),
           created_at_epoch: Date.now(),
-          cwd: message.cwd
-        });
+          cwd: m.cwd
+        })));
 
         session.conversationHistory.push({ role: 'user', content: obsPrompt });
 
@@ -520,5 +541,22 @@ export class ClaudeProvider {
     const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
     // Resolve $TIER:<fast|smart|simple|summary> aliases at request time (#2289).
     return resolveTierAlias(settings.CLAUDE_MEM_MODEL, settings);
+  }
+
+  /**
+   * Max observations to coalesce into one compression turn (perf plan L1).
+   * Clamped to [1, 12]: 1 keeps the historical one-turn-per-tool-use behavior;
+   * the upper bound guards against an oversized prompt (each field is already
+   * truncated, but very large batches would still bloat the turn).
+   */
+  private getObservationBatchMax(): number {
+    try {
+      const settings = SettingsDefaultsManager.loadFromFile(paths.settings());
+      const raw = parseInt(settings.CLAUDE_MEM_OBSERVATION_BATCH_MAX, 10);
+      if (Number.isFinite(raw) && raw >= 1) return Math.min(raw, 12);
+    } catch {
+      // fall through to safe default
+    }
+    return 1;
   }
 }

@@ -378,6 +378,28 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Synchronously claim up to `max` further pending observation messages so the
+   * running generator can coalesce them with the one it just pulled into a single
+   * compression turn (perf plan L1). Their _persistentIds are tracked on the
+   * session exactly like getMessageIterator does, so confirm/reset cover the
+   * whole batch. Returns [] when batching yields nothing.
+   */
+  drainAdditionalObservations(sessionDbId: number, max: number): PendingMessageWithId[] {
+    const session = this.sessions.get(sessionDbId);
+    if (!session) return [];
+    const extra = this.buffer.claimAdditionalObservations(sessionDbId, max);
+    for (const m of extra) {
+      session.claimedMessageIds.push(m._persistentId);
+      if (session.earliestPendingTimestamp === null) {
+        session.earliestPendingTimestamp = m._originalTimestamp;
+      } else {
+        session.earliestPendingTimestamp = Math.min(session.earliestPendingTimestamp, m._originalTimestamp);
+      }
+    }
+    return extra;
+  }
+
   /** Read-only access to the in-RAM buffer for diagnostics. */
   getMessageBuffer(): SessionMessageBuffer {
     return this.buffer;

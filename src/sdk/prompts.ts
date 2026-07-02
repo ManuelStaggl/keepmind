@@ -114,7 +114,8 @@ function truncateObservationField(value: unknown, maxChars: number = OBS_PROMPT_
   return `${head}\n... <elided chars="${elidedChars}" original_size_chars="${raw.length}" reason="oversize" /> ...\n${tail}`;
 }
 
-export function buildObservationPrompt(obs: Observation): string {
+/** One `<observed_from_primary_session>` block for a single tool use. */
+function buildObservedBlock(obs: Observation): string {
   let toolInput: any;
   let toolOutput: any;
 
@@ -141,11 +142,37 @@ export function buildObservationPrompt(obs: Observation): string {
   <occurred_at>${new Date(obs.created_at_epoch).toISOString()}</occurred_at>${obs.cwd ? `\n  <working_directory>${obs.cwd}</working_directory>` : ''}
   <parameters>${truncateObservationField(toolInput)}</parameters>
   <outcome>${truncateObservationField(toolOutput)}</outcome>
-</observed_from_primary_session>
+</observed_from_primary_session>`;
+}
+
+export function buildObservationPrompt(obs: Observation): string {
+  return `${buildObservedBlock(obs)}
 
 If a <parameters> or <outcome> block above contains an "<elided chars=... />" marker, that field was truncated to fit the observer's context window. Describe only what you can see in the kept portion and do not infer details about the elided range.
 
 Return either one or more <observation>...</observation> blocks, or an empty response if this tool use should be skipped.
+Concrete debugging findings from logs, queue state, database rows, session routing, or code-path inspection count as durable discoveries and should be recorded.
+Never reply with prose such as "Skipping", "No substantive tool executions", or any explanation outside XML. Non-XML text is discarded.`;
+}
+
+/**
+ * Prompt for a BATCH of tool uses coalesced into one compression turn (perf plan
+ * L1). A single-element batch delegates to buildObservationPrompt so the common
+ * (non-batched) path stays byte-for-byte identical. For a real batch it presents
+ * every tool use in order and asks for observations covering them.
+ */
+export function buildBatchedObservationPrompt(observations: Observation[]): string {
+  if (observations.length <= 1) {
+    return buildObservationPrompt(observations[0]);
+  }
+  const blocks = observations.map(buildObservedBlock).join('\n\n');
+  return `${blocks}
+
+${observations.length} tool uses from the primary session are shown above, in chronological order.
+
+If a <parameters> or <outcome> block above contains an "<elided chars=... />" marker, that field was truncated to fit the observer's context window. Describe only what you can see in the kept portion and do not infer details about the elided range.
+
+Return one or more <observation>...</observation> blocks covering the tool uses above — merge closely related tool uses into a single observation where that reads better, and skip any that are not worth recording. Reply with an empty response only if NONE of them should be recorded.
 Concrete debugging findings from logs, queue state, database rows, session routing, or code-path inspection count as durable discoveries and should be recorded.
 Never reply with prose such as "Skipping", "No substantive tool executions", or any explanation outside XML. Non-XML text is discarded.`;
 }
