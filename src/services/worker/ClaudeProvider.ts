@@ -162,6 +162,39 @@ export function classifyClaudeError(err: unknown): ClassifiedProviderError {
   return new ClassifiedProviderError(message, { kind: 'transient', cause: err });
 }
 
+/**
+ * L5 — pure model-pin decision (extracted so it is unit-testable without driving
+ * the SDK). Within a resumed conversation the model stays pinned so tier routing
+ * can't flip it and invalidate the model-scoped prompt cache; a fresh SDK session
+ * resolves the tier-routed model and signals that it should be (re-)pinned.
+ * `resolveFresh` stays a thunk to preserve the original short-circuit (the
+ * settings read only happens when there is no override).
+ */
+export function pinModelForSession(
+  shouldResume: boolean,
+  pinnedModel: string | undefined,
+  resolveFresh: () => string,
+): { modelId: string; pinned: boolean } {
+  if (shouldResume && pinnedModel) return { modelId: pinnedModel, pinned: false };
+  return { modelId: resolveFresh(), pinned: true };
+}
+
+/**
+ * L3 — clamp CLAUDE_MEM_MAX_CONTEXT_MESSAGES. 0/negative = unbounded; a finite
+ * positive value is floored at 4 so a misconfiguration can't thrash a fresh init
+ * on nearly every turn; anything non-finite falls back to the default (40).
+ */
+export function clampMaxContextTurns(raw: number): number {
+  if (!Number.isFinite(raw)) return 40;
+  if (raw <= 0) return 0;
+  return Math.max(raw, 4);
+}
+
+/** L3 — whether the current resumed conversation has hit its turn cap. */
+export function shouldForceFreshSession(contextTurnCount: number, maxContextTurns: number): boolean {
+  return maxContextTurns > 0 && contextTurnCount >= maxContextTurns;
+}
+
 export class ClaudeProvider {
   private dbManager: DatabaseManager;
   private sessionManager: SessionManager;
@@ -196,11 +229,12 @@ export class ClaudeProvider {
     // model on a generator restart and blow the model-scoped prompt cache. A
     // fresh SDK session (not resuming, e.g. init or forceInit) re-resolves the
     // model from tier routing and re-pins; a resume reuses the pinned model.
-    let modelId: string;
-    if (shouldResume && session.pinnedModel) {
-      modelId = session.pinnedModel;
-    } else {
-      modelId = session.modelOverride || this.getModelId();
+    const { modelId, pinned } = pinModelForSession(
+      shouldResume,
+      session.pinnedModel,
+      () => session.modelOverride || this.getModelId(),
+    );
+    if (pinned) {
       session.pinnedModel = typeof modelId === 'string' ? modelId : undefined;
       // L3: a fresh (non-resumed) SDK session resets the bounded-context turn
       // counter — this conversation's context window starts empty again.
@@ -540,7 +574,7 @@ export class ClaudeProvider {
         // fresh session (which resets contextTurnCount via startSession). Keeping
         // conversationHistory trimmed bounds the in-memory array too.
         session.contextTurnCount = (session.contextTurnCount ?? 0) + 1;
-        if (maxContextTurns > 0 && session.contextTurnCount >= maxContextTurns) {
+        if (shouldForceFreshSession(session.contextTurnCount, maxContextTurns)) {
           session.forceInit = true;
           if (session.conversationHistory.length > 2) {
             session.conversationHistory = session.conversationHistory.slice(-2);
@@ -612,14 +646,10 @@ export class ClaudeProvider {
   private getMaxContextTurns(): number {
     try {
       const settings = SettingsDefaultsManager.loadFromFile(paths.settings());
-      const raw = parseInt(settings.CLAUDE_MEM_MAX_CONTEXT_MESSAGES, 10);
-      if (Number.isFinite(raw)) {
-        if (raw <= 0) return 0;             // explicit unbounded
-        return Math.max(raw, 4);
-      }
+      return clampMaxContextTurns(parseInt(settings.CLAUDE_MEM_MAX_CONTEXT_MESSAGES, 10));
     } catch {
       // fall through to safe default
+      return 40;
     }
-    return 40;
   }
 }
