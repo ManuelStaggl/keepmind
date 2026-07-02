@@ -1,8 +1,13 @@
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { paths } from '../shared/paths.js';
 import { emitDiagnostic } from '../shared/hook-io.js';
+
+// Delete daily log files older than this. Logs previously accumulated forever
+// (~6 MB/day) with no rotation (perf plan R5). Pruned once per process at
+// log-file init — cheap and best-effort.
+const LOG_RETENTION_DAYS = 14;
 
 export enum LogLevel {
   DEBUG = 0,
@@ -95,9 +100,27 @@ class Logger {
 
       const date = new Date().toISOString().split('T')[0];
       this.logFilePath = join(logsDir, `keepmind-${date}.log`);
+      this.pruneOldLogs(logsDir);
     } catch (error: unknown) {
       console.error('[LOGGER] Failed to initialize log file:', error instanceof Error ? error.message : String(error));
       this.logFilePath = null;
+    }
+  }
+
+  /** Best-effort deletion of daily log files older than LOG_RETENTION_DAYS. */
+  private pruneOldLogs(logsDir: string): void {
+    try {
+      const cutoff = Date.now() - LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+      for (const name of readdirSync(logsDir)) {
+        const match = /^keepmind-(\d{4}-\d{2}-\d{2})\.log$/.exec(name);
+        if (!match) continue;
+        const fileTime = Date.parse(match[1]);
+        if (Number.isFinite(fileTime) && fileTime < cutoff) {
+          try { unlinkSync(join(logsDir, name)); } catch { /* best-effort */ }
+        }
+      }
+    } catch {
+      // Retention is best-effort and must NEVER break logging.
     }
   }
 

@@ -122,6 +122,30 @@ export class SqliteVecManager {
     return this.vecVersion;
   }
 
+  /**
+   * Best-effort maintenance on the vec DB: truncate the WAL (it otherwise grows
+   * unbounded — the maintenance loop only ever checkpointed the main DB, perf
+   * plan R3) and, when asked, reclaim space with VACUUM. No-op when the vec store
+   * was never loaded (e.g. vector search degraded/disabled). Must only be called
+   * from an idle context (no concurrent vec transactions), like the main-DB VACUUM.
+   */
+  maintain(opts: { vacuum: boolean }): void {
+    if (!this.db) return;
+    try {
+      this.db.run('PRAGMA wal_checkpoint(TRUNCATE)');
+    } catch (error) {
+      logger.debug('VEC', 'vectors.db wal_checkpoint failed', {}, error as Error);
+    }
+    if (opts.vacuum) {
+      try {
+        this.db.run('VACUUM');
+        logger.info('VEC', 'vectors.db VACUUM complete');
+      } catch (error) {
+        logger.debug('VEC', 'vectors.db VACUUM failed', {}, error as Error);
+      }
+    }
+  }
+
   private ensureSchema(db: Database): void {
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS vec_documents USING vec0(

@@ -128,9 +128,18 @@ export function renderAgentSummaryItem(
   ];
 }
 
+// Cap the per-field length of the newest summary's Investigated/Learned/
+// Completed/Next block injected at SessionStart. Untruncated it can add ~500+
+// tokens with diminishing returns — the head carries the gist and full detail
+// is one get_observations away (perf plan T4).
+const SUMMARY_FIELD_MAX_CHARS = 200;
+
 export function renderAgentSummaryField(label: string, value: string | null): string[] {
   if (!value) return [];
-  return [`**${label}**: ${value}`, ''];
+  const trimmed = value.length > SUMMARY_FIELD_MAX_CHARS
+    ? `${value.slice(0, SUMMARY_FIELD_MAX_CHARS).trimEnd()}…`
+    : value;
+  return [`**${label}**: ${trimmed}`, ''];
 }
 
 export function renderAgentPreviouslySection(priorMessages: PriorMessages): string[] {

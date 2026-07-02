@@ -15,7 +15,7 @@ const FILE_READ_GATE_MIN_BYTES = 1_500;
 
 const FETCH_LOOKAHEAD_LIMIT = 40;
 
-const DISPLAY_LIMIT = 15;
+const DISPLAY_LIMIT = 5;
 const MAX_FILE_CONTEXT_PATHS = 10;
 
 const TYPE_ICONS: Record<string, string> = {
@@ -115,11 +115,14 @@ function formatFileTimeline(
   }).toLowerCase().replace(' ', '');
   const currentTimezone = now.toLocaleTimeString('en-US', { timeZoneName: 'short' }).split(' ').pop();
 
+  // One compact meta line instead of four: this block is injected on EVERY
+  // tracked Read, so trimming the fixed header ~60-80 tokens/read adds up to
+  // thousands of tokens over a session (see perf plan T1). Keeps the two facts
+  // that matter: the Read result below is complete (not truncated by us), and
+  // the two follow-up affordances.
   const lines: string[] = [
     `Current: ${currentDate} ${currentTime} ${currentTimezone}`,
-    `This file has prior observations — supplementary context follows. The Read result below is the full requested section.`,
-    `- **Need details on a past observation?** get_observations([IDs]) — ~300 tokens each.`,
-    `- **Need a structural map first?** smart_outline("${safePath}") — line numbers only, cheaper than re-reading.`,
+    `Prior observations for this file (the Read result below is complete). Detail: get_observations([IDs]) · structure: smart_outline("${safePath}").`,
   ];
 
   for (const [day, dayObservations] of sortedDays) {

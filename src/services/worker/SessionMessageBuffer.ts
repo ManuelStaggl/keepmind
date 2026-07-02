@@ -2,7 +2,12 @@ import { EventEmitter } from 'events';
 import type { PendingMessage, PendingMessageWithId } from '../worker-types.js';
 import { logger } from '../../utils/logger.js';
 
-const IDLE_TIMEOUT_MS = 3 * 60 * 1000;
+// Just under the 5-minute Anthropic prompt-cache TTL: keeping the observer
+// subprocess alive slightly longer than the old 3 min means a follow-up turn
+// after a short pause pays a cache READ (~0.1x) on the accumulated conversation
+// prefix instead of a full cache WRITE (~1.25x) after a cold restart (perf plan
+// L2). Still well below the point where an idle process wastes meaningful RAM.
+const IDLE_TIMEOUT_MS = 4.5 * 60 * 1000;
 
 interface BufferedMessage {
   id: number;

@@ -8,11 +8,19 @@
 import type { SessionStore } from '../sqlite/SessionStore.js';
 import type { MemoryQualityConfig } from '../config/memory-quality.js';
 import { logger } from '../../utils/logger.js';
+import { readdirSync, statSync, unlinkSync } from 'fs';
+import { join } from 'path';
 import { expireStaleObservations } from '../expiry/expiry.js';
 import { redactSecrets, redactSecretsDeep } from '../redaction/redact-secrets.js';
+import { SqliteVecManager } from '../vector/SqliteVecManager.js';
+import { BACKUPS_DIR } from '../../shared/paths.js';
 
 const RETRO_SCRUB_SENTINEL = 9001; // schema_versions marker: retro-scrub complete
 const MIN_IDLE_MS = 30_000;
+// One-time migration snapshots (e.g. the ~22 MB claude-mem-pre-12.4.3-*.db) were
+// never pruned and sat in ~/.keepmind/backups forever (perf plan R6). Keep a
+// rollback window, then reclaim.
+const BACKUP_RETENTION_DAYS = 30;
 
 export interface MaintenanceDeps {
   getStore: () => SessionStore;
@@ -27,6 +35,7 @@ export class MaintenanceLoop {
   private busy = false;
   private jobIndex = 0;
   private lastVacuum = 0;
+  private lastVecVacuum = 0;
   private retroScrubDone = false;
 
   constructor(private deps: MaintenanceDeps) {}
@@ -64,6 +73,8 @@ export class MaintenanceLoop {
         () => this.jobRetroScrub(),
         () => this.jobWalCheckpoint(),
         () => this.jobVacuum(),
+        () => this.jobVectorMaintenance(),
+        () => this.jobPruneBackups(),
       ];
       const job = jobs[this.jobIndex % jobs.length];
       this.jobIndex++;
@@ -150,6 +161,47 @@ export class MaintenanceLoop {
       logger.info('SYSTEM', 'MaintenanceLoop VACUUM complete');
     } catch (error) {
       logger.debug('SYSTEM', 'VACUUM failed', {}, error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  // R3: the vec DB (vectors.db) was never touched by this loop, so its WAL grew
+  // unbounded and freed pages were never reclaimed. Checkpoint every eligible
+  // tick; VACUUM on the same cadence as the main DB. No-op when the vec store is
+  // not loaded (vector search degraded/disabled), so it never forces a load.
+  private jobVectorMaintenance(): void {
+    try {
+      const vec = SqliteVecManager.instance();
+      if (!vec.isLoaded()) return;
+      const vacuumHours = this.deps.getConfig().optimizer.vacuumHours;
+      const now = Date.now();
+      const doVacuum = now - this.lastVecVacuum >= vacuumHours * 3_600_000;
+      if (doVacuum) this.lastVecVacuum = now;
+      vec.maintain({ vacuum: doVacuum });
+    } catch (error) {
+      logger.debug('SYSTEM', 'vector maintenance failed', {}, error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  // R6: reclaim stale migration backups (never pruned before). Best-effort.
+  private jobPruneBackups(): void {
+    let entries: string[];
+    try {
+      entries = readdirSync(BACKUPS_DIR);
+    } catch {
+      return; // no backups dir yet — nothing to do
+    }
+    const cutoff = Date.now() - BACKUP_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    for (const name of entries) {
+      if (!name.endsWith('.db')) continue;
+      const full = join(BACKUPS_DIR, name);
+      try {
+        if (statSync(full).mtimeMs < cutoff) {
+          unlinkSync(full);
+          logger.info('SYSTEM', 'MaintenanceLoop pruned stale backup', { file: name });
+        }
+      } catch {
+        // best-effort per-file
+      }
     }
   }
 }
