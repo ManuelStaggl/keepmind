@@ -130,7 +130,7 @@ describe('fileContextHandler — #2094 (no Read mutation)', () => {
     });
 
     expect(result.hookSpecificOutput).toBeDefined();
-    expect(result.hookSpecificOutput!.additionalContext).toContain('prior observations');
+    expect(result.hookSpecificOutput!.additionalContext).toContain('Prior observations for this file');
     expect((result.hookSpecificOutput as any).updatedInput).toBeUndefined();
   });
 
@@ -188,7 +188,7 @@ describe('fileContextHandler — #2094 (no Read mutation)', () => {
     });
 
     expect(result.hookSpecificOutput).toBeDefined();
-    expect(result.hookSpecificOutput!.additionalContext).toContain('prior observations');
+    expect(result.hookSpecificOutput!.additionalContext).toContain('Prior observations for this file');
     expect((result.hookSpecificOutput as any).updatedInput).toBeUndefined();
   });
 
@@ -207,7 +207,9 @@ describe('fileContextHandler — #2094 (no Read mutation)', () => {
 
     const ctx = result.hookSpecificOutput!.additionalContext as string;
     expect(ctx).not.toContain('Only line 1 was read');
-    expect(ctx).toContain('full requested section');
+    // T1 compressed the 4-line header to one line; it states completeness as
+    // "the Read result below is complete" (see src/cli/handlers/file-context.ts).
+    expect(ctx).toContain('the Read result below is complete');
   });
 
   it('accepts a Codex filePaths array and joins per-file context blocks', async () => {
