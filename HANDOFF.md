@@ -15,7 +15,7 @@
 | P0 Baseline-Fork | `ff76c2b` | unveränderte v13.9.1 als Basis |
 | **P0b De-bun → node-only** | `a7c0ef7` | `bun:sqlite`→`node:sqlite`-Shim (`src/storage/db.ts`); 0 bun:sqlite-Imports; Worker läuft unter node |
 | **P1 Windows-Lifecycle** | `b368f3f` | ephemeral Port (Deadlock-Klasse eliminiert), session-gebundener Refcount, atomare BOM-freie Settings, exit-codes. ✅ Deadlock-Test bestätigt |
-| **P3 Cloud-Layer raus** | `9290d5a` | `src/server/**`+Postgres weg, `pg`/`bullmq`/`ioredis`/`better-auth` gedroppt; 23 MCP-Tools + Observation-Generierung intakt |
+| **P3 Cloud-Layer raus** | `9290d5a` | Postgres/Cloud-Sync weg: `pg`/`bullmq`/`ioredis`/`better-auth` gedroppt; 23 MCP-Tools + Observation-Generierung intakt. **Hinweis (verifiziert 2026-07-19):** `src/server/**` ist NICHT komplett entfernt — der lokale HTTP-Worker-Layer inkl. SQLite-API-Key-Auth (`src/server/auth/sqlite-api-key-service.ts`, `src/server/middleware/auth.ts`, `src/server/routes/v1/ServerV1Routes.ts`) bleibt bestehen und ist in `worker-service.ts` (Z.70-71, 447) live registriert. Entfernt wurde nur die Postgres-/Cloud-Anbindung, nicht der lokale Server. |
 | **P2 In-process Vektorsuche** | `a5a7ff4` | `@huggingface/transformers` int8-MiniLM (384-dim) + `sqlite-vec` (`vec0.dll` Prebuilt) — **auf dieser Windows-Maschine bewiesen**. RAM ~204MB mit Modell / ~176MB idle. Hybrid-RRF (Vektor+BM25) |
 | **P4 Memory-Qualität** | `f5cc233` | Secret-Scrubbing (ON, ✅ maskiert `ghp_`/`AKIA`), Projekt-Scoping (ON), Importance+Budget (ON), Reconcile/Supersession/Expiry (OFF default), In-Session-Optimizer + PreCompact. Schema v34–v36 |
 | **Rebrand → keepmind** | `6cad914` | keepmind@1.0.0, Data-Dir `~/.keepmind`, Plugin/MCP-id `keepmind@keepmind`. ✅ Worker bootet v1.0.0 |
