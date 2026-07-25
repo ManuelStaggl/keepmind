@@ -104,6 +104,9 @@ export abstract class OpenAICompatibleProvider<TConfig extends { apiKey: string;
     try {
       session.lastPromptSentAt = Date.now();
       session.lastGeneratorSource = 'init';
+      // Same accounting as ClaudeProvider: every dispatched prompt is a paid turn,
+      // so the skip ratio reported at generator exit stays a real fraction.
+      session.compressionTurns = (session.compressionTurns ?? 0) + 1;
       const initResponse = await this.query(session.conversationHistory, config);
       await this.handleInitResponse(initResponse, session, worker, model);
     } catch (error: unknown) {
@@ -201,6 +204,7 @@ export abstract class OpenAICompatibleProvider<TConfig extends { apiKey: string;
     session.conversationHistory.push({ role: 'user', content: obsPrompt });
     session.lastPromptSentAt = Date.now();
     session.lastGeneratorSource = 'ingest';
+    session.compressionTurns = (session.compressionTurns ?? 0) + 1;
     const obsResponse = await this.query(session.conversationHistory, config);
 
     let tokensUsed = 0;
@@ -250,6 +254,7 @@ export abstract class OpenAICompatibleProvider<TConfig extends { apiKey: string;
     session.conversationHistory.push({ role: 'user', content: summaryPrompt });
     session.lastPromptSentAt = Date.now();
     session.lastGeneratorSource = 'summarize';
+    session.compressionTurns = (session.compressionTurns ?? 0) + 1;
     const summaryResponse = await this.query(session.conversationHistory, config);
 
     let tokensUsed = 0;

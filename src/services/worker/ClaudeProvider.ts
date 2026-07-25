@@ -505,6 +505,10 @@ export class ClaudeProvider {
 
     session.lastPromptSentAt = Date.now();
     session.lastGeneratorSource = 'init';
+    // Every dispatched prompt is a paid turn, including this one — a generator
+    // respawn re-sends the init prompt. Counting only ingest turns made
+    // skippedBatches/compressionTurns exceed 1.0, which is not a ratio.
+    session.compressionTurns = (session.compressionTurns ?? 0) + 1;
     yield {
       type: 'user',
       message: {
@@ -620,6 +624,7 @@ export class ClaudeProvider {
 
         session.lastPromptSentAt = Date.now();
         session.lastGeneratorSource = 'summarize';
+        session.compressionTurns = (session.compressionTurns ?? 0) + 1;
         yield {
           type: 'user',
           message: {

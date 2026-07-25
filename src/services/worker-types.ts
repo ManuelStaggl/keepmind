@@ -52,8 +52,10 @@ export interface ActiveSession {
    */
   contextTurnCount?: number;
   /**
-   * Compression turns dispatched for this session, and how many of them the model
-   * answered with "nothing worth recording". Lifetime counters (unlike
+   * Compression turns dispatched for this session — init, ingest and summarize
+   * alike, since each one sends a prompt and pays the conversation prefix — and
+   * how many of them the model answered with "nothing worth recording".
+   * skippedBatches ≤ compressionTurns by construction. Lifetime counters (unlike
    * contextTurnCount, which resets on every fresh SDK session) because the ratio
    * between them is the cost signal: measured at ≥65% skipped, each skip still
    * paying the full conversation prefix. Reported at session end so a batching or
