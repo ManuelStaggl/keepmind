@@ -141,6 +141,13 @@ function formatFileTimeline(
 
 export const fileContextHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
+    // Subagents get a fresh context per run and rarely act on a file's history,
+    // so the per-Read timeline is pure token cost there (upstream 7435435b).
+    if (input.agentId) {
+      logger.debug('HOOK', 'Subagent context, skipping file context', { agentId: input.agentId });
+      return { continue: true, suppressOutput: true };
+    }
+
     const toolInput = input.toolInput as Record<string, unknown> | undefined;
     const filePaths = Array.isArray(toolInput?.filePaths)
       ? (toolInput.filePaths as unknown[]).filter((p): p is string => typeof p === 'string').slice(0, MAX_FILE_CONTEXT_PATHS)
