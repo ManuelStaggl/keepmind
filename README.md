@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"></a>
-  <a href="package.json"><img src="https://img.shields.io/badge/version-1.3.3-green.svg" alt="Version"></a>
+  <a href="package.json"><img src="https://img.shields.io/badge/version-1.4.0-green.svg" alt="Version"></a>
   <a href="package.json"><img src="https://img.shields.io/badge/node-%3E%3D22.5-brightgreen.svg" alt="Node"></a>
 </p>
 
