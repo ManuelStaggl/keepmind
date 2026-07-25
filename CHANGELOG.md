@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.0.0] - 2026-07-25
+
+keepmind 2.0.0
+
+keepmind stops presenting itself as claude-mem.
+
+The fork had kept the upstream project's names on every surface a user
+touches: CLAUDE_MEM_* settings keys, <claude-mem-context> blocks written
+into CLAUDE.md, claude-mem-context rules files for Cursor and Windsurf, an
+mcpServers entry called claude-mem, and a viewer in upstream's blue with
+upstream's webfont. All of it is keepmind's now.
+
+Nothing requires user action. Pre-rename environment variables and
+settings keys are still honoured; settings.json is rewritten to the new
+keys once on load. Readers accept both marker spellings and writers
+convert in place. Every writer that owns a file or a config entry removes
+its predecessor first — rules files are alwaysApply and MCP servers are
+keyed by name, so a leftover would have injected stale context or
+registered the same server twice.
+
+The audit turned up defects that had nothing to do with naming:
+
+- The Codex installer enabled `claude-mem@claude-mem-local`, a plugin id
+  this package does not ship.
+- standup wrote to ~/.claude-mem/STANDUP.md; timeline-report and
+  weekly-digests read the worker port from a settings.json that does not
+  exist, so a custom port was never honoured.
+- The public install scripts told users to run `npx claude-mem install`
+  and claimed Node >= 20, below the floor node:sqlite requires.
+- `uninstall` never removed keepmind's own MCP log directories.
+- A late CSS block re-declared the viewer's entire palette, silently
+  overriding the tokens above it; two controls referenced variables that
+  are defined nowhere.
+- The compression-economics line reported a skip ratio above 1.0, because
+  only ingest turns were counted against skips from every turn type.
+
+Also in this release: the viewer's own identity ("Signal" — dark by
+default, one accent, type as a coloured edge, tabular figures), and ~1 MB
+less payload from dropping the bundled webfont.
+
 ## [1.3.3] - 2026-07-02
 
 Removes the scary exit-time message.
