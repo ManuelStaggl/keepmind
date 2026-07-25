@@ -178,6 +178,13 @@ export class DataRoutes extends BaseRouteHandler {
     const platformSource = this.getOptionalPlatformSourceFromRequest(req);
     const observations = store.getObservationsByIds(ids, { orderBy, limit, project, platformSource });
 
+    // A get_observations fetch is the strongest "this memory earned its keep"
+    // signal there is — the model asked for the full record by id. Record it
+    // (relevance_count + last_used_at); best-effort, never fails the response.
+    if (observations.length > 0) {
+      store.markObservationsUsed(observations.map(o => o.id));
+    }
+
     res.json(observations);
   });
 

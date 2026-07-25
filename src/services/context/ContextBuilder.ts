@@ -216,9 +216,11 @@ export async function generateContextWithStats(
       ? querySummariesMulti(db, projects, config, platformSource)
       : querySummaries(db, project, config, platformSource);
 
-    // Phase 4 / Step 6 — "timer reset on use": bump last_used_at for the rows we
-    // actually inject so the expiry TTL restarts. Only when expiry is enabled.
-    if (mq.expiry.enabled && observations.length > 0) {
+    // Record use for the rows we actually inject: resets the expiry TTL and
+    // counts the hit. Deliberately NOT gated on expiry.enabled — the usage data
+    // is what tells us whether retention is safe to switch on at all, so it has
+    // to accumulate while expiry is still off (see markObservationsUsed).
+    if (observations.length > 0) {
       db.markObservationsUsed(observations.map(o => o.id));
     }
 
