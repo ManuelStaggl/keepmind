@@ -40,19 +40,8 @@ async function buildViewer() {
       htmlTemplate
     );
 
-    const fontsDir = path.join(rootDir, 'src/ui/viewer/assets/fonts');
-    const outputFontsDir = path.join(rootDir, 'plugin/ui/assets/fonts');
-
-    if (fs.existsSync(fontsDir)) {
-      fs.mkdirSync(outputFontsDir, { recursive: true });
-      const fontFiles = fs.readdirSync(fontsDir);
-      for (const file of fontFiles) {
-        fs.copyFileSync(
-          path.join(fontsDir, file),
-          path.join(outputFontsDir, file)
-        );
-      }
-    }
+    // No webfont to ship: the Signal identity uses system stacks, so the
+    // viewer loads instantly and the plugin carries ~1 MB less.
 
     const srcUiDir = path.join(rootDir, 'src/ui');
     const outputUiDir = path.join(rootDir, 'plugin/ui');
@@ -67,7 +56,6 @@ async function buildViewer() {
     console.log('✓ React viewer built successfully');
     console.log('  - plugin/ui/viewer-bundle.js');
     console.log('  - plugin/ui/viewer.html (from viewer-template.html)');
-    console.log('  - plugin/ui/assets/fonts/* (font files)');
     console.log(`  - plugin/ui/icon-thick-*.svg (${iconFiles.length} icon files)`);
   } catch (error) {
     console.error('Failed to build viewer:', error);

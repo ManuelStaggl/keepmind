@@ -5,293 +5,306 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>keepmind viewer</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%232563eb'/%3E%3Cpath d='M8 9 L12 16 L16 9' fill='none' stroke='%23fff' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='8' cy='9' r='2.1' fill='%23fff'/%3E%3Ccircle cx='16' cy='9' r='2.1' fill='%23fff'/%3E%3Ccircle cx='12' cy='16' r='2.1' fill='%23fff'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%233ddc97'/%3E%3Cpath d='M8 9 L12 16 L16 9' fill='none' stroke='%23081210' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='8' cy='9' r='2.1' fill='%23081210'/%3E%3Ccircle cx='16' cy='9' r='2.1' fill='%23081210'/%3E%3Ccircle cx='12' cy='16' r='2.1' fill='%23081210'/%3E%3C/svg%3E">
   <style>
-    @font-face {
-      font-family: 'Monaspace Radon';
-      src: url('assets/fonts/monaspace-radon-var.woff2') format('woff2-variations'),
-        url('assets/fonts/monaspace-radon-var.woff') format('woff-variations');
-      font-weight: 200 900;
-      font-display: swap;
-    }
-
-    /* Theme Variables - Light Mode */
+    /* Dark is the default; the explicit light theme follows. */
     :root,
-    [data-theme="light"] {
-      --color-bg-primary: #ffffff;
-      --color-bg-secondary: #efebe4;
-      --color-bg-tertiary: #f0f0f0;
-      --color-bg-header: #f6f8fa;
-      --color-bg-card: #ffffff;
-      --color-bg-card-hover: #f6f8fa;
-      --color-bg-input: #ffffff;
-      --color-bg-button: #0969da;
-      --color-bg-button-hover: #1177e6;
-      --color-bg-button-active: #0860ca;
-      --color-bg-summary: #fffbf0;
-      --color-bg-prompt: #f6f3fb;
-      --color-bg-observation: #f0f6fb;
-      --color-bg-stat: #f6f8fa;
-      --color-bg-scrollbar-track: #ffffff;
-      --color-bg-scrollbar-thumb: #d1d5da;
-      --color-bg-scrollbar-thumb-hover: #b1b5ba;
+    [data-theme="dark"] {
+      /* Signal — keepmind's own identity. Dark is the default: this is a live
+         surface for a background service, not a document reader. One accent
+         carries every "live" signal, and observation type is a coloured edge
+         rather than a pastel wash, so a dense feed stays scannable. */
+      --color-bg-primary: #0e1012;
+      --color-bg-secondary: #16191c;
+      --color-bg-tertiary: #131619;
+      --color-bg-header: #0e1012;
+      --color-bg-card: #16191c;
+      --color-bg-card-hover: #1b1f23;
+      --color-bg-input: #131619;
+      --color-bg-button: #3ddc97;
+      --color-bg-button-hover: #55e6a8;
+      --color-bg-button-active: #2fc384;
+      /* Every card shares one panel colour; the left edge carries the type. */
+      --color-bg-summary: #16191c;
+      --color-bg-prompt: #16191c;
+      --color-bg-observation: #16191c;
+      --color-bg-stat: #131619;
+      --color-bg-scrollbar-track: #0e1012;
+      --color-bg-scrollbar-thumb: #262b30;
+      --color-bg-scrollbar-thumb-hover: #333940;
 
-      --color-border-primary: #d0d7de;
-      --color-border-secondary: #d8dee4;
-      --color-border-hover: #0969da;
-      --color-border-focus: #0969da;
-      --color-border-summary: #d4a72c;
-      --color-border-summary-hover: #c29d29;
-      --color-border-prompt: #8250df;
-      --color-border-prompt-hover: #6e40c9;
-      --color-border-observation: #0969da;
-      --color-border-observation-hover: #0550ae;
+      --color-border-primary: #23282d;
+      --color-border-secondary: #1d2126;
+      --color-border-hover: #333940;
+      --color-border-focus: #3ddc97;
+      --color-border-summary: #f0b429;
+      --color-border-summary-hover: #ffc94d;
+      --color-border-prompt: #a78bfa;
+      --color-border-prompt-hover: #bda5ff;
+      --color-border-observation: #3ddc97;
+      --color-border-observation-hover: #55e6a8;
 
-      --color-text-primary: #2b2520;
-      --color-text-secondary: #5a5248;
-      --color-text-tertiary: #726b5f;
-      --color-text-muted: #8f8a7e;
-      --color-text-header: #2b2520;
-      --color-text-title: #2b2520;
-      --color-text-subtitle: #5a5248;
-      --color-text-button: #ffffff;
-      --color-text-summary: #8a6116;
-      --color-text-observation: #2b2520;
-      --color-text-logo: #2b2520;
+      --color-text-primary: #e6e8ea;
+      --color-text-secondary: #a8b0b6;
+      --color-text-tertiary: #7c858c;
+      --color-text-muted: #626a70;
+      --color-text-header: #f2f4f5;
+      --color-text-title: #f2f4f5;
+      --color-text-subtitle: #a8b0b6;
+      /* Buttons are filled with the accent, so their label has to go dark. */
+      --color-text-button: #08120e;
+      --color-text-summary: #f0b429;
+      --color-text-observation: #e6e8ea;
+      --color-text-logo: #f2f4f5;
 
-      --color-accent-primary: #0969da;
-      --color-accent-focus: #0969da;
-      --color-accent-success: #1a7f37;
-      --color-accent-error: #d1242f;
-      --color-accent-summary: #9a6700;
-      --color-accent-prompt: #8250df;
-      --color-accent-observation: #0550ae;
+      --color-accent-primary: #3ddc97;
+      --color-accent-focus: #3ddc97;
+      --color-accent-success: #3ddc97;
+      --color-accent-error: #ff5c5c;
+      --color-accent-summary: #f0b429;
+      --color-accent-prompt: #a78bfa;
+      --color-accent-observation: #3ddc97;
 
-      --color-type-badge-bg: rgba(9, 105, 218, 0.12);
-      --color-type-badge-text: #0969da;
-      --color-summary-badge-bg: rgba(154, 103, 0, 0.12);
-      --color-summary-badge-text: #9a6700;
-      --color-prompt-badge-bg: rgba(130, 80, 223, 0.12);
-      --color-prompt-badge-text: #8250df;
-      --color-observation-badge-bg: rgba(9, 105, 218, 0.12);
-      --color-observation-badge-text: #0550ae;
+      --color-type-badge-bg: transparent;
+      --color-type-badge-text: #3ddc97;
+      --color-summary-badge-bg: transparent;
+      --color-summary-badge-text: #f0b429;
+      --color-prompt-badge-bg: transparent;
+      --color-prompt-badge-text: #a78bfa;
+      --color-observation-badge-bg: transparent;
+      --color-observation-badge-text: #3ddc97;
 
-      --color-skeleton-base: #d0d7de;
-      --color-skeleton-highlight: #e8ecef;
+      --color-skeleton-base: #1d2126;
+      --color-skeleton-highlight: #262b30;
 
-      --shadow-focus: 0 0 0 2px rgba(9, 105, 218, 0.3);
+      --shadow-focus: 0 0 0 2px rgba(61, 220, 151, 0.35);
 
-      /* Font families */
-      --font-terminal: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+      --font-ui: 'Inter Tight', 'Inter', 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+      --font-mono: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace;
+      --font-terminal: var(--font-mono);
     }
 
-    /* Theme Variables - Dark Mode */
-    [data-theme="dark"] {
-      --color-bg-primary: #1a1916;
-      --color-bg-secondary: #252320;
-      --color-bg-tertiary: #1f1d1a;
-      --color-bg-header: #1f1d1a;
-      --color-bg-card: #252320;
-      --color-bg-card-hover: #2d2a26;
-      --color-bg-input: #252320;
-      --color-bg-button: #0969da;
-      --color-bg-button-hover: #1177e6;
-      --color-bg-button-active: #0860ca;
-      --color-bg-summary: #2a2724;
-      --color-bg-prompt: #262033;
-      --color-bg-observation: #1a2332;
-      --color-bg-stat: #252320;
-      --color-bg-scrollbar-track: #1a1916;
-      --color-bg-scrollbar-thumb: #3a3834;
-      --color-bg-scrollbar-thumb-hover: #4a4540;
+    [data-theme="light"] {
+      /* Signal, light. Same structure and accent family on a desaturated
+         paper ground, with a darker green so the accent still carries enough
+         contrast. Deliberately not the blue-on-white it inherited. */
+      --color-bg-primary: #fbfbfa;
+      --color-bg-secondary: #f1f3f2;
+      --color-bg-tertiary: #f6f7f6;
+      --color-bg-header: #fbfbfa;
+      --color-bg-card: #ffffff;
+      --color-bg-card-hover: #f6f7f6;
+      --color-bg-input: #ffffff;
+      --color-bg-button: #067a52;
+      --color-bg-button-hover: #078c5e;
+      --color-bg-button-active: #056845;
+      --color-bg-summary: #ffffff;
+      --color-bg-prompt: #ffffff;
+      --color-bg-observation: #ffffff;
+      --color-bg-stat: #f6f7f6;
+      --color-bg-scrollbar-track: #fbfbfa;
+      --color-bg-scrollbar-thumb: #d5d9d7;
+      --color-bg-scrollbar-thumb-hover: #bfc4c2;
 
-      --color-border-primary: #3a3834;
-      --color-border-secondary: #3a3834;
-      --color-border-hover: #4a4540;
-      --color-border-focus: #58a6ff;
-      --color-border-summary: #7a6a50;
-      --color-border-summary-hover: #8b7960;
-      --color-border-prompt: #6e5b9e;
-      --color-border-prompt-hover: #7e6bae;
-      --color-border-observation: #527aa0;
-      --color-border-observation-hover: #6a8eb8;
+      --color-border-primary: #e0e2e1;
+      --color-border-secondary: #e8eae9;
+      --color-border-hover: #c8ccca;
+      --color-border-focus: #067a52;
+      --color-border-summary: #a16207;
+      --color-border-summary-hover: #8a5306;
+      --color-border-prompt: #6d28d9;
+      --color-border-prompt-hover: #5b21b6;
+      --color-border-observation: #067a52;
+      --color-border-observation-hover: #056845;
 
-      --color-text-primary: #dcd6cc;
-      --color-text-secondary: #b8b0a4;
-      --color-text-tertiary: #938a7e;
-      --color-text-muted: #7a7266;
-      --color-text-header: #e8e2d8;
-      --color-text-title: #e8e2d8;
-      --color-text-subtitle: #b8b0a4;
+      --color-text-primary: #14171a;
+      --color-text-secondary: #4a5157;
+      --color-text-tertiary: #6b7278;
+      --color-text-muted: #868d92;
+      --color-text-header: #14171a;
+      --color-text-title: #14171a;
+      --color-text-subtitle: #4a5157;
       --color-text-button: #ffffff;
-      --color-text-summary: #d4b888;
-      --color-text-observation: #a8b8c8;
-      --color-text-logo: #e0dad0;
+      --color-text-summary: #a16207;
+      --color-text-observation: #14171a;
+      --color-text-logo: #14171a;
 
-      --color-accent-primary: #58a6ff;
-      --color-accent-focus: #58a6ff;
-      --color-accent-success: #16c60c;
-      --color-accent-error: #e74856;
-      --color-accent-summary: #d4b888;
-      --color-accent-prompt: #8e7cbc;
-      --color-accent-observation: #79b8ff;
+      --color-accent-primary: #067a52;
+      --color-accent-focus: #067a52;
+      --color-accent-success: #067a52;
+      --color-accent-error: #c62828;
+      --color-accent-summary: #a16207;
+      --color-accent-prompt: #6d28d9;
+      --color-accent-observation: #067a52;
 
-      --color-type-badge-bg: rgba(88, 166, 255, 0.125);
-      --color-type-badge-text: #58a6ff;
-      --color-summary-badge-bg: rgba(212, 184, 136, 0.15);
-      --color-summary-badge-text: #d4b888;
-      --color-prompt-badge-bg: rgba(142, 124, 188, 0.15);
-      --color-prompt-badge-text: #9e8ccc;
-      --color-observation-badge-bg: rgba(121, 184, 255, 0.15);
-      --color-observation-badge-text: #79b8ff;
+      --color-type-badge-bg: transparent;
+      --color-type-badge-text: #067a52;
+      --color-summary-badge-bg: transparent;
+      --color-summary-badge-text: #a16207;
+      --color-prompt-badge-bg: transparent;
+      --color-prompt-badge-text: #6d28d9;
+      --color-observation-badge-bg: transparent;
+      --color-observation-badge-text: #067a52;
 
-      --color-skeleton-base: #3a3834;
-      --color-skeleton-highlight: #4a4540;
+      --color-skeleton-base: #e0e2e1;
+      --color-skeleton-highlight: #eef0ef;
 
-      --shadow-focus: 0 0 0 2px rgba(88, 166, 255, 0.2);
+      --shadow-focus: 0 0 0 2px rgba(6, 122, 82, 0.28);
 
-      /* Font families */
-      --font-terminal: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+      --font-ui: 'Inter Tight', 'Inter', 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+      --font-mono: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace;
+      --font-terminal: var(--font-mono);
     }
 
     /* System preference default */
     @media (prefers-color-scheme: light) {
       :root:not([data-theme]) {
-        --color-bg-primary: #ffffff;
-        --color-bg-secondary: #f6f8fa;
-        --color-bg-tertiary: #f0f0f0;
-        --color-bg-header: #f6f8fa;
-        --color-bg-card: #ffffff;
-        --color-bg-card-hover: #f6f8fa;
-        --color-bg-input: #ffffff;
-        --color-bg-button: #0969da;
-        --color-bg-button-hover: #1177e6;
-        --color-bg-button-active: #0860ca;
-        --color-bg-summary: #fffbf0;
-        --color-bg-prompt: #f6f3fb;
-        --color-bg-observation: #f0f6fb;
-        --color-bg-stat: #f6f8fa;
-        --color-bg-scrollbar-track: #ffffff;
-        --color-bg-scrollbar-thumb: #d1d5da;
-        --color-bg-scrollbar-thumb-hover: #b1b5ba;
+      /* Signal, light. Same structure and accent family on a desaturated
+         paper ground, with a darker green so the accent still carries enough
+         contrast. Deliberately not the blue-on-white it inherited. */
+      --color-bg-primary: #fbfbfa;
+      --color-bg-secondary: #f1f3f2;
+      --color-bg-tertiary: #f6f7f6;
+      --color-bg-header: #fbfbfa;
+      --color-bg-card: #ffffff;
+      --color-bg-card-hover: #f6f7f6;
+      --color-bg-input: #ffffff;
+      --color-bg-button: #067a52;
+      --color-bg-button-hover: #078c5e;
+      --color-bg-button-active: #056845;
+      --color-bg-summary: #ffffff;
+      --color-bg-prompt: #ffffff;
+      --color-bg-observation: #ffffff;
+      --color-bg-stat: #f6f7f6;
+      --color-bg-scrollbar-track: #fbfbfa;
+      --color-bg-scrollbar-thumb: #d5d9d7;
+      --color-bg-scrollbar-thumb-hover: #bfc4c2;
 
-        --color-border-primary: #d0d7de;
-        --color-border-secondary: #d8dee4;
-        --color-border-hover: #0969da;
-        --color-border-focus: #0969da;
-        --color-border-summary: #d4a72c;
-        --color-border-summary-hover: #c29d29;
-        --color-border-prompt: #8250df;
-        --color-border-prompt-hover: #6e40c9;
-        --color-border-observation: #0969da;
-        --color-border-observation-hover: #0550ae;
+      --color-border-primary: #e0e2e1;
+      --color-border-secondary: #e8eae9;
+      --color-border-hover: #c8ccca;
+      --color-border-focus: #067a52;
+      --color-border-summary: #a16207;
+      --color-border-summary-hover: #8a5306;
+      --color-border-prompt: #6d28d9;
+      --color-border-prompt-hover: #5b21b6;
+      --color-border-observation: #067a52;
+      --color-border-observation-hover: #056845;
 
-        --color-text-primary: #24292f;
-        --color-text-secondary: #57606a;
-        --color-text-tertiary: #6e7781;
-        --color-text-muted: #8b949e;
-        --color-text-header: #24292f;
-        --color-text-title: #24292f;
-        --color-text-subtitle: #57606a;
-        --color-text-button: #ffffff;
-        --color-text-summary: #8a6116;
-        --color-text-observation: #24292f;
-        --color-text-logo: #24292f;
+      --color-text-primary: #14171a;
+      --color-text-secondary: #4a5157;
+      --color-text-tertiary: #6b7278;
+      --color-text-muted: #868d92;
+      --color-text-header: #14171a;
+      --color-text-title: #14171a;
+      --color-text-subtitle: #4a5157;
+      --color-text-button: #ffffff;
+      --color-text-summary: #a16207;
+      --color-text-observation: #14171a;
+      --color-text-logo: #14171a;
 
-        --color-accent-primary: #0969da;
-        --color-accent-focus: #0969da;
-        --color-accent-success: #1a7f37;
-        --color-accent-error: #d1242f;
-        --color-accent-summary: #9a6700;
-        --color-accent-prompt: #8250df;
-        --color-accent-observation: #0550ae;
+      --color-accent-primary: #067a52;
+      --color-accent-focus: #067a52;
+      --color-accent-success: #067a52;
+      --color-accent-error: #c62828;
+      --color-accent-summary: #a16207;
+      --color-accent-prompt: #6d28d9;
+      --color-accent-observation: #067a52;
 
-        --color-type-badge-bg: rgba(9, 105, 218, 0.12);
-        --color-type-badge-text: #0969da;
-        --color-summary-badge-bg: rgba(154, 103, 0, 0.12);
-        --color-summary-badge-text: #9a6700;
-        --color-prompt-badge-bg: rgba(130, 80, 223, 0.12);
-        --color-prompt-badge-text: #8250df;
-        --color-observation-badge-bg: rgba(9, 105, 218, 0.12);
-        --color-observation-badge-text: #0550ae;
+      --color-type-badge-bg: transparent;
+      --color-type-badge-text: #067a52;
+      --color-summary-badge-bg: transparent;
+      --color-summary-badge-text: #a16207;
+      --color-prompt-badge-bg: transparent;
+      --color-prompt-badge-text: #6d28d9;
+      --color-observation-badge-bg: transparent;
+      --color-observation-badge-text: #067a52;
 
-        --color-skeleton-base: #d0d7de;
-        --color-skeleton-highlight: #e8ecef;
+      --color-skeleton-base: #e0e2e1;
+      --color-skeleton-highlight: #eef0ef;
 
-        --shadow-focus: 0 0 0 2px rgba(9, 105, 218, 0.3);
+      --shadow-focus: 0 0 0 2px rgba(6, 122, 82, 0.28);
 
-        /* Font families */
-        --font-terminal: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+      --font-ui: 'Inter Tight', 'Inter', 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+      --font-mono: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace;
+      --font-terminal: var(--font-mono);
       }
     }
 
     @media (prefers-color-scheme: dark) {
       :root:not([data-theme]) {
-        --color-bg-primary: #1e1e1e;
-        --color-bg-secondary: #2d2d2d;
-        --color-bg-tertiary: #252526;
-        --color-bg-header: #252526;
-        --color-bg-card: #2d2d2d;
-        --color-bg-card-hover: #333333;
-        --color-bg-input: #2d2d2d;
-        --color-bg-button: #0969da;
-        --color-bg-button-hover: #1177e6;
-        --color-bg-button-active: #0860ca;
-        --color-bg-summary: #3d2f00;
-        --color-bg-prompt: #2d1b4e;
-        --color-bg-observation: #1a2332;
-        --color-bg-stat: #2d2d2d;
-        --color-bg-scrollbar-track: #1e1e1e;
-        --color-bg-scrollbar-thumb: #424242;
-        --color-bg-scrollbar-thumb-hover: #4e4e4e;
+      /* Signal — keepmind's own identity. Dark is the default: this is a live
+         surface for a background service, not a document reader. One accent
+         carries every "live" signal, and observation type is a coloured edge
+         rather than a pastel wash, so a dense feed stays scannable. */
+      --color-bg-primary: #0e1012;
+      --color-bg-secondary: #16191c;
+      --color-bg-tertiary: #131619;
+      --color-bg-header: #0e1012;
+      --color-bg-card: #16191c;
+      --color-bg-card-hover: #1b1f23;
+      --color-bg-input: #131619;
+      --color-bg-button: #3ddc97;
+      --color-bg-button-hover: #55e6a8;
+      --color-bg-button-active: #2fc384;
+      /* Every card shares one panel colour; the left edge carries the type. */
+      --color-bg-summary: #16191c;
+      --color-bg-prompt: #16191c;
+      --color-bg-observation: #16191c;
+      --color-bg-stat: #131619;
+      --color-bg-scrollbar-track: #0e1012;
+      --color-bg-scrollbar-thumb: #262b30;
+      --color-bg-scrollbar-thumb-hover: #333940;
 
-        --color-border-primary: #404040;
-        --color-border-secondary: #404040;
-        --color-border-hover: #505050;
-        --color-border-focus: #58a6ff;
-        --color-border-summary: #9e6a03;
-        --color-border-summary-hover: #ae7a13;
-        --color-border-prompt: #6e40c9;
-        --color-border-prompt-hover: #8e6cdb;
-        --color-border-observation: #527aa0;
-        --color-border-observation-hover: #6a8eb8;
+      --color-border-primary: #23282d;
+      --color-border-secondary: #1d2126;
+      --color-border-hover: #333940;
+      --color-border-focus: #3ddc97;
+      --color-border-summary: #f0b429;
+      --color-border-summary-hover: #ffc94d;
+      --color-border-prompt: #a78bfa;
+      --color-border-prompt-hover: #bda5ff;
+      --color-border-observation: #3ddc97;
+      --color-border-observation-hover: #55e6a8;
 
-        --color-text-primary: #cccccc;
-        --color-text-secondary: #a0a0a0;
-        --color-text-tertiary: #6e7681;
-        --color-text-muted: #8b949e;
-        --color-text-header: #e0e0e0;
-        --color-text-title: #e0e0e0;
-        --color-text-subtitle: #a0a0a0;
-        --color-text-button: #ffffff;
-        --color-text-summary: #f2cc60;
-        --color-text-observation: #a8b8c8;
-        --color-text-logo: #dadada;
+      --color-text-primary: #e6e8ea;
+      --color-text-secondary: #a8b0b6;
+      --color-text-tertiary: #7c858c;
+      --color-text-muted: #626a70;
+      --color-text-header: #f2f4f5;
+      --color-text-title: #f2f4f5;
+      --color-text-subtitle: #a8b0b6;
+      /* Buttons are filled with the accent, so their label has to go dark. */
+      --color-text-button: #08120e;
+      --color-text-summary: #f0b429;
+      --color-text-observation: #e6e8ea;
+      --color-text-logo: #f2f4f5;
 
-        --color-accent-primary: #58a6ff;
-        --color-accent-focus: #58a6ff;
-        --color-accent-success: #16c60c;
-        --color-accent-error: #e74856;
-        --color-accent-summary: #f2cc60;
-        --color-accent-prompt: #8e6cdb;
-        --color-accent-observation: #79b8ff;
+      --color-accent-primary: #3ddc97;
+      --color-accent-focus: #3ddc97;
+      --color-accent-success: #3ddc97;
+      --color-accent-error: #ff5c5c;
+      --color-accent-summary: #f0b429;
+      --color-accent-prompt: #a78bfa;
+      --color-accent-observation: #3ddc97;
 
-        --color-type-badge-bg: rgba(88, 166, 255, 0.125);
-        --color-type-badge-text: #58a6ff;
-        --color-summary-badge-bg: rgba(242, 204, 96, 0.125);
-        --color-summary-badge-text: #f2cc60;
-        --color-prompt-badge-bg: rgba(110, 64, 201, 0.125);
-        --color-prompt-badge-text: #8e6cdb;
-        --color-observation-badge-bg: rgba(121, 184, 255, 0.15);
-        --color-observation-badge-text: #79b8ff;
+      --color-type-badge-bg: transparent;
+      --color-type-badge-text: #3ddc97;
+      --color-summary-badge-bg: transparent;
+      --color-summary-badge-text: #f0b429;
+      --color-prompt-badge-bg: transparent;
+      --color-prompt-badge-text: #a78bfa;
+      --color-observation-badge-bg: transparent;
+      --color-observation-badge-text: #3ddc97;
 
-        --color-skeleton-base: #404040;
-        --color-skeleton-highlight: #505050;
+      --color-skeleton-base: #1d2126;
+      --color-skeleton-highlight: #262b30;
 
-        --shadow-focus: 0 0 0 2px rgba(88, 166, 255, 0.2);
+      --shadow-focus: 0 0 0 2px rgba(61, 220, 151, 0.35);
 
-        /* Font families */
-        --font-terminal: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+      --font-ui: 'Inter Tight', 'Inter', 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+      --font-mono: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace;
+      --font-terminal: var(--font-mono);
       }
     }
 
@@ -302,7 +315,7 @@
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+      font-family: var(--font-ui);
       background: var(--color-bg-primary);
       color: var(--color-text-primary);
       font-size: 14px;
@@ -428,7 +441,7 @@
       margin-bottom: 8px;
       font-size: 12px;
       color: var(--color-text-muted);
-      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+      font-family: var(--font-mono);
       font-weight: 500;
     }
 
@@ -515,7 +528,7 @@
       color: var(--color-text-button);
       font-size: 10px;
       font-weight: 600;
-      font-family: 'Monaspace Radon', monospace;
+      font-family: var(--font-mono);
       height: 18px;
       border-radius: 9px;
       display: flex;
@@ -537,7 +550,7 @@
     }
 
     .logo-text {
-      font-family: 'Monaspace Radon', monospace;
+      font-family: var(--font-mono);
       font-weight: 100;
       font-size: 21px;
       letter-spacing: -0.03em;
@@ -854,7 +867,7 @@
       margin-bottom: 14px;
       font-size: 12px;
       color: var(--color-text-muted);
-      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+      font-family: var(--font-mono);
     }
 
     .card-header-left {
@@ -876,7 +889,7 @@
       margin-bottom: 14px;
       font-size: 12px;
       color: var(--color-text-muted);
-      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+      font-family: var(--font-mono);
     }
 
     .card-type {
@@ -962,7 +975,7 @@
       font-size: 11px;
       font-weight: 500;
       text-transform: lowercase;
-      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+      font-family: var(--font-mono);
     }
 
     .view-mode-toggle svg {
@@ -1052,7 +1065,7 @@
       font-size: 11px;
       color: var(--color-text-tertiary);
       margin-top: 18px;
-      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+      font-family: var(--font-mono);
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
@@ -1138,7 +1151,7 @@
     }
 
     .summary-badge {
-      font-family: 'Monaspace Radon', 'Monaco', 'Menlo', monospace;
+      font-family: var(--font-mono);
       font-weight: 600;
       font-size: 10px;
       text-transform: uppercase;
@@ -1147,7 +1160,7 @@
     }
 
     .summary-project-badge {
-      font-family: 'Monaspace Radon', 'Monaco', 'Menlo', monospace;
+      font-family: var(--font-mono);
       font-size: 11px;
       color: var(--color-text-muted);
       font-weight: 400;
@@ -1168,7 +1181,7 @@
       color: var(--color-text-summary);
       letter-spacing: -0.02em;
       margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-family: var(--font-ui);
     }
 
     .summary-sections {
@@ -1233,7 +1246,7 @@
       color: var(--color-accent-summary);
       text-transform: uppercase;
       margin: 0;
-      font-family: 'Monaspace Radon', 'Monaco', 'Menlo', monospace;
+      font-family: var(--font-mono);
     }
 
     .summary-section-content {
@@ -1243,7 +1256,7 @@
       line-height: 1.6;
       white-space: pre-wrap;
       word-wrap: break-word;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-family: var(--font-ui);
     }
 
     .summary-card-footer {
@@ -1252,7 +1265,7 @@
       gap: 8px;
       padding-top: 16px;
       border-top: 1px solid var(--color-border-primary);
-      font-family: 'Monaspace Radon', 'Monaco', 'Menlo', monospace;
+      font-family: var(--font-mono);
       font-size: 11px;
       color: var(--color-text-tertiary);
     }
@@ -1309,7 +1322,7 @@
       margin-bottom: 6px;
       font-size: 12px;
       color: var(--color-text-muted);
-      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+      font-family: var(--font-mono);
     }
 
     .setting-description {
@@ -1344,7 +1357,7 @@
       font-size: 18px;
       color: var(--color-text-header);
       font-weight: 600;
-      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+      font-family: var(--font-mono);
     }
 
     .stats-scroll {
@@ -2105,13 +2118,13 @@
     }
 
     .modal-footer .save-status .error {
-      color: var(--error-color, #ef4444);
+      color: var(--color-accent-error);
     }
 
     .modal-footer .save-btn {
       padding: 8px 24px;
-      background: var(--accent-color, #3b82f6);
-      color: white;
+      background: var(--color-accent-primary);
+      color: var(--color-text-button);
       border: none;
       border-radius: 6px;
       font-size: 14px;
@@ -2121,7 +2134,7 @@
     }
 
     .modal-footer .save-btn:hover:not(:disabled) {
-      background: var(--accent-hover, #2563eb);
+      background: var(--color-bg-button-hover);
     }
 
     .modal-footer .save-btn:disabled {
@@ -2185,7 +2198,7 @@
       flex: 1;
       overflow-y: auto;
       padding: 20px;
-      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+      font-family: var(--font-mono);
       font-size: 13px;
       line-height: 1.6;
       color: #ccc;
@@ -3136,152 +3149,123 @@
     }
 
     /* ─────────────────────────────────────────────────────────────
-       keepmind clean/minimal refresh (2026-07)
-       Neutral grayscale surfaces + a single indigo accent. Appended last
-       so these token values win over the original warm-sand palette via
-       source order (equal specificity). Variable names are unchanged, so
-       every component keeps resolving the same custom properties.
+       Signal — structure (2026-07)
+       The palette lives in the token blocks at the top of this file. What
+       follows is the shape that palette is meant to carry: dense rows, type
+       expressed as a coloured left edge instead of a tinted card, and
+       tabular figures so ids, times and counts line up column-wise down a
+       scrolling feed.
        ───────────────────────────────────────────────────────────── */
-    :root,
-    [data-theme="light"] {
-      --color-bg-primary: #ffffff;
-      --color-bg-secondary: #f7f8fa;
-      --color-bg-tertiary: #eef0f3;
-      --color-bg-header: #ffffff;
-      --color-bg-card: #ffffff;
-      --color-bg-card-hover: #f7f8fa;
-      --color-bg-input: #ffffff;
-      --color-bg-button: #2563eb;
-      --color-bg-button-hover: #1d4ed8;
-      --color-bg-button-active: #1e40af;
-      --color-bg-summary: #fbfaf6;
-      --color-bg-prompt: #faf9fd;
-      --color-bg-observation: #f6f9fe;
-      --color-bg-stat: #f7f8fa;
-      --color-bg-scrollbar-track: #ffffff;
-      --color-bg-scrollbar-thumb: #d6d9de;
-      --color-bg-scrollbar-thumb-hover: #b8bcc4;
 
-      --color-border-primary: #e6e8ec;
-      --color-border-secondary: #eceef1;
-      --color-border-hover: #cdd1d8;
-      --color-border-focus: #2563eb;
-      --color-border-summary: #e4dcc6;
-      --color-border-summary-hover: #d5cab0;
-      --color-border-prompt: #e2daf3;
-      --color-border-prompt-hover: #d0c2f1;
-      --color-border-observation: #d5e1f7;
-      --color-border-observation-hover: #b8cdf2;
-
-      --color-text-primary: #1a1d21;
-      --color-text-secondary: #565a63;
-      --color-text-tertiary: #767b85;
-      --color-text-muted: #9aa0a9;
-      --color-text-header: #1a1d21;
-      --color-text-title: #1a1d21;
-      --color-text-subtitle: #565a63;
-      --color-text-button: #ffffff;
-      --color-text-summary: #8a6d2e;
-      --color-text-observation: #1a1d21;
-      --color-text-logo: #1a1d21;
-
-      --color-accent-primary: #2563eb;
-      --color-accent-focus: #2563eb;
-      --color-accent-success: #16a34a;
-      --color-accent-error: #dc2626;
-      --color-accent-summary: #9a7b2e;
-      --color-accent-prompt: #7c3aed;
-      --color-accent-observation: #2563eb;
-
-      --color-type-badge-bg: rgba(37, 99, 235, 0.10);
-      --color-type-badge-text: #2563eb;
-      --color-summary-badge-bg: rgba(154, 123, 46, 0.10);
-      --color-summary-badge-text: #9a7b2e;
-      --color-prompt-badge-bg: rgba(124, 58, 237, 0.10);
-      --color-prompt-badge-text: #7c3aed;
-      --color-observation-badge-bg: rgba(37, 99, 235, 0.10);
-      --color-observation-badge-text: #2563eb;
-
-      --color-skeleton-base: #e6e8ec;
-      --color-skeleton-highlight: #f1f3f5;
-
-      --shadow-focus: 0 0 0 3px rgba(37, 99, 235, 0.20);
-    }
-
-    [data-theme="dark"] {
-      --color-bg-primary: #0f1113;
-      --color-bg-secondary: #16181b;
-      --color-bg-tertiary: #1b1e22;
-      --color-bg-header: #101214;
-      --color-bg-card: #17191c;
-      --color-bg-card-hover: #1d2024;
-      --color-bg-input: #17191c;
-      --color-bg-button: #3b82f6;
-      --color-bg-button-hover: #2f6fe0;
-      --color-bg-button-active: #2560c4;
-      --color-bg-summary: #1a1916;
-      --color-bg-prompt: #17161d;
-      --color-bg-observation: #12161d;
-      --color-bg-stat: #17191c;
-      --color-bg-scrollbar-track: #0f1113;
-      --color-bg-scrollbar-thumb: #2a2e34;
-      --color-bg-scrollbar-thumb-hover: #3a3f47;
-
-      --color-border-primary: #262a30;
-      --color-border-secondary: #22262b;
-      --color-border-hover: #363b43;
-      --color-border-focus: #3b82f6;
-      --color-border-summary: #4a4126;
-      --color-border-summary-hover: #5a5030;
-      --color-border-prompt: #383152;
-      --color-border-prompt-hover: #473e66;
-      --color-border-observation: #2a3a52;
-      --color-border-observation-hover: #37496a;
-
-      --color-text-primary: #e7e9ec;
-      --color-text-secondary: #a6abb3;
-      --color-text-tertiary: #7c828c;
-      --color-text-muted: #656b74;
-      --color-text-header: #f0f2f4;
-      --color-text-title: #f0f2f4;
-      --color-text-subtitle: #a6abb3;
-      --color-text-button: #ffffff;
-      --color-text-summary: #d3b874;
-      --color-text-observation: #c3ccd6;
-      --color-text-logo: #f0f2f4;
-
-      --color-accent-primary: #3b82f6;
-      --color-accent-focus: #3b82f6;
-      --color-accent-success: #22c55e;
-      --color-accent-error: #f05252;
-      --color-accent-summary: #d3b874;
-      --color-accent-prompt: #a78bfa;
-      --color-accent-observation: #60a5fa;
-
-      --color-type-badge-bg: rgba(59, 130, 246, 0.14);
-      --color-type-badge-text: #60a5fa;
-      --color-summary-badge-bg: rgba(211, 184, 116, 0.14);
-      --color-summary-badge-text: #d3b874;
-      --color-prompt-badge-bg: rgba(167, 139, 250, 0.14);
-      --color-prompt-badge-text: #a78bfa;
-      --color-observation-badge-bg: rgba(96, 165, 250, 0.14);
-      --color-observation-badge-text: #60a5fa;
-
-      --color-skeleton-base: #262a30;
-      --color-skeleton-highlight: #33383f;
-
-      --shadow-focus: 0 0 0 3px rgba(59, 130, 246, 0.22);
-    }
-
-    /* Flatter, calmer chrome for the minimal look. */
+    /* Flat chrome: no gradient, no blur, one hairline. */
     .header {
       background: var(--color-bg-header);
       backdrop-filter: none;
       box-shadow: none;
+      padding: 12px 20px;
     }
 
+    .logo-text {
+      font-family: var(--font-ui);
+      font-weight: 600;
+      font-size: 15px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    /* Cards are panels with a type-coloured edge, not tinted boxes. Tight
+       enough that a long feed stays readable without scrolling past padding. */
     .card {
-      border-radius: 10px;
+      border-radius: 3px;
+      border-left: 2px solid var(--color-border-primary);
+      padding: 14px 16px;
+      margin-bottom: 10px;
+      line-height: 1.6;
+    }
+
+    .observation-card {
+      border-left-color: var(--color-accent-observation);
+    }
+
+    .prompt-card {
+      border-left-color: var(--color-accent-prompt);
+    }
+
+    .summary-card {
+      border-left-color: var(--color-accent-summary);
+    }
+
+    /* The type badge is a micro-label, not a pill — the edge already carries
+       the colour, so a filled chip would state it twice. */
+    .card-type {
+      padding: 0;
+      background: none;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+    }
+
+    .card-title {
+      font-size: 15px;
+      margin-bottom: 8px;
+      letter-spacing: -0.011em;
+    }
+
+    /* Figures align down the column: ids, times, counts, token totals. */
+    .card-header,
+    .card-subheading,
+    .card-meta,
+    .stat-value,
+    .summary-card-footer,
+    .queue-bubble {
+      font-variant-numeric: tabular-nums;
+    }
+
+    .card-header {
+      margin-bottom: 8px;
+      font-size: 11px;
+    }
+
+    .card-meta {
+      margin-top: 12px;
+    }
+
+    .stat {
+      border-radius: 3px;
+    }
+
+    .stat-value {
+      font-family: var(--font-mono);
+    }
+
+    /* Controls: square-ish, hairline, no lift-on-hover. */
+    .settings-btn,
+    .theme-toggle-btn,
+    .icon-link,
+    .status select {
+      border-radius: 3px;
+      box-shadow: none;
+    }
+
+    .settings-btn:hover,
+    .theme-toggle-btn:hover,
+    .icon-link:hover,
+    .status select:hover {
+      transform: none;
+      box-shadow: none;
+    }
+
+    .settings-btn.active {
+      background: var(--color-accent-primary);
+      border-color: var(--color-accent-primary);
+      color: var(--color-text-button);
+      box-shadow: none;
+    }
+
+    .summary-badge,
+    .summary-project-badge {
+      border-radius: 2px;
     }
 
     /* Removed upstream community/social chrome — hide any lingering nodes. */
