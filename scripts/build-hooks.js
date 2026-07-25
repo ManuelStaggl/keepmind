@@ -95,7 +95,12 @@ function shellTemplateManifest(buildShellCommand) {
           trailingCommand: ['node', '"$_P/scripts/version-check.js"'],
           notFoundMessage: 'keepmind: version-check.js not found',
         }),
-        'SessionStart.0.0': claudeHook(['start'], { trailingJson: { continue: true, suppressOutput: true } }),
+        // No trailingJson: `worker-service start` already prints its own status
+        // JSON via exitWithStatus/buildStatusOutput. Appending a second object
+        // made stdout two concatenated JSON objects = invalid JSON, so Claude
+        // Code could not parse it, ignored suppressOutput, and rendered the raw
+        // text at the top of every session (upstream b1984920).
+        'SessionStart.0.0': claudeHook(['start']),
         'SessionStart.0.1': claudeHook(['hook', 'claude-code', 'context']),
         'SessionStart.0.2': claudeHook(['hook', 'claude-code', 'session-acquire']),
         'UserPromptSubmit.0.0': claudeHook(['hook', 'claude-code', 'session-init']),
