@@ -18,6 +18,7 @@ import { join } from 'path';
 import { mkdirSync } from 'fs';
 import { Database } from '../../storage/db.js';
 import { VECTOR_DB_DIR } from '../../shared/paths.js';
+import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_JOURNAL_SIZE_LIMIT_BYTES } from '../sqlite/pragmas.js';
 import { EmbedderService, EMBED_DIM } from './EmbedderService.js';
 import { logger } from '../../utils/logger.js';
 
@@ -101,6 +102,11 @@ export class SqliteVecManager {
     mkdirSync(VECTOR_DB_DIR, { recursive: true });
     const dbPath = join(VECTOR_DB_DIR, 'vectors.db');
     const db = new Database(dbPath);
+    // The main DB caps its WAL at 4 MB; the vec DB had no cap, so its WAL grew to
+    // the size of the store itself and stayed there. busy_timeout keeps a locked
+    // read from failing outright during a concurrent embed batch.
+    db.run(`PRAGMA journal_size_limit = ${SQLITE_JOURNAL_SIZE_LIMIT_BYTES}`);
+    db.run(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
     db.loadExtension(loadSqliteVecModule().getLoadablePath());
     const { vec_version } = db.prepare('select vec_version() as vec_version').get() as { vec_version: string };
     this.vecVersion = vec_version;
@@ -131,11 +137,12 @@ export class SqliteVecManager {
    */
   maintain(opts: { vacuum: boolean }): void {
     if (!this.db) return;
-    try {
-      this.db.run('PRAGMA wal_checkpoint(TRUNCATE)');
-    } catch (error) {
-      logger.debug('VEC', 'vectors.db wal_checkpoint failed', {}, error as Error);
-    }
+    // VACUUM in WAL mode rewrites the ENTIRE database through the WAL, so a
+    // checkpoint BEFORE the vacuum leaves a WAL the full size of the DB behind
+    // (observed: 136 MB WAL next to a 135 MB vectors.db — double the disk for
+    // the same data). Checkpoint AFTER, and verify it actually truncated:
+    // wal_checkpoint(TRUNCATE) returns busy=1 instead of throwing when a reader
+    // holds the DB, so a silent failure looked like success.
     if (opts.vacuum) {
       try {
         this.db.run('VACUUM');
@@ -143,6 +150,24 @@ export class SqliteVecManager {
       } catch (error) {
         logger.debug('VEC', 'vectors.db VACUUM failed', {}, error as Error);
       }
+    }
+    this.checkpointWal();
+  }
+
+  /** TRUNCATE-checkpoint the vec WAL, logging when SQLite reports it was blocked. */
+  private checkpointWal(): void {
+    if (!this.db) return;
+    try {
+      const row = this.db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as
+        | { busy?: number; log?: number; checkpointed?: number }
+        | undefined;
+      if (row && Number(row.busy) === 1) {
+        logger.debug('VEC', 'vectors.db wal_checkpoint blocked by an open reader; WAL not truncated', {
+          walPages: row.log ?? null,
+        });
+      }
+    } catch (error) {
+      logger.debug('VEC', 'vectors.db wal_checkpoint failed', {}, error as Error);
     }
   }
 
