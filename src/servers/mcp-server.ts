@@ -537,7 +537,11 @@ async function ensureWorkerConnection(): Promise<boolean> {
 
 const tools = [
   {
-    name: '__IMPORTANT',
+    // Renamed from __IMPORTANT: some MCP clients reject tool names starting with
+    // an underscore and abort parsing the whole server, taking search/timeline/
+    // get_observations down with it. Leading __ also collides with the
+    // mcp__<server>__<tool> namespacing hosts apply (upstream c7d72411).
+    name: 'important_workflow',
     description: `3-LAYER WORKFLOW (ALWAYS FOLLOW):
 1. search(query) → Get index with IDs (~50-100 tokens/result)
 2. timeline(anchor=ID) → Get context around interesting results
