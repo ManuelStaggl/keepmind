@@ -33,9 +33,12 @@ export const MEMORY_QUALITY_DEFAULTS: MemoryQualityConfig = {
   importance: { enabled: true, halfLifeDays: 14, llmRefine: false },
   // tokenBudget is charged against the RENDERED headline size (see budget.ts), not
   // the full stored record. 4000 was set when it was charged against stored size,
-  // where it admitted only ~11 rows; against rendered size ~1500 comfortably fits
-  // the 50-row cap (CLAUDE_MEM_CONTEXT_OBSERVATIONS) and is a real ceiling again.
-  injection: { tokenBudget: 1500, candidateMultiplier: 3 },
+  // where it admitted only ~11 of 439 candidates. Measured against rendered size:
+  // 1500 admits the full 50-row cap at ~1.8k real tokens, 1000 admits ~30 rows at
+  // ~1.2k. 1000 is the better trade — rows are ranked by importance x recency, so
+  // the tail is the least useful part, and this is a fixed cost on every session
+  // start. Still ~3x the coverage of the old accounting for ~30% more tokens.
+  injection: { tokenBudget: 1000, candidateMultiplier: 3 },
   reconcile: {
     enabled: false, noopThreshold: 0.92, updateBand: 0.75,
     llmAdjudicate: false, allowHardDelete: false,

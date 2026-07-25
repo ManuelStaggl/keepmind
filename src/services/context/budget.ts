@@ -33,8 +33,13 @@ export function estimateTokens(obs: Observation): number {
   return estimateRenderedTokens(obs);
 }
 
-/** Fixed per-line overhead of the rendered headline: id, time, icon, separators. */
-const RENDERED_LINE_OVERHEAD_CHARS = 20;
+/**
+ * Fixed per-line overhead of the rendered headline: id, time, type icon,
+ * separators, newline. Deliberately generous — the type icon is an emoji, which
+ * costs several tokens despite being one visible glyph, so a char-count estimate
+ * would understate the line.
+ */
+const RENDERED_LINE_OVERHEAD_CHARS = 28;
 
 function estimateRenderedTokens(obs: Observation): number {
   const titleChars = (obs.title?.length ?? 'Untitled'.length) + RENDERED_LINE_OVERHEAD_CHARS;
