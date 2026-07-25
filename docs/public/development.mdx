@@ -1,6 +1,6 @@
 ---
 title: "Development"
-description: "Build from source, run tests, and contribute to Claude-Mem"
+description: "Build from source, run tests, and contribute to keepmind"
 ---
 
 # Development Guide
@@ -17,8 +17,8 @@ description: "Build from source, run tests, and contribute to Claude-Mem"
 
 ```bash
 # Clone repository
-git clone https://github.com/thedotmack/claude-mem.git
-cd claude-mem
+git clone https://github.com/ManuelStaggl/keepmind.git
+cd keepmind
 
 # Install dependencies
 npm install
@@ -373,7 +373,7 @@ npm test
 
 ### Testing Philosophy
 
-Claude-mem relies on **real-world usage and manual testing** rather than traditional unit tests. The project philosophy prioritizes:
+keepmind relies on **real-world usage and manual testing** rather than traditional unit tests. The project philosophy prioritizes:
 
 1. **Manual verification** - Testing features in actual Claude Code sessions
 2. **Integration testing** - Running the full system end-to-end
@@ -559,7 +559,7 @@ export async function createObservation(
 ### Enable Debug Logging
 
 ```bash
-export DEBUG=claude-mem:*
+export DEBUG=keepmind:*
 npm run worker:restart
 npm run worker:logs
 ```
@@ -771,5 +771,5 @@ rm -rf plugin/scripts/*.js plugin/scripts/*.cjs
 ## Next Steps
 
 - [Architecture Overview](architecture/overview) - Understand the system
-- [Configuration](configuration) - Customize Claude-Mem
+- [Configuration](configuration) - Customize keepmind
 - [Troubleshooting](troubleshooting) - Common issues

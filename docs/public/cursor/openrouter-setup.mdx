@@ -1,11 +1,11 @@
 ---
 title: "Cursor + OpenRouter Setup"
-description: "Use Claude-Mem in Cursor with OpenRouter's 100+ AI models"
+description: "Use keepmind in Cursor with OpenRouter's 100+ AI models"
 ---
 
 # Cursor + OpenRouter Setup
 
-This guide walks you through setting up Claude-Mem in Cursor using OpenRouter. OpenRouter provides access to 100+ AI models from various providers, including several free options.
+This guide walks you through setting up keepmind in Cursor using OpenRouter. OpenRouter provides access to 100+ AI models from various providers, including several free options.
 
 <Info>
 **Model variety:** Access Claude, GPT-4, Gemini, Llama, Mistral, and many more through a single API key.
@@ -23,12 +23,12 @@ This guide walks you through setting up Claude-Mem in Cursor using OpenRouter. O
 **Free models available:** OpenRouter offers free versions of several models including Gemini Flash and others. Check the [model list](https://openrouter.ai/models?show_free=true) for current free options.
 </Tip>
 
-## Step 2: Clone and Build Claude-Mem
+## Step 2: Clone and Build keepmind
 
 ```bash
 # Clone the repository
-git clone https://github.com/thedotmack/claude-mem.git
-cd claude-mem
+git clone https://github.com/ManuelStaggl/keepmind.git
+cd keepmind
 
 # Install dependencies
 bun install
@@ -123,7 +123,7 @@ To specify a model, add to your settings:
 The OpenRouter provider is a generic OpenAI-compatible client. Set `KEEPMIND_OPENROUTER_BASE_URL` to point it at any endpoint that speaks the OpenAI `/chat/completions` API — DeepSeek, a local LM Studio server, or any custom gateway. The model id you set in `KEEPMIND_OPENROUTER_MODEL` is sent verbatim.
 
 <Info>
-**Base URL resolution:** When `KEEPMIND_OPENROUTER_BASE_URL` is empty (default), requests go to OpenRouter unchanged. When set, claude-mem POSTs to `<base_url>/chat/completions` — you can supply either a base like `https://api.deepseek.com/v1` (the `/chat/completions` path is appended automatically) or a full `.../chat/completions` URL (used verbatim). Trailing slashes are normalized. The environment variable `OPENROUTER_BASE_URL` is honored as a fallback.
+**Base URL resolution:** When `KEEPMIND_OPENROUTER_BASE_URL` is empty (default), requests go to OpenRouter unchanged. When set, keepmind POSTs to `<base_url>/chat/completions` — you can supply either a base like `https://api.deepseek.com/v1` (the `/chat/completions` path is appended automatically) or a full `.../chat/completions` URL (used verbatim). Trailing slashes are normalized. The environment variable `OPENROUTER_BASE_URL` is honored as a fallback.
 </Info>
 
 ### DeepSeek

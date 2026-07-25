@@ -1,7 +1,7 @@
-# `claude-mem` SDK — Plain-Node Example
+# `keepmind` SDK — Plain-Node Example
 
 A minimal Node script that proves the headline requirement of the
-`claude-mem/sdk` package: **capture, compress, and search observations
+`keepmind/sdk` package: **capture, compress, and search observations
 in-process, with no worker process running.**
 
 The example calls, in order:
@@ -44,8 +44,8 @@ ANTHROPIC_API_KEY=sk-ant-... \
   node index.mjs
 ```
 
-That's it. **No worker or daemon required** — no `claude-mem worker start`,
-no `claude-mem server start`, no Redis, no Express. The SDK does the
+That's it. **No worker or daemon required** — no `keepmind worker start`,
+no `keepmind server start`, no Redis, no Express. The SDK does the
 compression inline and persists everything to Postgres + Chroma in one
 process.
 
@@ -81,7 +81,7 @@ the degraded-mode contract.
 
 - **Observations, events, jobs, sessions** — in the Postgres database at
   `KEEPMIND_SERVER_DATABASE_URL`. The schema is created on first run.
-- **Chroma vectors** — in `~/.claude-mem/chroma/` (or
+- **Chroma vectors** — in `~/.keepmind/chroma/` (or
   `$KEEPMIND_DATA_DIR/chroma/`).
 - **Default tenancy** — `$KEEPMIND_DATA_DIR/sdk-tenant.json`. Production
   consumers should pass explicit `teamId` and `projectId` to

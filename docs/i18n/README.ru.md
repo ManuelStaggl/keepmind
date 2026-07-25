@@ -3,12 +3,8 @@
 ---
 <h1 align="center">
   <br>
-  <a href="https://github.com/thedotmack/claude-mem">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-dark-mode.webp">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-light-mode.webp">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-light-mode.webp" alt="Claude-Mem" width="400">
-    </picture>
+  <a href="https://github.com/ManuelStaggl/keepmind">
+    keepmind
   </a>
   <br>
 </h1>
@@ -65,21 +61,15 @@
 
 <p align="center">
   <a href="https://trendshift.io/repositories/15496" target="_blank">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge-dark.svg">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg" alt="thedotmack/claude-mem | Trendshift" width="250" height="55"/>
-    </picture>
+    keepmind
   </a>
 </p>
 
 <br>
 
 <p align="center">
-  <a href="https://github.com/thedotmack/claude-mem">
-    <picture>
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/cm-preview.gif" alt="Claude-Mem Preview" width="800">
-    </picture>
+  <a href="https://github.com/ManuelStaggl/keepmind">
+    keepmind
   </a>
 </p>
 
@@ -94,7 +84,7 @@
 </p>
 
 <p align="center">
-  Claude-Mem бесшовно сохраняет контекст между сеансами, автоматически фиксируя наблюдения за использованием инструментов, генерируя семантические сводки и делая их доступными для будущих сеансов. Это позволяет Claude поддерживать непрерывность знаний о проектах даже после завершения или переподключения сеансов.
+  keepmind бесшовно сохраняет контекст между сеансами, автоматически фиксируя наблюдения за использованием инструментов, генерируя семантические сводки и делая их доступными для будущих сеансов. Это позволяет Claude поддерживать непрерывность знаний о проектах даже после завершения или переподключения сеансов.
 </p>
 
 ---
@@ -104,9 +94,9 @@
 Запустите новый сеанс Claude Code в терминале и введите следующие команды:
 
 ```
-> /plugin marketplace add thedotmack/claude-mem
+> /plugin marketplace add ManuelStaggl/keepmind
 
-> /plugin install claude-mem
+> /plugin install keepmind
 ```
 
 Перезапустите Claude Code. Контекст из предыдущих сеансов будет автоматически появляться в новых сеансах.
@@ -128,35 +118,35 @@
 
 ## Документация
 
-📚 **[Просмотреть полную документацию](https://docs.claude-mem.ai/)** - Просмотр на официальном сайте
+📚 **[Просмотреть полную документацию](https://github.com/ManuelStaggl/keepmind)** - Просмотр на официальном сайте
 
 ### Начало работы
 
-- **[Руководство по установке](https://docs.claude-mem.ai/installation)** - Быстрый старт и продвинутая установка
-- **[Руководство по использованию](https://docs.claude-mem.ai/usage/getting-started)** - Как Claude-Mem работает автоматически
-- **[Инструменты поиска](https://docs.claude-mem.ai/usage/search-tools)** - Запросы к истории проекта на естественном языке
-- **[Бета-функции](https://docs.claude-mem.ai/beta-features)** - Попробуйте экспериментальные функции, такие как режим Endless
+- **[Руководство по установке](https://github.com/ManuelStaggl/keepmind)** - Быстрый старт и продвинутая установка
+- **[Руководство по использованию](https://github.com/ManuelStaggl/keepmind)** - Как keepmind работает автоматически
+- **[Инструменты поиска](https://github.com/ManuelStaggl/keepmind)** - Запросы к истории проекта на естественном языке
+- **[Бета-функции](https://github.com/ManuelStaggl/keepmind)** - Попробуйте экспериментальные функции, такие как режим Endless
 
 ### Лучшие практики
 
-- **[Инженерия контекста](https://docs.claude-mem.ai/context-engineering)** - Принципы оптимизации контекста для AI-агентов
-- **[Прогрессивное раскрытие](https://docs.claude-mem.ai/progressive-disclosure)** - Философия стратегии подготовки контекста в Claude-Mem
+- **[Инженерия контекста](https://github.com/ManuelStaggl/keepmind)** - Принципы оптимизации контекста для AI-агентов
+- **[Прогрессивное раскрытие](https://github.com/ManuelStaggl/keepmind)** - Философия стратегии подготовки контекста в keepmind
 
 ### Архитектура
 
-- **[Обзор](https://docs.claude-mem.ai/architecture/overview)** - Компоненты системы и поток данных
-- **[Эволюция архитектуры](https://docs.claude-mem.ai/architecture-evolution)** - Путь от v3 к v5
-- **[Архитектура хуков](https://docs.claude-mem.ai/hooks-architecture)** - Как Claude-Mem использует хуки жизненного цикла
-- **[Справочник по хукам](https://docs.claude-mem.ai/architecture/hooks)** - Объяснение 7 скриптов хуков
-- **[Сервис Worker](https://docs.claude-mem.ai/architecture/worker-service)** - HTTP API и управление Bun
-- **[База данных](https://docs.claude-mem.ai/architecture/database)** - Схема SQLite и поиск FTS5
-- **[Архитектура поиска](https://docs.claude-mem.ai/architecture/search-architecture)** - Гибридный поиск с векторной базой данных Chroma
+- **[Обзор](https://github.com/ManuelStaggl/keepmind)** - Компоненты системы и поток данных
+- **[Эволюция архитектуры](https://github.com/ManuelStaggl/keepmind)** - Путь от v3 к v5
+- **[Архитектура хуков](https://github.com/ManuelStaggl/keepmind)** - Как keepmind использует хуки жизненного цикла
+- **[Справочник по хукам](https://github.com/ManuelStaggl/keepmind)** - Объяснение 7 скриптов хуков
+- **[Сервис Worker](https://github.com/ManuelStaggl/keepmind)** - HTTP API и управление Bun
+- **[База данных](https://github.com/ManuelStaggl/keepmind)** - Схема SQLite и поиск FTS5
+- **[Архитектура поиска](https://github.com/ManuelStaggl/keepmind)** - Гибридный поиск с векторной базой данных Chroma
 
 ### Конфигурация и разработка
 
-- **[Конфигурация](https://docs.claude-mem.ai/configuration)** - Переменные окружения и настройки
-- **[Разработка](https://docs.claude-mem.ai/development)** - Сборка, тестирование, участие в разработке
-- **[Устранение неполадок](https://docs.claude-mem.ai/troubleshooting)** - Распространенные проблемы и решения
+- **[Конфигурация](https://github.com/ManuelStaggl/keepmind)** - Переменные окружения и настройки
+- **[Разработка](https://github.com/ManuelStaggl/keepmind)** - Сборка, тестирование, участие в разработке
+- **[Устранение неполадок](https://github.com/ManuelStaggl/keepmind)** - Распространенные проблемы и решения
 
 ---
 
@@ -171,13 +161,13 @@
 5. **Навык mem-search** - Запросы на естественном языке с прогрессивным раскрытием
 6. **Векторная база данных Chroma** - Гибридный семантический + ключевой поиск для интеллектуального извлечения контекста
 
-Подробности см. в [Обзоре архитектуры](https://docs.claude-mem.ai/architecture/overview).
+Подробности см. в [Обзоре архитектуры](https://github.com/ManuelStaggl/keepmind).
 
 ---
 
 ## Навык mem-search
 
-Claude-Mem предоставляет интеллектуальный поиск через навык mem-search, который автоматически вызывается, когда вы спрашиваете о прошлой работе:
+keepmind предоставляет интеллектуальный поиск через навык mem-search, который автоматически вызывается, когда вы спрашиваете о прошлой работе:
 
 **Как это работает:**
 - Просто спросите естественно: *"Что мы делали в прошлом сеансе?"* или *"Мы исправляли этот баг раньше?"*
@@ -206,15 +196,15 @@ Claude-Mem предоставляет интеллектуальный поис�
 "Что происходило, когда мы добавляли интерфейс просмотра?"
 ```
 
-Подробные примеры см. в [Руководстве по инструментам поиска](https://docs.claude-mem.ai/usage/search-tools).
+Подробные примеры см. в [Руководстве по инструментам поиска](https://github.com/ManuelStaggl/keepmind).
 
 ---
 
 ## Бета-функции
 
-Claude-Mem предлагает **бета-канал** с экспериментальными функциями, такими как **режим Endless** (биомиметическая архитектура памяти для расширенных сеансов). Переключайтесь между стабильной и бета-версиями из веб-интерфейса на http://localhost:37777 → Settings.
+keepmind предлагает **бета-канал** с экспериментальными функциями, такими как **режим Endless** (биомиметическая архитектура памяти для расширенных сеансов). Переключайтесь между стабильной и бета-версиями из веб-интерфейса на http://localhost:37777 → Settings.
 
-Подробности о режиме Endless и способах его опробовать см. в **[Документации по бета-функциям](https://docs.claude-mem.ai/beta-features)**.
+Подробности о режиме Endless и способах его опробовать см. в **[Документации по бета-функциям](https://github.com/ManuelStaggl/keepmind)**.
 
 ---
 
@@ -230,15 +220,15 @@ Claude-Mem предлагает **бета-канал** с эксперимен�
 
 ## Конфигурация
 
-Настройки управляются в `~/.claude-mem/settings.json` (автоматически создается с настройками по умолчанию при первом запуске). Настройте AI-модель, порт worker, директорию данных, уровень логирования и параметры внедрения контекста.
+Настройки управляются в `~/.keepmind/settings.json` (автоматически создается с настройками по умолчанию при первом запуске). Настройте AI-модель, порт worker, директорию данных, уровень логирования и параметры внедрения контекста.
 
-Все доступные настройки и примеры см. в **[Руководстве по конфигурации](https://docs.claude-mem.ai/configuration)**.
+Все доступные настройки и примеры см. в **[Руководстве по конфигурации](https://github.com/ManuelStaggl/keepmind)**.
 
 ---
 
 ## Разработка
 
-Инструкции по сборке, тестированию и процессу участия в разработке см. в **[Руководстве по разработке](https://docs.claude-mem.ai/development)**.
+Инструкции по сборке, тестированию и процессу участия в разработке см. в **[Руководстве по разработке](https://github.com/ManuelStaggl/keepmind)**.
 
 ---
 
@@ -246,7 +236,7 @@ Claude-Mem предлагает **бета-канал** с эксперимен�
 
 При возникновении проблем опишите проблему Claude, и навык устранения неполадок автоматически выполнит диагностику и предоставит исправления.
 
-Распространенные проблемы и решения см. в **[Руководстве по устранению неполадок](https://docs.claude-mem.ai/troubleshooting)**.
+Распространенные проблемы и решения см. в **[Руководстве по устранению неполадок](https://github.com/ManuelStaggl/keepmind)**.
 
 ---
 
@@ -269,7 +259,7 @@ npm run bug-report
 4. Обновите документацию
 5. Отправьте Pull Request
 
-Процесс участия см. в [Руководстве по разработке](https://docs.claude-mem.ai/development).
+Процесс участия см. в [Руководстве по разработке](https://github.com/ManuelStaggl/keepmind).
 
 ---
 
@@ -291,7 +281,7 @@ Apache-2.0 allows broad use, modification, distribution, and commercial use, sub
 ## Поддержка
 
 - **Документация**: [docs/](docs/)
-- **Проблемы**: [GitHub Issues](https://github.com/thedotmack/claude-mem/issues)
+- **Проблемы**: [GitHub Issues](https://github.com/ManuelStaggl/keepmind/issues)
 - **Репозиторий**: [github.com/thedotmack/claude-mem](https://github.com/thedotmack/claude-mem)
 - **Автор**: Alex Newman ([@thedotmack](https://github.com/thedotmack))
 

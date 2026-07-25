@@ -3,12 +3,8 @@
 ---
 <h1 align="center">
   <br>
-  <a href="https://github.com/thedotmack/claude-mem">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-dark-mode.webp">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-light-mode.webp">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-light-mode.webp" alt="Claude-Mem" width="400">
-    </picture>
+  <a href="https://github.com/ManuelStaggl/keepmind">
+    keepmind
   </a>
   <br>
 </h1>
@@ -65,21 +61,15 @@
 
 <p align="center">
   <a href="https://trendshift.io/repositories/15496" target="_blank">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge-dark.svg">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg" alt="thedotmack/claude-mem | Trendshift" width="250" height="55"/>
-    </picture>
+    keepmind
   </a>
 </p>
 
 <br>
 
 <p align="center">
-  <a href="https://github.com/thedotmack/claude-mem">
-    <picture>
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/cm-preview.gif" alt="Claude-Mem Preview" width="800">
-    </picture>
+  <a href="https://github.com/ManuelStaggl/keepmind">
+    keepmind
   </a>
 </p>
 
@@ -94,7 +84,7 @@
 </p>
 
 <p align="center">
-  Claude-Mem은 도구 사용 관찰을 자동으로 캡처하고 의미론적 요약을 생성하여 향후 세션에서 사용할 수 있도록 함으로써 세션 간 컨텍스트를 원활하게 보존합니다. 이를 통해 Claude는 세션이 종료되거나 재연결된 후에도 프로젝트에 대한 지식의 연속성을 유지할 수 있습니다.
+  keepmind은 도구 사용 관찰을 자동으로 캡처하고 의미론적 요약을 생성하여 향후 세션에서 사용할 수 있도록 함으로써 세션 간 컨텍스트를 원활하게 보존합니다. 이를 통해 Claude는 세션이 종료되거나 재연결된 후에도 프로젝트에 대한 지식의 연속성을 유지할 수 있습니다.
 </p>
 
 ---
@@ -104,9 +94,9 @@
 터미널에서 새 Claude Code 세션을 시작하고 다음 명령을 입력하세요:
 
 ```
-> /plugin marketplace add thedotmack/claude-mem
+> /plugin marketplace add ManuelStaggl/keepmind
 
-> /plugin install claude-mem
+> /plugin install keepmind
 ```
 
 Claude Code를 재시작하세요. 이전 세션의 컨텍스트가 자동으로 새 세션에 나타납니다.
@@ -128,35 +118,35 @@ Claude Code를 재시작하세요. 이전 세션의 컨텍스트가 자동으로
 
 ## 문서
 
-📚 **[전체 문서 보기](https://docs.claude-mem.ai/)** - 공식 웹사이트에서 찾아보기
+📚 **[전체 문서 보기](https://github.com/ManuelStaggl/keepmind)** - 공식 웹사이트에서 찾아보기
 
 ### 시작하기
 
-- **[설치 가이드](https://docs.claude-mem.ai/installation)** - 빠른 시작 및 고급 설치
-- **[사용 가이드](https://docs.claude-mem.ai/usage/getting-started)** - Claude-Mem이 자동으로 작동하는 방법
-- **[검색 도구](https://docs.claude-mem.ai/usage/search-tools)** - 자연어로 프로젝트 기록 쿼리
-- **[베타 기능](https://docs.claude-mem.ai/beta-features)** - Endless Mode와 같은 실험적 기능 시도
+- **[설치 가이드](https://github.com/ManuelStaggl/keepmind)** - 빠른 시작 및 고급 설치
+- **[사용 가이드](https://github.com/ManuelStaggl/keepmind)** - keepmind이 자동으로 작동하는 방법
+- **[검색 도구](https://github.com/ManuelStaggl/keepmind)** - 자연어로 프로젝트 기록 쿼리
+- **[베타 기능](https://github.com/ManuelStaggl/keepmind)** - Endless Mode와 같은 실험적 기능 시도
 
 ### 모범 사례
 
-- **[컨텍스트 엔지니어링](https://docs.claude-mem.ai/context-engineering)** - AI 에이전트 컨텍스트 최적화 원칙
-- **[점진적 공개](https://docs.claude-mem.ai/progressive-disclosure)** - Claude-Mem의 컨텍스트 프라이밍 전략의 철학
+- **[컨텍스트 엔지니어링](https://github.com/ManuelStaggl/keepmind)** - AI 에이전트 컨텍스트 최적화 원칙
+- **[점진적 공개](https://github.com/ManuelStaggl/keepmind)** - keepmind의 컨텍스트 프라이밍 전략의 철학
 
 ### 아키텍처
 
-- **[개요](https://docs.claude-mem.ai/architecture/overview)** - 시스템 구성 요소 및 데이터 흐름
-- **[아키텍처 진화](https://docs.claude-mem.ai/architecture-evolution)** - v3에서 v5로의 여정
-- **[후크 아키텍처](https://docs.claude-mem.ai/hooks-architecture)** - Claude-Mem이 라이프사이클 후크를 사용하는 방법
-- **[후크 참조](https://docs.claude-mem.ai/architecture/hooks)** - 7개 후크 스크립트 설명
-- **[워커 서비스](https://docs.claude-mem.ai/architecture/worker-service)** - HTTP API 및 Bun 관리
-- **[데이터베이스](https://docs.claude-mem.ai/architecture/database)** - SQLite 스키마 및 FTS5 검색
-- **[검색 아키텍처](https://docs.claude-mem.ai/architecture/search-architecture)** - Chroma 벡터 데이터베이스를 활용한 하이브리드 검색
+- **[개요](https://github.com/ManuelStaggl/keepmind)** - 시스템 구성 요소 및 데이터 흐름
+- **[아키텍처 진화](https://github.com/ManuelStaggl/keepmind)** - v3에서 v5로의 여정
+- **[후크 아키텍처](https://github.com/ManuelStaggl/keepmind)** - keepmind이 라이프사이클 후크를 사용하는 방법
+- **[후크 참조](https://github.com/ManuelStaggl/keepmind)** - 7개 후크 스크립트 설명
+- **[워커 서비스](https://github.com/ManuelStaggl/keepmind)** - HTTP API 및 Bun 관리
+- **[데이터베이스](https://github.com/ManuelStaggl/keepmind)** - SQLite 스키마 및 FTS5 검색
+- **[검색 아키텍처](https://github.com/ManuelStaggl/keepmind)** - Chroma 벡터 데이터베이스를 활용한 하이브리드 검색
 
 ### 설정 및 개발
 
-- **[설정](https://docs.claude-mem.ai/configuration)** - 환경 변수 및 설정
-- **[개발](https://docs.claude-mem.ai/development)** - 빌드, 테스트, 기여
-- **[문제 해결](https://docs.claude-mem.ai/troubleshooting)** - 일반적인 문제 및 해결 방법
+- **[설정](https://github.com/ManuelStaggl/keepmind)** - 환경 변수 및 설정
+- **[개발](https://github.com/ManuelStaggl/keepmind)** - 빌드, 테스트, 기여
+- **[문제 해결](https://github.com/ManuelStaggl/keepmind)** - 일반적인 문제 및 해결 방법
 
 ---
 
@@ -171,13 +161,13 @@ Claude Code를 재시작하세요. 이전 세션의 컨텍스트가 자동으로
 5. **mem-search 스킬** - 점진적 공개를 통한 자연어 쿼리
 6. **Chroma 벡터 데이터베이스** - 지능형 컨텍스트 검색을 위한 하이브리드 의미론적 + 키워드 검색
 
-자세한 내용은 [아키텍처 개요](https://docs.claude-mem.ai/architecture/overview)를 참조하세요.
+자세한 내용은 [아키텍처 개요](https://github.com/ManuelStaggl/keepmind)를 참조하세요.
 
 ---
 
 ## mem-search 스킬
 
-Claude-Mem은 과거 작업에 대해 질문할 때 자동으로 호출되는 mem-search 스킬을 통해 지능형 검색을 제공합니다:
+keepmind은 과거 작업에 대해 질문할 때 자동으로 호출되는 mem-search 스킬을 통해 지능형 검색을 제공합니다:
 
 **작동 방식:**
 - 자연스럽게 질문하세요: *"지난 세션에서 무엇을 했나요?"* 또는 *"이 버그를 이전에 수정했나요?"*
@@ -206,15 +196,15 @@ Claude-Mem은 과거 작업에 대해 질문할 때 자동으로 호출되는 me
 "뷰어 UI를 추가할 때 무슨 일이 있었나요?"
 ```
 
-자세한 예제는 [검색 도구 가이드](https://docs.claude-mem.ai/usage/search-tools)를 참조하세요.
+자세한 예제는 [검색 도구 가이드](https://github.com/ManuelStaggl/keepmind)를 참조하세요.
 
 ---
 
 ## 베타 기능
 
-Claude-Mem은 **Endless Mode**(확장된 세션을 위한 생체모방 메모리 아키텍처)와 같은 실험적 기능을 제공하는 **베타 채널**을 제공합니다. http://localhost:37777 → Settings의 웹 뷰어 UI에서 안정 버전과 베타 버전 간 전환이 가능합니다.
+keepmind은 **Endless Mode**(확장된 세션을 위한 생체모방 메모리 아키텍처)와 같은 실험적 기능을 제공하는 **베타 채널**을 제공합니다. http://localhost:37777 → Settings의 웹 뷰어 UI에서 안정 버전과 베타 버전 간 전환이 가능합니다.
 
-Endless Mode 및 사용 방법에 대한 자세한 내용은 **[베타 기능 문서](https://docs.claude-mem.ai/beta-features)**를 참조하세요.
+Endless Mode 및 사용 방법에 대한 자세한 내용은 **[베타 기능 문서](https://github.com/ManuelStaggl/keepmind)**를 참조하세요.
 
 ---
 
@@ -230,15 +220,15 @@ Endless Mode 및 사용 방법에 대한 자세한 내용은 **[베타 기능 �
 
 ## 설정
 
-설정은 `~/.claude-mem/settings.json`에서 관리됩니다 (첫 실행 시 기본값으로 자동 생성). AI 모델, 워커 포트, 데이터 디렉토리, 로그 수준 및 컨텍스트 주입 설정을 구성할 수 있습니다.
+설정은 `~/.keepmind/settings.json`에서 관리됩니다 (첫 실행 시 기본값으로 자동 생성). AI 모델, 워커 포트, 데이터 디렉토리, 로그 수준 및 컨텍스트 주입 설정을 구성할 수 있습니다.
 
-사용 가능한 모든 설정 및 예제는 **[설정 가이드](https://docs.claude-mem.ai/configuration)**를 참조하세요.
+사용 가능한 모든 설정 및 예제는 **[설정 가이드](https://github.com/ManuelStaggl/keepmind)**를 참조하세요.
 
 ---
 
 ## 개발
 
-빌드 지침, 테스트 및 기여 워크플로우는 **[개발 가이드](https://docs.claude-mem.ai/development)**를 참조하세요.
+빌드 지침, 테스트 및 기여 워크플로우는 **[개발 가이드](https://github.com/ManuelStaggl/keepmind)**를 참조하세요.
 
 ---
 
@@ -246,7 +236,7 @@ Endless Mode 및 사용 방법에 대한 자세한 내용은 **[베타 기능 �
 
 문제가 발생하면 Claude에게 문제를 설명하면 troubleshoot 스킬이 자동으로 진단하고 수정 사항을 제공합니다.
 
-일반적인 문제 및 해결 방법은 **[문제 해결 가이드](https://docs.claude-mem.ai/troubleshooting)**를 참조하세요.
+일반적인 문제 및 해결 방법은 **[문제 해결 가이드](https://github.com/ManuelStaggl/keepmind)**를 참조하세요.
 
 ---
 
@@ -269,7 +259,7 @@ npm run bug-report
 4. 문서 업데이트
 5. Pull Request 제출
 
-기여 워크플로우는 [개발 가이드](https://docs.claude-mem.ai/development)를 참조하세요.
+기여 워크플로우는 [개발 가이드](https://github.com/ManuelStaggl/keepmind)를 참조하세요.
 
 ---
 
@@ -291,7 +281,7 @@ Apache-2.0 allows broad use, modification, distribution, and commercial use, sub
 ## 지원
 
 - **문서**: [docs/](docs/)
-- **이슈**: [GitHub Issues](https://github.com/thedotmack/claude-mem/issues)
+- **이슈**: [GitHub Issues](https://github.com/ManuelStaggl/keepmind/issues)
 - **저장소**: [github.com/thedotmack/claude-mem](https://github.com/thedotmack/claude-mem)
 - **작성자**: Alex Newman ([@thedotmack](https://github.com/thedotmack))
 

@@ -5,7 +5,7 @@ description: "Build queryable AI brains from your observation history"
 
 # Knowledge Agents
 
-Knowledge agents let you compile a slice of your claude-mem observation history into a **queryable "brain"** that answers questions conversationally. Instead of getting raw search results back, you get synthesized, grounded answers drawn from your actual project history -- decisions, discoveries, bugfixes, and features.
+Knowledge agents let you compile a slice of your keepmind observation history into a **queryable "brain"** that answers questions conversationally. Instead of getting raw search results back, you get synthesized, grounded answers drawn from your actual project history -- decisions, discoveries, bugfixes, and features.
 
 ## Quick Start
 
@@ -16,7 +16,7 @@ Three ways to use knowledge agents, from simplest to most powerful.
 Use the `/knowledge-agent` skill or the MCP tools directly:
 
 ```
-build_corpus name="hooks-expertise" query="hooks architecture" project="claude-mem" limit=200
+build_corpus name="hooks-expertise" query="hooks architecture" project="keepmind" limit=200
 ```
 
 This searches your observation history, collects matching records, and saves them as a corpus file. Then prime it — this loads the corpus into a Claude session's context window:
@@ -84,7 +84,7 @@ curl -X POST http://localhost:37777/api/corpus \
   -d '{
     "name": "hooks-expertise",
     "query": "hooks architecture",
-    "project": "claude-mem",
+    "project": "keepmind",
     "types": ["decision", "discovery"],
     "limit": 200
   }'

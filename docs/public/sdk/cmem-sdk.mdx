@@ -1,9 +1,9 @@
 ---
 title: "CMEM-SDK Reference"
-description: "Complete API reference for claude-mem/sdk — the in-process capture → compress → semantic-search pipeline. No HTTP worker, no Redis, no daemon."
+description: "Complete API reference for keepmind/sdk — the in-process capture → compress → semantic-search pipeline. No HTTP worker, no Redis, no daemon."
 ---
 
-`claude-mem/sdk` (the CMEM-SDK) is the in-process programmatic interface to
+`keepmind/sdk` (the CMEM-SDK) is the in-process programmatic interface to
 the same capture-and-compression engine that powers the Claude Code plugin.
 You call it as a library, in your own Node process: capture an event,
 run inline AI compression, and search the resulting observations with
@@ -11,16 +11,16 @@ semantic search — **all in one process, with no worker, daemon, message
 queue, or HTTP layer.**
 
 This page is the complete API reference. For a narrative walkthrough and a
-runnable example, see [Using claude-mem in your app](/sdk).
+runnable example, see [Using keepmind in your app](/sdk).
 
 ## What it is and when to use it
 
-The SDK is a thin glue layer over the same modules the claude-mem server
+The SDK is a thin glue layer over the same modules the keepmind server
 runtime uses — `src/storage/postgres/*` for I/O, `src/server/generation/*`
 for compression, and `ChromaSync` for the semantic index — minus the HTTP
 server, BullMQ queue, Redis, and auth shell that the server runtime adds.
 
-Reach for the SDK when you want to embed claude-mem's memory primitives
+Reach for the SDK when you want to embed keepmind's memory primitives
 directly inside a Node application (a CLI, a bot, a custom agent) and you
 want to control the lifecycle yourself. If instead you want the background
 daemon that the Claude Code plugin uses, run the worker/server — not the SDK.
@@ -37,21 +37,21 @@ from the calling process**:
 <Warning>
 Chroma is **required**. `createCmemClient` rejects at construction if
 `uvx chroma-mcp` cannot start. There is no `chroma.enabled = false` toggle —
-claude-mem without semantic search is considered broken.
+keepmind without semantic search is considered broken.
 </Warning>
 
 ## Installation
 
-The SDK ships inside the same `claude-mem` package the plugin uses:
+The SDK ships inside the same `keepmind` package the plugin uses:
 
 ```bash
-npm install claude-mem
+npm install keepmind
 ```
 
-Import from the `claude-mem/sdk` subpath export:
+Import from the `keepmind/sdk` subpath export:
 
 ```ts
-import { createCmemClient } from 'claude-mem/sdk';
+import { createCmemClient } from 'keepmind/sdk';
 ```
 
 SDK consumers pull only four runtime dependencies — `pg`, `zod`,
@@ -88,7 +88,7 @@ The least-config form. Postgres and the provider come from environment
 variables.
 
 ```ts
-import { createCmemClient } from 'claude-mem/sdk';
+import { createCmemClient } from 'keepmind/sdk';
 
 // Reads KEEPMIND_SERVER_DATABASE_URL and (for generate) ANTHROPIC_API_KEY.
 const client = await createCmemClient({});
@@ -122,7 +122,7 @@ the on-disk tenant file.
 
 ```ts
 import { Pool } from 'pg';
-import { createCmemClient } from 'claude-mem/sdk';
+import { createCmemClient } from 'keepmind/sdk';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -354,7 +354,7 @@ scheduling are deliberately out of scope.
 | Variable | Used for | Notes |
 |----------|----------|-------|
 | `KEEPMIND_SERVER_DATABASE_URL` | Postgres connection | Fallback when neither `options.databaseUrl` nor `options.pool` is given. |
-| `KEEPMIND_DATA_DIR` | Data directory | Defaults to `$HOME/.claude-mem`. Holds `sdk-tenant.json` (the persisted bootstrap tenant) and Chroma data. |
+| `KEEPMIND_DATA_DIR` | Data directory | Defaults to `$HOME/.keepmind`. Holds `sdk-tenant.json` (the persisted bootstrap tenant) and Chroma data. |
 | `KEEPMIND_SERVER_PROVIDER` | Provider selection | `'claude'`, `'gemini'`, or `'openrouter'`. Empty/unset falls through to whichever API key is present. |
 | `KEEPMIND_SERVER_MODEL` | Model override | Optional model id for the env-resolved provider. |
 | `ANTHROPIC_API_KEY` | Claude API key | Also accepts `KEEPMIND_ANTHROPIC_API_KEY`. Default provider when set. |
@@ -373,7 +373,7 @@ servers.
 
 ## See also
 
-- [Using claude-mem in your app](/sdk) — narrative walkthrough and a runnable example.
+- [Using keepmind in your app](/sdk) — narrative walkthrough and a runnable example.
 - [`examples/sdk-node/`](https://github.com/thedotmack/claude-mem/tree/main/examples/sdk-node) — the runnable demo.
 </content>
 </invoke>

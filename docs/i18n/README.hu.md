@@ -3,12 +3,8 @@
 ---
 <h1 align="center">
   <br>
-  <a href="https://github.com/thedotmack/claude-mem">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-dark-mode.webp">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-light-mode.webp">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-light-mode.webp" alt="Claude-Mem" width="400">
-    </picture>
+  <a href="https://github.com/ManuelStaggl/keepmind">
+    keepmind
   </a>
   <br>
 </h1>
@@ -65,21 +61,15 @@
 
 <p align="center">
   <a href="https://trendshift.io/repositories/15496" target="_blank">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge-dark.svg">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg" alt="thedotmack/claude-mem | Trendshift" width="250" height="55"/>
-    </picture>
+    keepmind
   </a>
 </p>
 
 <br>
 
 <p align="center">
-  <a href="https://github.com/thedotmack/claude-mem">
-    <picture>
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/cm-preview.gif" alt="Claude-Mem Preview" width="800">
-    </picture>
+  <a href="https://github.com/ManuelStaggl/keepmind">
+    keepmind
   </a>
 </p>
 
@@ -94,7 +84,7 @@
 </p>
 
 <p align="center">
-  A Claude-Mem zökkenőmentesen megőrzi a kontextust munkamenetek között azáltal, hogy automatikusan rögzíti az eszközhasználati megfigyeléseket, szemantikus összefoglalókat generál, és elérhetővé teszi azokat a jövőbeli munkamenetekben. Ez lehetővé teszi Claude számára, hogy fenntartsa a projektekkel kapcsolatos tudás folytonosságát még a munkamenetek befejezése vagy újracsatlakozása után is.
+  A keepmind zökkenőmentesen megőrzi a kontextust munkamenetek között azáltal, hogy automatikusan rögzíti az eszközhasználati megfigyeléseket, szemantikus összefoglalókat generál, és elérhetővé teszi azokat a jövőbeli munkamenetekben. Ez lehetővé teszi Claude számára, hogy fenntartsa a projektekkel kapcsolatos tudás folytonosságát még a munkamenetek befejezése vagy újracsatlakozása után is.
 </p>
 
 ---
@@ -104,9 +94,9 @@
 Indítson el egy új Claude Code munkamenetet a terminálban, és írja be a következő parancsokat:
 
 ```
-> /plugin marketplace add thedotmack/claude-mem
+> /plugin marketplace add ManuelStaggl/keepmind
 
-> /plugin install claude-mem
+> /plugin install keepmind
 ```
 
 Indítsa újra a Claude Code-ot. A korábbi munkamenetek kontextusa automatikusan megjelenik az új munkamenetekben.
@@ -128,35 +118,35 @@ Indítsa újra a Claude Code-ot. A korábbi munkamenetek kontextusa automatikusa
 
 ## Dokumentáció
 
-📚 **[Teljes dokumentáció megtekintése](https://docs.claude-mem.ai/)** - Böngészés a hivatalos weboldalon
+📚 **[Teljes dokumentáció megtekintése](https://github.com/ManuelStaggl/keepmind)** - Böngészés a hivatalos weboldalon
 
 ### Első lépések
 
-- **[Telepítési útmutató](https://docs.claude-mem.ai/installation)** - Gyors indítás és haladó telepítés
-- **[Használati útmutató](https://docs.claude-mem.ai/usage/getting-started)** - Hogyan működik automatikusan a Claude-Mem
-- **[Keresési eszközök](https://docs.claude-mem.ai/usage/search-tools)** - Projekt előzmények lekérdezése természetes nyelvvel
-- **[Béta funkciók](https://docs.claude-mem.ai/beta-features)** - Kísérleti funkciók, mint az Endless Mode kipróbálása
+- **[Telepítési útmutató](https://github.com/ManuelStaggl/keepmind)** - Gyors indítás és haladó telepítés
+- **[Használati útmutató](https://github.com/ManuelStaggl/keepmind)** - Hogyan működik automatikusan a keepmind
+- **[Keresési eszközök](https://github.com/ManuelStaggl/keepmind)** - Projekt előzmények lekérdezése természetes nyelvvel
+- **[Béta funkciók](https://github.com/ManuelStaggl/keepmind)** - Kísérleti funkciók, mint az Endless Mode kipróbálása
 
 ### Bevált gyakorlatok
 
-- **[Kontextus tervezés](https://docs.claude-mem.ai/context-engineering)** - AI ügynök kontextus optimalizálási elvek
-- **[Progresszív felfedés](https://docs.claude-mem.ai/progressive-disclosure)** - A Claude-Mem kontextus előkészítési stratégiájának filozófiája
+- **[Kontextus tervezés](https://github.com/ManuelStaggl/keepmind)** - AI ügynök kontextus optimalizálási elvek
+- **[Progresszív felfedés](https://github.com/ManuelStaggl/keepmind)** - A keepmind kontextus előkészítési stratégiájának filozófiája
 
 ### Architektúra
 
-- **[Áttekintés](https://docs.claude-mem.ai/architecture/overview)** - Rendszerkomponensek és adatfolyam
-- **[Architektúra fejlődés](https://docs.claude-mem.ai/architecture-evolution)** - Az út a v3-tól a v5-ig
-- **[Hooks architektúra](https://docs.claude-mem.ai/hooks-architecture)** - Hogyan használja a Claude-Mem az életciklus hookokat
-- **[Hooks referencia](https://docs.claude-mem.ai/architecture/hooks)** - 7 hook szkript magyarázata
-- **[Worker szolgáltatás](https://docs.claude-mem.ai/architecture/worker-service)** - HTTP API és Bun kezelés
-- **[Adatbázis](https://docs.claude-mem.ai/architecture/database)** - SQLite séma és FTS5 keresés
-- **[Keresési architektúra](https://docs.claude-mem.ai/architecture/search-architecture)** - Hibrid keresés Chroma vektor adatbázissal
+- **[Áttekintés](https://github.com/ManuelStaggl/keepmind)** - Rendszerkomponensek és adatfolyam
+- **[Architektúra fejlődés](https://github.com/ManuelStaggl/keepmind)** - Az út a v3-tól a v5-ig
+- **[Hooks architektúra](https://github.com/ManuelStaggl/keepmind)** - Hogyan használja a keepmind az életciklus hookokat
+- **[Hooks referencia](https://github.com/ManuelStaggl/keepmind)** - 7 hook szkript magyarázata
+- **[Worker szolgáltatás](https://github.com/ManuelStaggl/keepmind)** - HTTP API és Bun kezelés
+- **[Adatbázis](https://github.com/ManuelStaggl/keepmind)** - SQLite séma és FTS5 keresés
+- **[Keresési architektúra](https://github.com/ManuelStaggl/keepmind)** - Hibrid keresés Chroma vektor adatbázissal
 
 ### Konfiguráció és fejlesztés
 
-- **[Konfiguráció](https://docs.claude-mem.ai/configuration)** - Környezeti változók és beállítások
-- **[Fejlesztés](https://docs.claude-mem.ai/development)** - Építés, tesztelés, hozzájárulás
-- **[Hibaelhárítás](https://docs.claude-mem.ai/troubleshooting)** - Gyakori problémák és megoldások
+- **[Konfiguráció](https://github.com/ManuelStaggl/keepmind)** - Környezeti változók és beállítások
+- **[Fejlesztés](https://github.com/ManuelStaggl/keepmind)** - Építés, tesztelés, hozzájárulás
+- **[Hibaelhárítás](https://github.com/ManuelStaggl/keepmind)** - Gyakori problémák és megoldások
 
 ---
 
@@ -171,13 +161,13 @@ Indítsa újra a Claude Code-ot. A korábbi munkamenetek kontextusa automatikusa
 5. **mem-search Skill** - Természetes nyelvi lekérdezések progresszív felfedéssel
 6. **Chroma vektor adatbázis** - Hibrid szemantikus + kulcsszó keresés intelligens kontextus visszakereséshez
 
-További részletekért lásd az [Architektúra áttekintést](https://docs.claude-mem.ai/architecture/overview).
+További részletekért lásd az [Architektúra áttekintést](https://github.com/ManuelStaggl/keepmind).
 
 ---
 
 ## mem-search Skill
 
-A Claude-Mem intelligens keresést biztosít a mem-search skillen keresztül, amely automatikusan aktiválódik, amikor múltbeli munkáról kérdez:
+A keepmind intelligens keresést biztosít a mem-search skillen keresztül, amely automatikusan aktiválódik, amikor múltbeli munkáról kérdez:
 
 **Hogyan működik:**
 - Csak kérdezzen természetesen: *"Mit csináltunk az előző munkamenetben?"* vagy *"Javítottuk már ezt a hibát korábban?"*
@@ -206,15 +196,15 @@ A Claude-Mem intelligens keresést biztosít a mem-search skillen keresztül, am
 "Mi történt, amikor hozzáadtuk a megjelenítő felületet?"
 ```
 
-Részletes példákért lásd a [Keresési eszközök útmutatót](https://docs.claude-mem.ai/usage/search-tools).
+Részletes példákért lásd a [Keresési eszközök útmutatót](https://github.com/ManuelStaggl/keepmind).
 
 ---
 
 ## Béta funkciók
 
-A Claude-Mem **béta csatornát** kínál kísérleti funkciókkal, mint az **Endless Mode** (biomimetikus memória architektúra hosszabb munkamenetekhez). Váltson a stabil és béta verziók között a webes megjelenítő felületről a http://localhost:37777 → Settings címen.
+A keepmind **béta csatornát** kínál kísérleti funkciókkal, mint az **Endless Mode** (biomimetikus memória architektúra hosszabb munkamenetekhez). Váltson a stabil és béta verziók között a webes megjelenítő felületről a http://localhost:37777 → Settings címen.
 
-További részletekért az Endless Mode-ról és annak kipróbálásáról lásd a **[Béta funkciók dokumentációt](https://docs.claude-mem.ai/beta-features)**.
+További részletekért az Endless Mode-ról és annak kipróbálásáról lásd a **[Béta funkciók dokumentációt](https://github.com/ManuelStaggl/keepmind)**.
 
 ---
 
@@ -230,15 +220,15 @@ További részletekért az Endless Mode-ról és annak kipróbálásáról lásd
 
 ## Konfiguráció
 
-A beállítások a `~/.claude-mem/settings.json` fájlban kezelhetők (automatikusan létrejön alapértelmezett értékekkel az első futtatáskor). Konfigurálható az AI modell, worker port, adatkönyvtár, naplózási szint és kontextus beillesztési beállítások.
+A beállítások a `~/.keepmind/settings.json` fájlban kezelhetők (automatikusan létrejön alapértelmezett értékekkel az első futtatáskor). Konfigurálható az AI modell, worker port, adatkönyvtár, naplózási szint és kontextus beillesztési beállítások.
 
-Az összes elérhető beállításért és példákért lásd a **[Konfigurációs útmutatót](https://docs.claude-mem.ai/configuration)**.
+Az összes elérhető beállításért és példákért lásd a **[Konfigurációs útmutatót](https://github.com/ManuelStaggl/keepmind)**.
 
 ---
 
 ## Fejlesztés
 
-Az építési utasításokért, tesztelésért és hozzájárulási munkafolyamatért lásd a **[Fejlesztési útmutatót](https://docs.claude-mem.ai/development)**.
+Az építési utasításokért, tesztelésért és hozzájárulási munkafolyamatért lásd a **[Fejlesztési útmutatót](https://github.com/ManuelStaggl/keepmind)**.
 
 ---
 
@@ -246,7 +236,7 @@ Az építési utasításokért, tesztelésért és hozzájárulási munkafolyama
 
 Problémák esetén írja le a problémát Claude-nak, és a troubleshoot skill automatikusan diagnosztizálja és javítási megoldásokat kínál.
 
-Gyakori problémákért és megoldásokért lásd a **[Hibaelhárítási útmutatót](https://docs.claude-mem.ai/troubleshooting)**.
+Gyakori problémákért és megoldásokért lásd a **[Hibaelhárítási útmutatót](https://github.com/ManuelStaggl/keepmind)**.
 
 ---
 
@@ -269,7 +259,7 @@ A hozzájárulásokat szívesen fogadjuk! Kérjük:
 4. Frissítse a dokumentációt
 5. Nyújtson be egy Pull Requestet
 
-A hozzájárulási munkafolyamatért lásd a [Fejlesztési útmutatót](https://docs.claude-mem.ai/development).
+A hozzájárulási munkafolyamatért lásd a [Fejlesztési útmutatót](https://github.com/ManuelStaggl/keepmind).
 
 ---
 
@@ -291,7 +281,7 @@ Apache-2.0 allows broad use, modification, distribution, and commercial use, sub
 ## Támogatás
 
 - **Dokumentáció**: [docs/](docs/)
-- **Hibák**: [GitHub Issues](https://github.com/thedotmack/claude-mem/issues)
+- **Hibák**: [GitHub Issues](https://github.com/ManuelStaggl/keepmind/issues)
 - **Tároló**: [github.com/thedotmack/claude-mem](https://github.com/thedotmack/claude-mem)
 - **Szerző**: Alex Newman ([@thedotmack](https://github.com/thedotmack))
 

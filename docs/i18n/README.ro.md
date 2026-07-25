@@ -3,12 +3,8 @@
 ---
 <h1 align="center">
   <br>
-  <a href="https://github.com/thedotmack/claude-mem">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-dark-mode.webp">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-light-mode.webp">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-light-mode.webp" alt="Claude-Mem" width="400">
-    </picture>
+  <a href="https://github.com/ManuelStaggl/keepmind">
+    keepmind
   </a>
   <br>
 </h1>
@@ -65,21 +61,15 @@
 
 <p align="center">
   <a href="https://trendshift.io/repositories/15496" target="_blank">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge-dark.svg">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg" alt="thedotmack/claude-mem | Trendshift" width="250" height="55"/>
-    </picture>
+    keepmind
   </a>
 </p>
 
 <br>
 
 <p align="center">
-  <a href="https://github.com/thedotmack/claude-mem">
-    <picture>
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/cm-preview.gif" alt="Claude-Mem Preview" width="800">
-    </picture>
+  <a href="https://github.com/ManuelStaggl/keepmind">
+    keepmind
   </a>
 </p>
 
@@ -94,7 +84,7 @@
 </p>
 
 <p align="center">
-  Claude-Mem păstrează contextul fără întrerupere între sesiuni prin capturarea automată a observațiilor de utilizare a instrumentelor, generarea de rezumate semantice și punerea lor la dispoziție în sesiunile viitoare. Aceasta permite lui Claude să mențină continuitatea cunoștințelor despre proiecte chiar și după încheierea sau reconectarea sesiunilor.
+  keepmind păstrează contextul fără întrerupere între sesiuni prin capturarea automată a observațiilor de utilizare a instrumentelor, generarea de rezumate semantice și punerea lor la dispoziție în sesiunile viitoare. Aceasta permite lui Claude să mențină continuitatea cunoștințelor despre proiecte chiar și după încheierea sau reconectarea sesiunilor.
 </p>
 
 ---
@@ -104,9 +94,9 @@
 Porniți o nouă sesiune Claude Code în terminal și introduceți următoarele comenzi:
 
 ```
-> /plugin marketplace add thedotmack/claude-mem
+> /plugin marketplace add ManuelStaggl/keepmind
 
-> /plugin install claude-mem
+> /plugin install keepmind
 ```
 
 Reporniți Claude Code. Contextul din sesiunile anterioare va apărea automat în sesiunile noi.
@@ -128,35 +118,35 @@ Reporniți Claude Code. Contextul din sesiunile anterioare va apărea automat î
 
 ## Documentație
 
-📚 **[Vizualizați Documentația Completă](https://docs.claude-mem.ai/)** - Răsfoiți pe site-ul oficial
+📚 **[Vizualizați Documentația Completă](https://github.com/ManuelStaggl/keepmind)** - Răsfoiți pe site-ul oficial
 
 ### Introducere
 
-- **[Ghid de Instalare](https://docs.claude-mem.ai/installation)** - Start rapid și instalare avansată
-- **[Ghid de Utilizare](https://docs.claude-mem.ai/usage/getting-started)** - Cum funcționează Claude-Mem automat
-- **[Instrumente de Căutare](https://docs.claude-mem.ai/usage/search-tools)** - Interogați istoricul proiectului cu limbaj natural
-- **[Funcții Beta](https://docs.claude-mem.ai/beta-features)** - Încercați funcții experimentale precum Endless Mode
+- **[Ghid de Instalare](https://github.com/ManuelStaggl/keepmind)** - Start rapid și instalare avansată
+- **[Ghid de Utilizare](https://github.com/ManuelStaggl/keepmind)** - Cum funcționează keepmind automat
+- **[Instrumente de Căutare](https://github.com/ManuelStaggl/keepmind)** - Interogați istoricul proiectului cu limbaj natural
+- **[Funcții Beta](https://github.com/ManuelStaggl/keepmind)** - Încercați funcții experimentale precum Endless Mode
 
 ### Practici Recomandate
 
-- **[Inginerie Context](https://docs.claude-mem.ai/context-engineering)** - Principii de optimizare a contextului pentru agenți AI
-- **[Dezvăluire Progresivă](https://docs.claude-mem.ai/progressive-disclosure)** - Filosofia din spatele strategiei de pregătire a contextului Claude-Mem
+- **[Inginerie Context](https://github.com/ManuelStaggl/keepmind)** - Principii de optimizare a contextului pentru agenți AI
+- **[Dezvăluire Progresivă](https://github.com/ManuelStaggl/keepmind)** - Filosofia din spatele strategiei de pregătire a contextului keepmind
 
 ### Arhitectură
 
-- **[Prezentare Generală](https://docs.claude-mem.ai/architecture/overview)** - Componente de sistem și flux de date
-- **[Evoluția Arhitecturii](https://docs.claude-mem.ai/architecture-evolution)** - Parcursul de la v3 la v5
-- **[Arhitectura Hooks](https://docs.claude-mem.ai/hooks-architecture)** - Cum folosește Claude-Mem hook-urile de ciclu de viață
-- **[Referință Hooks](https://docs.claude-mem.ai/architecture/hooks)** - 7 scripturi de hook explicate
-- **[Serviciu Worker](https://docs.claude-mem.ai/architecture/worker-service)** - HTTP API și gestionare Bun
-- **[Baza de Date](https://docs.claude-mem.ai/architecture/database)** - Schemă SQLite și căutare FTS5
-- **[Arhitectura Căutării](https://docs.claude-mem.ai/architecture/search-architecture)** - Căutare hibridă cu baza de date vectorială Chroma
+- **[Prezentare Generală](https://github.com/ManuelStaggl/keepmind)** - Componente de sistem și flux de date
+- **[Evoluția Arhitecturii](https://github.com/ManuelStaggl/keepmind)** - Parcursul de la v3 la v5
+- **[Arhitectura Hooks](https://github.com/ManuelStaggl/keepmind)** - Cum folosește keepmind hook-urile de ciclu de viață
+- **[Referință Hooks](https://github.com/ManuelStaggl/keepmind)** - 7 scripturi de hook explicate
+- **[Serviciu Worker](https://github.com/ManuelStaggl/keepmind)** - HTTP API și gestionare Bun
+- **[Baza de Date](https://github.com/ManuelStaggl/keepmind)** - Schemă SQLite și căutare FTS5
+- **[Arhitectura Căutării](https://github.com/ManuelStaggl/keepmind)** - Căutare hibridă cu baza de date vectorială Chroma
 
 ### Configurare și Dezvoltare
 
-- **[Configurare](https://docs.claude-mem.ai/configuration)** - Variabile de mediu și setări
-- **[Dezvoltare](https://docs.claude-mem.ai/development)** - Construire, testare, contribuție
-- **[Depanare](https://docs.claude-mem.ai/troubleshooting)** - Probleme comune și soluții
+- **[Configurare](https://github.com/ManuelStaggl/keepmind)** - Variabile de mediu și setări
+- **[Dezvoltare](https://github.com/ManuelStaggl/keepmind)** - Construire, testare, contribuție
+- **[Depanare](https://github.com/ManuelStaggl/keepmind)** - Probleme comune și soluții
 
 ---
 
@@ -171,13 +161,13 @@ Reporniți Claude Code. Contextul din sesiunile anterioare va apărea automat î
 5. **Abilitatea mem-search** - Interogări în limbaj natural cu dezvăluire progresivă
 6. **Bază de Date Vectorială Chroma** - Căutare hibridă semantică + cuvinte cheie pentru recuperare inteligentă a contextului
 
-Consultați [Prezentarea Generală a Arhitecturii](https://docs.claude-mem.ai/architecture/overview) pentru detalii.
+Consultați [Prezentarea Generală a Arhitecturii](https://github.com/ManuelStaggl/keepmind) pentru detalii.
 
 ---
 
 ## Abilitatea mem-search
 
-Claude-Mem oferă căutare inteligentă prin abilitatea mem-search care se invocă automat când întrebați despre lucrul trecut:
+keepmind oferă căutare inteligentă prin abilitatea mem-search care se invocă automat când întrebați despre lucrul trecut:
 
 **Cum Funcționează:**
 - Întrebați natural: *"Ce am făcut în sesiunea trecută?"* sau *"Am rezolvat acest bug înainte?"*
@@ -206,15 +196,15 @@ Claude-Mem oferă căutare inteligentă prin abilitatea mem-search care se invoc
 "What was happening when we added the viewer UI?"
 ```
 
-Consultați [Ghidul Instrumentelor de Căutare](https://docs.claude-mem.ai/usage/search-tools) pentru exemple detaliate.
+Consultați [Ghidul Instrumentelor de Căutare](https://github.com/ManuelStaggl/keepmind) pentru exemple detaliate.
 
 ---
 
 ## Funcții Beta
 
-Claude-Mem oferă un **canal beta** cu funcții experimentale precum **Endless Mode** (arhitectură de memorie biomimetică pentru sesiuni extinse). Comutați între versiunile stabile și beta din interfața web viewer la http://localhost:37777 → Settings.
+keepmind oferă un **canal beta** cu funcții experimentale precum **Endless Mode** (arhitectură de memorie biomimetică pentru sesiuni extinse). Comutați între versiunile stabile și beta din interfața web viewer la http://localhost:37777 → Settings.
 
-Consultați **[Documentația Funcțiilor Beta](https://docs.claude-mem.ai/beta-features)** pentru detalii despre Endless Mode și cum să îl încercați.
+Consultați **[Documentația Funcțiilor Beta](https://github.com/ManuelStaggl/keepmind)** pentru detalii despre Endless Mode și cum să îl încercați.
 
 ---
 
@@ -230,15 +220,15 @@ Consultați **[Documentația Funcțiilor Beta](https://docs.claude-mem.ai/beta-f
 
 ## Configurare
 
-Setările sunt gestionate în `~/.claude-mem/settings.json` (creat automat cu valori implicite la prima rulare). Configurați modelul AI, portul worker, directorul de date, nivelul de log și setările de injectare a contextului.
+Setările sunt gestionate în `~/.keepmind/settings.json` (creat automat cu valori implicite la prima rulare). Configurați modelul AI, portul worker, directorul de date, nivelul de log și setările de injectare a contextului.
 
-Consultați **[Ghidul de Configurare](https://docs.claude-mem.ai/configuration)** pentru toate setările disponibile și exemple.
+Consultați **[Ghidul de Configurare](https://github.com/ManuelStaggl/keepmind)** pentru toate setările disponibile și exemple.
 
 ---
 
 ## Dezvoltare
 
-Consultați **[Ghidul de Dezvoltare](https://docs.claude-mem.ai/development)** pentru instrucțiuni de construire, testare și flux de contribuție.
+Consultați **[Ghidul de Dezvoltare](https://github.com/ManuelStaggl/keepmind)** pentru instrucțiuni de construire, testare și flux de contribuție.
 
 ---
 
@@ -246,7 +236,7 @@ Consultați **[Ghidul de Dezvoltare](https://docs.claude-mem.ai/development)** p
 
 Dacă întâmpinați probleme, descrieți problema lui Claude și abilitatea troubleshoot va diagnostica automat și va furniza soluții.
 
-Consultați **[Ghidul de Depanare](https://docs.claude-mem.ai/troubleshooting)** pentru probleme comune și soluții.
+Consultați **[Ghidul de Depanare](https://github.com/ManuelStaggl/keepmind)** pentru probleme comune și soluții.
 
 ---
 
@@ -269,7 +259,7 @@ Contribuțiile sunt binevenite! Vă rugăm:
 4. Actualizați documentația
 5. Trimiteți un Pull Request
 
-Consultați [Ghidul de Dezvoltare](https://docs.claude-mem.ai/development) pentru fluxul de contribuție.
+Consultați [Ghidul de Dezvoltare](https://github.com/ManuelStaggl/keepmind) pentru fluxul de contribuție.
 
 ---
 
@@ -291,7 +281,7 @@ Apache-2.0 allows broad use, modification, distribution, and commercial use, sub
 ## Suport
 
 - **Documentație**: [docs/](docs/)
-- **Probleme**: [GitHub Issues](https://github.com/thedotmack/claude-mem/issues)
+- **Probleme**: [GitHub Issues](https://github.com/ManuelStaggl/keepmind/issues)
 - **Repository**: [github.com/thedotmack/claude-mem](https://github.com/thedotmack/claude-mem)
 - **Autor**: Alex Newman ([@thedotmack](https://github.com/thedotmack))
 

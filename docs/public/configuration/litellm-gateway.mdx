@@ -1,18 +1,18 @@
 ---
 title: "LiteLLM Gateway"
-description: "Route claude-mem's Claude Agent SDK worker through LiteLLM while keeping one agentic execution path"
+description: "Route keepmind's Claude Agent SDK worker through LiteLLM while keeping one agentic execution path"
 ---
 
 # LiteLLM Gateway
 
-claude-mem can route its background memory agent through a LiteLLM proxy. This lets teams keep claude-mem's Claude Agent SDK workflow while using LiteLLM for model routing, centralized credentials, usage tracking, budgets, audit logs, and provider failover.
+keepmind can route its background memory agent through a LiteLLM proxy. This lets teams keep keepmind's Claude Agent SDK workflow while using LiteLLM for model routing, centralized credentials, usage tracking, budgets, audit logs, and provider failover.
 
-The important detail: claude-mem does **not** call LiteLLM with the OpenAI client directly. claude-mem still uses the Claude Agent SDK, and the SDK sends Anthropic-format requests to LiteLLM. LiteLLM then translates those requests to the upstream model provider you configured.
+The important detail: keepmind does **not** call LiteLLM with the OpenAI client directly. keepmind still uses the Claude Agent SDK, and the SDK sends Anthropic-format requests to LiteLLM. LiteLLM then translates those requests to the upstream model provider you configured.
 
 ```text
 Claude Code session
-  -> claude-mem hooks
-  -> claude-mem worker
+  -> keepmind hooks
+  -> keepmind worker
   -> Claude Agent SDK subprocess
   -> ANTHROPIC_BASE_URL=http://localhost:4000
   -> LiteLLM proxy
@@ -25,19 +25,19 @@ This keeps the memory agent on one implementation path. The Claude provider, kno
 
 Use LiteLLM gateway mode when you want:
 
-- A single organization-level LLM gateway for claude-mem traffic
-- Provider routing without changing claude-mem source code
-- Centralized API keys instead of storing provider keys in each developer's claude-mem settings
+- A single organization-level LLM gateway for keepmind traffic
+- Provider routing without changing keepmind source code
+- Centralized API keys instead of storing provider keys in each developer's keepmind settings
 - LiteLLM budgets, rate limits, logging, fallback routing, or virtual keys
-- A non-Anthropic upstream model while preserving the Claude Agent SDK execution path used by claude-mem
+- A non-Anthropic upstream model while preserving the Claude Agent SDK execution path used by keepmind
 
-Use the native [OpenRouter Provider](../usage/openrouter-provider) or [Gemini Provider](../usage/gemini-provider) instead if you want claude-mem's REST providers directly and do not need the Claude Agent SDK path.
+Use the native [OpenRouter Provider](../usage/openrouter-provider) or [Gemini Provider](../usage/gemini-provider) instead if you want keepmind's REST providers directly and do not need the Claude Agent SDK path.
 
 ## Architecture
 
 ### One Agent Path
 
-The LiteLLM integration is intentionally small. There is no custom LiteLLM provider, no Python handler, and no OpenAI-compatible server embedded in claude-mem.
+The LiteLLM integration is intentionally small. There is no custom LiteLLM provider, no Python handler, and no OpenAI-compatible server embedded in keepmind.
 
 At runtime:
 
@@ -47,20 +47,20 @@ At runtime:
 4. The SDK reads `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`.
 5. LiteLLM receives the SDK's Anthropic-format request.
 6. LiteLLM maps the request to the upstream provider and model configured in LiteLLM.
-7. The SDK response is parsed by the normal claude-mem observation pipeline.
+7. The SDK response is parsed by the normal keepmind observation pipeline.
 
 The code paths involved are:
 
 | Layer | Responsibility |
 | --- | --- |
 | `src/npx-cli/commands/install.ts` | Prompts for "LiteLLM or custom gateway", stores the gateway URL/token, and allows custom gateway model names |
-| `src/shared/EnvManager.ts` | Stores credentials in `~/.keepmind/.env`, blocks shell-leaked auth vars, and injects only explicit claude-mem credentials |
+| `src/shared/EnvManager.ts` | Stores credentials in `~/.keepmind/.env`, blocks shell-leaked auth vars, and injects only explicit keepmind credentials |
 | `src/services/worker/ClaudeProvider.ts` | Starts the Claude Agent SDK for observation extraction with the isolated environment |
 | `src/services/worker/knowledge/KnowledgeAgent.ts` | Uses the same isolated SDK path for knowledge corpus Q&A |
 
 ### Why `KEEPMIND_PROVIDER` Stays `claude`
 
-LiteLLM is a gateway for the Claude Agent SDK path, not a fourth claude-mem provider.
+LiteLLM is a gateway for the Claude Agent SDK path, not a fourth keepmind provider.
 
 ```json
 {
@@ -70,7 +70,7 @@ LiteLLM is a gateway for the Claude Agent SDK path, not a fourth claude-mem prov
 }
 ```
 
-Keeping the provider as `claude` matters because the worker should continue to use `ClaudeProvider`, not the native Gemini or OpenRouter REST providers. The gateway URL changes where the SDK sends model traffic; it does not change how claude-mem manages memory sessions.
+Keeping the provider as `claude` matters because the worker should continue to use `ClaudeProvider`, not the native Gemini or OpenRouter REST providers. The gateway URL changes where the SDK sends model traffic; it does not change how keepmind manages memory sessions.
 
 ## Configure LiteLLM
 
@@ -80,11 +80,11 @@ LiteLLM must expose an Anthropic-compatible endpoint for Claude Code / Claude Ag
 export ANTHROPIC_BASE_URL=http://localhost:4000
 ```
 
-For claude-mem, that value goes in `~/.keepmind/.env`, not your shell, so the background worker uses it consistently across restarts.
+For keepmind, that value goes in `~/.keepmind/.env`, not your shell, so the background worker uses it consistently across restarts.
 
 ### Minimal LiteLLM Example
 
-Create a LiteLLM config that defines the model name claude-mem will request:
+Create a LiteLLM config that defines the model name keepmind will request:
 
 ```yaml
 # litellm-config.yaml
@@ -105,20 +105,20 @@ OPENAI_API_KEY=sk-your-openai-key \
 litellm --config litellm-config.yaml --host 127.0.0.1 --port 4000
 ```
 
-In this example, claude-mem asks the SDK for `claude-haiku-4-5-20251001`, LiteLLM accepts that model alias, and LiteLLM forwards the request to `openai/gpt-4o-mini`.
+In this example, keepmind asks the SDK for `claude-haiku-4-5-20251001`, LiteLLM accepts that model alias, and LiteLLM forwards the request to `openai/gpt-4o-mini`.
 
 <Note>
-The alias in `model_name` must match `KEEPMIND_MODEL`, or `KEEPMIND_MODEL` must be changed to match your LiteLLM alias. claude-mem does not translate model names.
+The alias in `model_name` must match `KEEPMIND_MODEL`, or `KEEPMIND_MODEL` must be changed to match your LiteLLM alias. keepmind does not translate model names.
 </Note>
 
-## Configure claude-mem
+## Configure keepmind
 
 ### Option 1: Installer
 
 Run the installer:
 
 ```bash
-npx claude-mem install
+npx keepmind install
 ```
 
 Choose:
@@ -162,7 +162,7 @@ npm run worker:restart
 
 ## Environment Isolation
 
-claude-mem deliberately does not trust whatever Anthropic credentials happen to be exported in your shell or project `.env` file.
+keepmind deliberately does not trust whatever Anthropic credentials happen to be exported in your shell or project `.env` file.
 
 The worker blocks inherited `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, and stale `CLAUDE_CODE_OAUTH_TOKEN` values. It then re-injects only the credentials stored in `~/.keepmind/.env`.
 
@@ -175,7 +175,7 @@ If `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, or `ANTHROPIC_API_KEY` is prese
 
 ## Model Names
 
-`KEEPMIND_MODEL` is passed through to the Claude Agent SDK. In gateway mode, claude-mem allows any non-empty model string because the valid model list is owned by LiteLLM.
+`KEEPMIND_MODEL` is passed through to the Claude Agent SDK. In gateway mode, keepmind allows any non-empty model string because the valid model list is owned by LiteLLM.
 
 Recommended pattern:
 
@@ -215,7 +215,7 @@ model_list:
 
 ## Request Flow
 
-When a Claude Code session produces transcript events, claude-mem's worker queues them for observation extraction. In gateway mode the extraction flow is:
+When a Claude Code session produces transcript events, keepmind's worker queues them for observation extraction. In gateway mode the extraction flow is:
 
 1. The worker loads pending messages for a memory session.
 2. `ClaudeProvider` builds the observation prompt and selected model.
@@ -224,7 +224,7 @@ When a Claude Code session produces transcript events, claude-mem's worker queue
 5. LiteLLM receives the Anthropic-format request.
 6. LiteLLM routes to the configured upstream model.
 7. The SDK streams the assistant response back to the worker.
-8. claude-mem parses observations, stores them in SQLite, and syncs searchable embeddings.
+8. keepmind parses observations, stores them in SQLite, and syncs searchable embeddings.
 
 The knowledge-agent APIs use the same gateway environment, so corpus priming and corpus Q&A route through LiteLLM too.
 
@@ -240,17 +240,17 @@ LiteLLM replaces:
 
 LiteLLM does not replace:
 
-- claude-mem's worker process
+- keepmind's worker process
 - The Claude Agent SDK subprocess
-- claude-mem's observation XML format
+- keepmind's observation XML format
 - SQLite storage
 - Chroma/vector sync
 - Hook installation
-- Session resume handling inside claude-mem
+- Session resume handling inside keepmind
 
 ## Verification
 
-Check claude-mem's worker logs:
+Check keepmind's worker logs:
 
 ```bash
 npm run worker:logs
@@ -270,9 +270,9 @@ Check LiteLLM's logs for a corresponding request to the configured model alias. 
 
 ### LiteLLM returns "model not found"
 
-The model name sent by claude-mem does not match a LiteLLM `model_name`. Make `KEEPMIND_MODEL` and the LiteLLM alias match exactly.
+The model name sent by keepmind does not match a LiteLLM `model_name`. Make `KEEPMIND_MODEL` and the LiteLLM alias match exactly.
 
-### claude-mem still uses Anthropic directly
+### keepmind still uses Anthropic directly
 
 Check `~/.keepmind/.env`. Gateway settings must be stored there. Shell exports are not the reliable configuration source for the worker.
 
@@ -296,7 +296,7 @@ The SDK environment is built when SDK subprocesses are spawned. Restarting guara
 
 ### Tool use behaves differently than full Claude Code
 
-claude-mem's memory worker disables file and shell tools for observation extraction. The LiteLLM gateway is only handling the model call used to compress and summarize memory; it is not a replacement for your interactive Claude Code tool loop.
+keepmind's memory worker disables file and shell tools for observation extraction. The LiteLLM gateway is only handling the model call used to compress and summarize memory; it is not a replacement for your interactive Claude Code tool loop.
 
 ## Related
 

@@ -1,16 +1,16 @@
 ---
 title: "Gemini CLI Setup"
-description: "Add persistent memory to Gemini CLI with claude-mem"
+description: "Add persistent memory to Gemini CLI with keepmind"
 ---
 
 # Gemini CLI Setup
 
 > **Give Gemini CLI persistent memory across sessions.**
 
-Gemini CLI starts every session from scratch. Claude-mem changes that by capturing observations, decisions, and patterns — then injecting relevant context into each new session.
+Gemini CLI starts every session from scratch. keepmind changes that by capturing observations, decisions, and patterns — then injecting relevant context into each new session.
 
 <Info>
-**How it works:** Claude-mem installs lifecycle hooks into Gemini CLI that capture tool usage, agent responses, and session events. A local worker service extracts semantic observations and injects relevant history at session start.
+**How it works:** keepmind installs lifecycle hooks into Gemini CLI that capture tool usage, agent responses, and session events. A local worker service extracts semantic observations and injects relevant history at session start.
 </Info>
 
 ## Prerequisites
@@ -21,10 +21,10 @@ Gemini CLI starts every session from scratch. Claude-mem changes that by capturi
 
 ## Installation
 
-### Step 1: Install claude-mem
+### Step 1: Install keepmind
 
 ```bash
-npx claude-mem install
+npx keepmind install
 ```
 
 The installer will:
@@ -36,7 +36,7 @@ The installer will:
 
 ### Step 2: Configure an AI provider
 
-Claude-mem needs an AI provider to extract observations from your sessions. Choose one:
+keepmind needs an AI provider to extract observations from your sessions. Choose one:
 
 <Tabs>
   <Tab title="Gemini API (Free)">
@@ -95,27 +95,27 @@ Claude-mem needs an AI provider to extract observations from your sessions. Choo
 
 ```bash
 # Check worker is running
-npx claude-mem status
+npx keepmind status
 
-# Check hooks are installed — look for claude-mem entries
-cat ~/.gemini/settings.json | grep claude-mem
+# Check hooks are installed — look for keepmind entries
+cat ~/.gemini/settings.json | grep keepmind
 ```
 
 Open http://localhost:37777 to see the memory viewer.
 
 ### Step 4: Start using Gemini CLI
 
-Launch Gemini CLI normally. Claude-mem works in the background:
+Launch Gemini CLI normally. keepmind works in the background:
 
 ```bash
 gemini
 ```
 
-On session start, you'll see claude-mem context injected with your recent observations and project history.
+On session start, you'll see keepmind context injected with your recent observations and project history.
 
 ## What gets captured
 
-Claude-mem registers 8 of Gemini CLI's 11 lifecycle hooks:
+keepmind registers 8 of Gemini CLI's 11 lifecycle hooks:
 
 | Hook | Purpose |
 |------|---------|
@@ -138,26 +138,26 @@ Three model-level hooks (BeforeModel, AfterModel, BeforeToolSelection) are inten
    ```bash
    cat ~/.gemini/settings.json
    ```
-   You should see entries like `"SessionStart"`, `"AfterTool"`, etc. with claude-mem commands.
+   You should see entries like `"SessionStart"`, `"AfterTool"`, etc. with keepmind commands.
 
 2. Restart Gemini CLI after installation.
 
 3. Re-run the installer:
    ```bash
-   npx claude-mem install
+   npx keepmind install
    ```
 
 ### Worker not running
 
 ```bash
 # Check status
-npx claude-mem status
+npx keepmind status
 
 # View logs
-npx claude-mem logs
+npx keepmind logs
 
 # Restart worker
-npx claude-mem restart
+npx keepmind restart
 ```
 
 ### No context appearing at session start
@@ -168,10 +168,10 @@ npx claude-mem restart
 
 ### Raw escape codes in output
 
-If you see characters like `[31m` or `[0m` in the session context, your claude-mem version may need updating:
+If you see characters like `[31m` or `[0m` in the session context, your keepmind version may need updating:
 
 ```bash
-npx claude-mem install
+npx keepmind install
 ```
 
 This was fixed in v10.6.3+ — the Gemini CLI adapter now strips ANSI color codes automatically.
@@ -179,7 +179,7 @@ This was fixed in v10.6.3+ — the Gemini CLI adapter now strips ANSI color code
 ## Uninstalling
 
 ```bash
-npx claude-mem uninstall
+npx keepmind uninstall
 ```
 
 This removes hooks from `~/.gemini/settings.json` and cleans up `~/.gemini/GEMINI.md`.

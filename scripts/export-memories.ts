@@ -138,7 +138,7 @@ if (isDirectRun()) {
   const args = process.argv.slice(2);
   if (args.length < 2) {
     console.error('Usage: npx tsx scripts/export-memories.ts <query> <output-file> [--project=name]');
-    console.error('Example: npx tsx scripts/export-memories.ts "windows" windows-memories.json --project=claude-mem');
+    console.error('Example: npx tsx scripts/export-memories.ts "windows" windows-memories.json --project=keepmind');
     console.error('         npx tsx scripts/export-memories.ts "authentication" auth.json');
     process.exit(1);
   }

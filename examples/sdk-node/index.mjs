@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: Apache-2.0
 //
-// Plain Node demonstration of `claude-mem/sdk`.
+// Plain Node demonstration of `keepmind/sdk`.
 //
 // Proves the headline requirement of the cmem-sdk plan:
 //   capture -> generate -> search, in-process, with NO worker process running.
@@ -19,7 +19,7 @@
 //     KEEPMIND_SERVER_PROVIDER / GEMINI_API_KEY / OPENROUTER_API_KEY
 //     env vars to switch).
 
-import { createCmemClient } from 'claude-mem/sdk';
+import { createCmemClient } from 'keepmind/sdk';
 
 function requireEnv(name) {
   const value = process.env[name];

@@ -1,12 +1,8 @@
 <section dir="rtl">
 <h1 align="center">
   <br>
-  <a href="https://github.com/thedotmack/claude-mem">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-dark-mode.webp">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-light-mode.webp">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/claude-mem-logo-for-light-mode.webp" alt="Claude-Mem" width="400">
-    </picture>
+  <a href="https://github.com/ManuelStaggl/keepmind">
+    keepmind
   </a>
   <br>
 </h1>
@@ -64,21 +60,15 @@
 
 <p align="center">
   <a href="https://trendshift.io/repositories/15496" target="_blank">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge-dark.svg">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg">
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/trendshift-badge.svg" alt="thedotmack/claude-mem | Trendshift" width="250" height="55"/>
-    </picture>
+    keepmind
   </a>
 </p>
 
 <br>
 
 <p align="center">
-  <a href="https://github.com/thedotmack/claude-mem">
-    <picture>
-      <img src="https://raw.githubusercontent.com/thedotmack/claude-mem/main/docs/public/cm-preview.gif" alt="Claude-Mem Preview" width="800">
-    </picture>
+  <a href="https://github.com/ManuelStaggl/keepmind">
+    keepmind
   </a>
 </p>
 
@@ -93,7 +83,7 @@
 </p>
 
 <p align="center"  dir="rtl">
-Claude-Mem هو نظام متطور مصمم لضغط وحفظ الذاكرة لسياق عمل Claude Code. وظيفته الأساسية هي جعل "كلود" يتذكر ما فعله في جلسات العمل السابقة بسلاسة، عبر تسجيل تحركاته، وإنشاء ملخصات ذكية، واستدعائها في الجلسات المستقبلية. هذا يضمن عدم ضياع سياق المشروع حتى لو أغلقت البرنامج وفتحته لاحقاً.
+keepmind هو نظام متطور مصمم لضغط وحفظ الذاكرة لسياق عمل Claude Code. وظيفته الأساسية هي جعل "كلود" يتذكر ما فعله في جلسات العمل السابقة بسلاسة، عبر تسجيل تحركاته، وإنشاء ملخصات ذكية، واستدعائها في الجلسات المستقبلية. هذا يضمن عدم ضياع سياق المشروع حتى لو أغلقت البرنامج وفتحته لاحقاً.
 </p>
 
 ---
@@ -104,9 +94,9 @@ Claude-Mem هو نظام متطور مصمم لضغط وحفظ الذاكرة ل
 <div dir="ltr"  align="left">
 
 ```
-> /plugin marketplace add thedotmack/claude-mem
+> /plugin marketplace add ManuelStaggl/keepmind
 
-> /plugin install claude-mem
+> /plugin install keepmind
 ```
 
 </div>
@@ -130,35 +120,35 @@ Claude-Mem هو نظام متطور مصمم لضغط وحفظ الذاكرة ل
 
 ## المستندات 
 
-📚 **[عرض التوثيق الكامل](https://docs.claude-mem.ai/)** - تصفح على الموقع الرسمي
+📚 **[عرض التوثيق الكامل](https://github.com/ManuelStaggl/keepmind)** - تصفح على الموقع الرسمي
 
 ### البدء
 
-- **[دليل التثبيت](https://docs.claude-mem.ai/installation)** - البدء السريع والتثبيت المتقدم
-- **[دليل الاستخدام](https://docs.claude-mem.ai/usage/getting-started)** - كيف يعمل Claude-Mem تلقائيًا
-- **[أدوات البحث](https://docs.claude-mem.ai/usage/search-tools)** - استعلم عن سجل مشروعك بلغتك
-- **[الميزات التجريبية](https://docs.claude-mem.ai/beta-features)** - جرّب الميزات التجريبية مثل Endless Mode
+- **[دليل التثبيت](https://github.com/ManuelStaggl/keepmind)** - البدء السريع والتثبيت المتقدم
+- **[دليل الاستخدام](https://github.com/ManuelStaggl/keepmind)** - كيف يعمل keepmind تلقائيًا
+- **[أدوات البحث](https://github.com/ManuelStaggl/keepmind)** - استعلم عن سجل مشروعك بلغتك
+- **[الميزات التجريبية](https://github.com/ManuelStaggl/keepmind)** - جرّب الميزات التجريبية مثل Endless Mode
 
 ### أفضل الممارسات
 
-- **[هندسة السياق](https://docs.claude-mem.ai/context-engineering)** - مبادئ تحسين سياق وكيل الذكاء الاصطناعي
-- **[الكشف التدريجي](https://docs.claude-mem.ai/progressive-disclosure)** - الفلسفة وراء استراتيجية تهيئة السياق في Claude-Mem
+- **[هندسة السياق](https://github.com/ManuelStaggl/keepmind)** - مبادئ تحسين سياق وكيل الذكاء الاصطناعي
+- **[الكشف التدريجي](https://github.com/ManuelStaggl/keepmind)** - الفلسفة وراء استراتيجية تهيئة السياق في keepmind
 
 ### البنية المعمارية
 
-- **[نظرة عامة](https://docs.claude-mem.ai/architecture/overview)** - مكونات النظام وتدفق البيانات
-- **[تطور البنية المعمارية](https://docs.claude-mem.ai/architecture-evolution)** - تطور المعمارية من v3 إلى v5
-- **[بنية برامج الربط (Hooks)](https://docs.claude-mem.ai/hooks-architecture)** - كيف يستخدم Claude-Mem خطافات دورة الحياة
-- **[مرجع برامج الربط (Hooks)](https://docs.claude-mem.ai/architecture/hooks)** - شرح 7 سكريبتات خطافات
-- **[خدمة العامل](https://docs.claude-mem.ai/architecture/worker-service)** - HTTP API وإدارة Bun
-- **[قاعدة البيانات](https://docs.claude-mem.ai/architecture/database)** - مخطط SQLite وبحث FTS5
-- **[بنية البحث](https://docs.claude-mem.ai/architecture/search-architecture)** - البحث المختلط مع قاعدة بيانات المتجهات Chroma
+- **[نظرة عامة](https://github.com/ManuelStaggl/keepmind)** - مكونات النظام وتدفق البيانات
+- **[تطور البنية المعمارية](https://github.com/ManuelStaggl/keepmind)** - تطور المعمارية من v3 إلى v5
+- **[بنية برامج الربط (Hooks)](https://github.com/ManuelStaggl/keepmind)** - كيف يستخدم keepmind خطافات دورة الحياة
+- **[مرجع برامج الربط (Hooks)](https://github.com/ManuelStaggl/keepmind)** - شرح 7 سكريبتات خطافات
+- **[خدمة العامل](https://github.com/ManuelStaggl/keepmind)** - HTTP API وإدارة Bun
+- **[قاعدة البيانات](https://github.com/ManuelStaggl/keepmind)** - مخطط SQLite وبحث FTS5
+- **[بنية البحث](https://github.com/ManuelStaggl/keepmind)** - البحث المختلط مع قاعدة بيانات المتجهات Chroma
 
 ### الإعدادات والتطوير
 
-- **[الإعدادات](https://docs.claude-mem.ai/configuration)** - متغيرات البيئة والإعدادات
-- **[التطوير](https://docs.claude-mem.ai/development)** - البناء، الاختبار، سير العمل للمساهمة
-- **[استكشاف الأخطاء وإصلاحها](https://docs.claude-mem.ai/troubleshooting)** - المشكلات الشائعة والحلول
+- **[الإعدادات](https://github.com/ManuelStaggl/keepmind)** - متغيرات البيئة والإعدادات
+- **[التطوير](https://github.com/ManuelStaggl/keepmind)** - البناء، الاختبار، سير العمل للمساهمة
+- **[استكشاف الأخطاء وإصلاحها](https://github.com/ManuelStaggl/keepmind)** - المشكلات الشائعة والحلول
 
 ---
 
@@ -173,12 +163,12 @@ Claude-Mem هو نظام متطور مصمم لضغط وحفظ الذاكرة ل
 5. **مهارة mem-search** - استعلامات اللغة الطبيعية مع الكشف التدريجي
 6. **قاعدة بيانات المتجهات Chroma** - البحث الدلالي الهجين + الكلمات المفتاحية لاسترجاع السياق الذكي
 
-انظر [نظرة عامة على البنية المعمارية](https://docs.claude-mem.ai/architecture/overview) للتفاصيل.
+انظر [نظرة عامة على البنية المعمارية](https://github.com/ManuelStaggl/keepmind) للتفاصيل.
 
 ---
 
 ## أدوات البحث (MCP Search Tools)
-يوفر Claude-Mem بحثًا ذكيًا من خلال مهارة mem-search التي تُستدعى تلقائيًا عندما تسأل عن العمل السابق:
+يوفر keepmind بحثًا ذكيًا من خلال مهارة mem-search التي تُستدعى تلقائيًا عندما تسأل عن العمل السابق:
 
 **كيف يعمل:**
 - فقط اسأل بشكل طبيعي: *"ماذا فعلنا في الجلسة الأخيرة؟"* أو *"هل أصلحنا هذا الخطأ من قبل؟"*
@@ -207,15 +197,15 @@ Claude-Mem هو نظام متطور مصمم لضغط وحفظ الذاكرة ل
 "What was happening when we added the viewer UI?"
 ```
 
-انظر [دليل أدوات البحث](https://docs.claude-mem.ai/usage/search-tools) لأمثلة مفصلة.
+انظر [دليل أدوات البحث](https://github.com/ManuelStaggl/keepmind) لأمثلة مفصلة.
 
 ---
 
 ## الميزات التجريبية
 
-يقدم Claude-Mem **قناة تجريبية** بميزات تجريبية مثل **Endless Mode** (بنية ذاكرة بيوميمتية للجلسات الممتدة). بدّل بين الإصدارات المستقرة والتجريبية من واجهة مستخدم عارض الويب على http://localhost:37777 ← الإعدادات.
+يقدم keepmind **قناة تجريبية** بميزات تجريبية مثل **Endless Mode** (بنية ذاكرة بيوميمتية للجلسات الممتدة). بدّل بين الإصدارات المستقرة والتجريبية من واجهة مستخدم عارض الويب على http://localhost:37777 ← الإعدادات.
 
-انظر **[توثيق الميزات التجريبية](https://docs.claude-mem.ai/beta-features)** لتفاصيل حول Endless Mode وكيفية تجربته.
+انظر **[توثيق الميزات التجريبية](https://github.com/ManuelStaggl/keepmind)** لتفاصيل حول Endless Mode وكيفية تجربته.
 
 ---
 
@@ -230,15 +220,15 @@ Claude-Mem هو نظام متطور مصمم لضغط وحفظ الذاكرة ل
 
 ## الإعدادات
 
-تتم إدارة الإعدادات في `~/.claude-mem/settings.json` (يتم إنشاؤه تلقائيًا بالقيم الافتراضية عند التشغيل الأول). قم بتكوين نموذج الذكاء الاصطناعي، منفذ العامل، دليل البيانات، مستوى السجل، وإعدادات حقن السياق.
+تتم إدارة الإعدادات في `~/.keepmind/settings.json` (يتم إنشاؤه تلقائيًا بالقيم الافتراضية عند التشغيل الأول). قم بتكوين نموذج الذكاء الاصطناعي، منفذ العامل، دليل البيانات، مستوى السجل، وإعدادات حقن السياق.
 
-انظر **[دليل الإعدادات](https://docs.claude-mem.ai/configuration)** لجميع الإعدادات المتاحة والأمثلة.
+انظر **[دليل الإعدادات](https://github.com/ManuelStaggl/keepmind)** لجميع الإعدادات المتاحة والأمثلة.
 
 ---
 
 ## التطوير
 
-انظر **[دليل التطوير](https://docs.claude-mem.ai/development)** لتعليمات البناء، الاختبار، وسير عمل المساهمة.
+انظر **[دليل التطوير](https://github.com/ManuelStaggl/keepmind)** لتعليمات البناء، الاختبار، وسير عمل المساهمة.
 
 ---
 
@@ -246,7 +236,7 @@ Claude-Mem هو نظام متطور مصمم لضغط وحفظ الذاكرة ل
 
 إذا واجهت مشكلة، اشرحها لـ Claude وسيقوم بتشغيل خاصية troubleshoot لإصلاحها ذاتياً.
 
-انظر **[دليل استكشاف الأخطاء وإصلاحها](https://docs.claude-mem.ai/troubleshooting)** للمشكلات الشائعة والحلول.
+انظر **[دليل استكشاف الأخطاء وإصلاحها](https://github.com/ManuelStaggl/keepmind)** للمشكلات الشائعة والحلول.
 
 ---
 
@@ -271,7 +261,7 @@ npm run bug-report
 4. تحديث المستندات عند الحاجه
 5. تقديم Pull Request
 
-انظر [دليل التطوير](https://docs.claude-mem.ai/development) لسير عمل المساهمة.
+انظر [دليل التطوير](https://github.com/ManuelStaggl/keepmind) لسير عمل المساهمة.
 
 ---
 
@@ -293,7 +283,7 @@ Apache-2.0 allows broad use, modification, distribution, and commercial use, sub
 ## الدعم
 
 - **التوثيق**: [docs/](docs/)
-- **المشكلات**: [GitHub Issues](https://github.com/thedotmack/claude-mem/issues)
+- **المشكلات**: [GitHub Issues](https://github.com/ManuelStaggl/keepmind/issues)
 - **المستودع**: [github.com/thedotmack/claude-mem](https://github.com/thedotmack/claude-mem)
 - **المؤلف**: Alex Newman ([@thedotmack](https://github.com/thedotmack))
 

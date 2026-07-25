@@ -223,7 +223,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--model-name",
-        default="claude-opus-4-7+claude-mem",
+        default="claude-opus-4-7+keepmind",
         help="Model name directory inside logs/run_evaluation/<run_id>/.",
     )
     parser.add_argument(

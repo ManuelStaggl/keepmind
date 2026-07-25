@@ -63,7 +63,7 @@ default) means no rate limit, no quota, and no metering, so behavior is unchange
   {
     "id": "...", "apiKey": "cm_...", "scopes": ["memories:read"], "expiresAt": null,
     "mcpUrl": "https://<host>/v1/mcp",
-    "connectCommand": "claude mcp add --transport http claude-mem https://<host>/v1/mcp --header \"Authorization: Bearer cm_...\""
+    "connectCommand": "claude mcp add --transport http keepmind https://<host>/v1/mcp --header \"Authorization: Bearer cm_...\""
   }
   ```
 
@@ -88,7 +88,7 @@ Without `wait=true`, the response includes the new event row and a best-
 effort `generationJob` field. With `wait=true`, the `generationJob` field is
 always populated (or `null` only when generation was explicitly disabled).
 The actual provider call happens in a separate BullMQ worker process
-(`claude-mem server worker start`); the HTTP path never blocks on a
+(`keepmind server worker start`); the HTTP path never blocks on a
 provider response.
 
 ## Remote MCP endpoint
@@ -102,7 +102,7 @@ if the key is project-scoped) bound every read.
 Connect:
 
 ```bash
-claude mcp add --transport http claude-mem <server-base>/v1/mcp \
+claude mcp add --transport http keepmind <server-base>/v1/mcp \
   --header "Authorization: Bearer cm_..."
 ```
 

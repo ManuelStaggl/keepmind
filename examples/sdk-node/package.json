@@ -1,11 +1,11 @@
 {
-  "name": "claude-mem-sdk-node-example",
+  "name": "keepmind-sdk-node-example",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Plain-Node example proving claude-mem/sdk runs capture -> generate -> search in-process, no worker.",
+  "description": "Plain-Node example proving keepmind/sdk runs capture -> generate -> search in-process, no worker.",
   "dependencies": {
-    "claude-mem": "file:../.."
+    "keepmind": "file:../.."
   },
   "scripts": {
     "start": "node index.mjs"

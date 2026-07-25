@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Batch orchestrator for SWE-bench evaluation of Claude Code + claude-mem.
+Batch orchestrator for SWE-bench evaluation of Claude Code + keepmind.
 
 Iterates a list of SWE-bench Verified instances, launches a per-instance Docker
-container (`claude-mem/swebench-agent:latest`) that runs the two-turn
+container (`keepmind/swebench-agent:latest`) that runs the two-turn
 ingest/fix protocol, and collects all resulting diffs into a single
 `predictions.jsonl` compatible with the upstream SWE-bench harness.
 
 Usage:
     python evals/swebench/run-batch.py \
-        --run-id claude-mem-baseline-001 \
+        --run-id keepmind-baseline-001 \
         --limit 3 \
         --max-concurrent 2
 
@@ -66,7 +66,7 @@ def extract_oauth_credentials() -> Path | None:
     Keychain/file is untouched).
     """
     temp = tempfile.NamedTemporaryFile(
-        prefix="claude-mem-creds-",
+        prefix="keepmind-creds-",
         suffix=".json",
         delete=False,
     )
@@ -115,7 +115,7 @@ def extract_oauth_credentials() -> Path | None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run the claude-mem SWE-bench agent on a batch of instances.",
+        description="Run the keepmind SWE-bench agent on a batch of instances.",
     )
     parser.add_argument(
         "--instance-ids",
@@ -156,7 +156,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--image",
         type=str,
-        default="claude-mem/swebench-agent:latest",
+        default="keepmind/swebench-agent:latest",
         help="Agent Docker image tag.",
     )
     parser.add_argument(
@@ -448,7 +448,7 @@ def main() -> int:
         for key in HIDDEN_AGENT_FIELDS:
             row.pop(key, None)
 
-    model_name_or_path = "claude-opus-4-7+claude-mem"
+    model_name_or_path = "claude-opus-4-7+keepmind"
 
     print(
         f"Launching {total} instance(s) with max_concurrent={args.max_concurrent}, "

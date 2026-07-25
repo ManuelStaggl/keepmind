@@ -27,11 +27,11 @@ if [[ ! -f "$PROBLEM_STATEMENT_FILE" ]]; then
   exit 1
 fi
 
-MODEL_NAME="claude-opus-4-7+claude-mem"
+MODEL_NAME="claude-opus-4-7+keepmind"
 
 SCRATCH=$(mktemp -d)
 REPO_DIR="$SCRATCH/repo"
-MEM_DIR="$SCRATCH/.claude-mem"
+MEM_DIR="$SCRATCH/.keepmind"
 CLAUDE_DIR="$SCRATCH/.claude"
 mkdir -p "$MEM_DIR" "$CLAUDE_DIR"
 
@@ -81,7 +81,7 @@ set +e
   cd "$REPO_DIR" && HOME="$SCRATCH" claude \
     --print \
     --session-id "$SESSION_ID" \
-    --plugin-dir /opt/claude-mem \
+    --plugin-dir /opt/keepmind \
     --permission-mode bypassPermissions \
     --allowedTools "Read,Glob,Grep,Bash(ls *),Bash(wc *)" \
     --max-budget-usd 5.00 \
@@ -98,7 +98,7 @@ fi
 PROBLEM=$(cat "$PROBLEM_STATEMENT_FILE")
 QUERY=$(printf '%s' "$PROBLEM" | tr -s '[:space:]' ' ' | cut -c1-200)
 
-FIX_PROMPT="/claude-mem:mem-search ${QUERY}
+FIX_PROMPT="/keepmind:mem-search ${QUERY}
 
 Problem statement:
 ${PROBLEM}
@@ -110,7 +110,7 @@ set +e
   cd "$REPO_DIR" && HOME="$SCRATCH" claude \
     --print \
     --resume "$SESSION_ID" \
-    --plugin-dir /opt/claude-mem \
+    --plugin-dir /opt/keepmind \
     --permission-mode bypassPermissions \
     --allowedTools "Read,Glob,Grep,Edit,Write,Bash(git *),Bash(ls *)" \
     --max-budget-usd 5.00 \

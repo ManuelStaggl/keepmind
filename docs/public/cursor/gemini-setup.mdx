@@ -1,11 +1,11 @@
 ---
 title: "Cursor + Gemini Setup"
-description: "Use Claude-Mem in Cursor with Google's free Gemini API"
+description: "Use keepmind in Cursor with Google's free Gemini API"
 ---
 
 # Cursor + Gemini Setup
 
-This guide walks you through setting up Claude-Mem in Cursor using Google's Gemini API. Gemini offers a generous free tier that handles typical individual usage.
+This guide walks you through setting up keepmind in Cursor using Google's Gemini API. Gemini offers a generous free tier that handles typical individual usage.
 
 <Info>
 **Free Tier:** 1,500 requests per day with `gemini-2.5-flash-lite`. No credit card required.
@@ -24,12 +24,12 @@ This guide walks you through setting up Claude-Mem in Cursor using Google's Gemi
 **Higher rate limits:** Enable billing on your Google Cloud project to unlock 4,000 RPM (vs 10 RPM without billing). You won't be charged unless you exceed the free quota.
 </Tip>
 
-## Step 2: Clone and Build Claude-Mem
+## Step 2: Clone and Build keepmind
 
 ```bash
 # Clone the repository
-git clone https://github.com/thedotmack/claude-mem.git
-cd claude-mem
+git clone https://github.com/ManuelStaggl/keepmind.git
+cd keepmind
 
 # Install dependencies
 bun install
@@ -117,7 +117,7 @@ To change the model, update your settings:
 
 ## Rate Limiting
 
-Claude-mem automatically handles rate limiting for free tier usage:
+keepmind automatically handles rate limiting for free tier usage:
 
 - Requests are spaced to stay within limits
 - Processing may be slightly slower but stays within quota

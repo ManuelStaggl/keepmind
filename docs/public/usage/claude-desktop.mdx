@@ -1,22 +1,22 @@
 ---
 title: Claude Desktop MCP
-description: Use claude-mem memory search in Claude Desktop with MCP tools
+description: Use keepmind memory search in Claude Desktop with MCP tools
 icon: desktop
 ---
 
 <Note>
-**Availability:** Claude-mem MCP tools work with Claude Desktop on macOS and Windows.
+**Availability:** keepmind MCP tools work with Claude Desktop on macOS and Windows.
 </Note>
 
 ## Overview
 
-Claude Desktop can access your claude-mem memory database through **MCP tools**. This allows you to search past sessions, decisions, and observations directly from Claude Desktop conversations.
+Claude Desktop can access your keepmind memory database through **MCP tools**. This allows you to search past sessions, decisions, and observations directly from Claude Desktop conversations.
 
 ## Prerequisites
 
 Before configuring MCP tools, ensure:
 
-1. **claude-mem is installed** and the worker service is running
+1. **keepmind is installed** and the worker service is running
 2. **MCP server is configured** in Claude Desktop (uses the `mcp-search` MCP server)
 
 ### Verify Worker is Running
@@ -133,7 +133,7 @@ This 3-layer approach provides ~10x token savings compared to fetching full deta
 
 ### Search Returns No Results
 
-1. Ensure claude-mem has recorded sessions (check http://localhost:37777)
+1. Ensure keepmind has recorded sessions (check http://localhost:37777)
 2. Verify the database exists: `ls ~/.keepmind/keepmind.db`
 3. Test the API directly: `curl "http://localhost:37777/api/search?query=test"`
 

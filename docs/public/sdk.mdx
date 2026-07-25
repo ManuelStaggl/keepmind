@@ -1,11 +1,11 @@
 ---
-title: "Using claude-mem in your app (SDK)"
-description: "Embed claude-mem's capture, compression, and search engine directly into your Node app — no worker, no HTTP daemon, no Redis."
+title: "Using keepmind in your app (SDK)"
+description: "Embed keepmind's capture, compression, and search engine directly into your Node app — no worker, no HTTP daemon, no Redis."
 ---
 
-`claude-mem/sdk` is the in-process programmatic interface to the same
+`keepmind/sdk` is the in-process programmatic interface to the same
 capture-and-compression engine that powers the Claude Code plugin. It is
-the only supported way to embed claude-mem in your own Node application:
+the only supported way to embed keepmind in your own Node application:
 capture an event, run inline AI compression, and search the resulting
 observations — **all in one process, with no worker, daemon, or message
 queue.**
@@ -13,7 +13,7 @@ queue.**
 ## Headline
 
 ```
-import { createCmemClient } from 'claude-mem/sdk';
+import { createCmemClient } from 'keepmind/sdk';
 
 const client = await createCmemClient({ databaseUrl });
 await client.captureAndGenerate({ sourceAdapter: 'my-app', eventType: 'demo', payload });
@@ -23,22 +23,22 @@ await client.close();
 
 Three pieces of state live behind the curtain — Postgres, Chroma, and the
 generation provider — and every one of them runs in the calling process.
-No `claude-mem worker start`, no `claude-mem server start`, no Redis,
+No `keepmind worker start`, no `keepmind server start`, no Redis,
 no Express HTTP layer.
 
 ## Quick start
 
-Install (the SDK ships in the same `claude-mem` package the plugin uses):
+Install (the SDK ships in the same `keepmind` package the plugin uses):
 
 ```bash
-npm install claude-mem
+npm install keepmind
 ```
 
 Then a minimal end-to-end script:
 
 ```js
 // example.mjs — capture, generate, search, close.
-import { createCmemClient } from 'claude-mem/sdk';
+import { createCmemClient } from 'keepmind/sdk';
 
 const client = await createCmemClient({
   databaseUrl: process.env.KEEPMIND_SERVER_DATABASE_URL,
@@ -68,7 +68,7 @@ ANTHROPIC_API_KEY=sk-ant-... \
 ```
 
 A runnable copy of this script lives at `examples/sdk-node/` in the
-[claude-mem repository](https://github.com/thedotmack/claude-mem/tree/main/examples/sdk-node).
+[keepmind repository](https://github.com/thedotmack/claude-mem/tree/main/examples/sdk-node).
 
 ## `createCmemClient` options
 
@@ -90,7 +90,7 @@ worker/server runtimes — none of it is part of the SDK.
 
 ```
 consumer app
-  └─ import { createCmemClient } from 'claude-mem/sdk'
+  └─ import { createCmemClient } from 'keepmind/sdk'
        ├─ Postgres (pg)         — capture, observations, sessions, jobs (system of record)
        ├─ in-process generation — provider.generate() → parseAgentXml → processGeneratedResponse
        ├─ Chroma (REQUIRED)     — semantic index over the SAME observations, via uvx chroma-mcp
@@ -107,7 +107,7 @@ shell adds is intentionally absent here.
 ## Chroma is required
 
 `createCmemClient` will reject if `uvx chroma-mcp` cannot start. There is
-no `chroma.enabled = false` toggle. claude-mem without semantic search is
+no `chroma.enabled = false` toggle. keepmind without semantic search is
 broken — observations are unsearchable in the way users actually search
 them.
 

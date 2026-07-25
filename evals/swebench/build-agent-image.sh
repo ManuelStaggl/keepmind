@@ -10,5 +10,5 @@ npm run build
 
 docker build \
   -f evals/swebench/Dockerfile.agent \
-  -t claude-mem/swebench-agent:latest \
+  -t keepmind/swebench-agent:latest \
   .

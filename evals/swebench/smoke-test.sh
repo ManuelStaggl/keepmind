@@ -3,7 +3,7 @@ set -euo pipefail
 
 INSTANCE_ID="${1:-sympy__sympy-24152}"
 DATASET="${DATASET:-princeton-nlp/SWE-bench_Lite}"
-IMAGE="${IMAGE:-claude-mem/swebench-agent:latest}"
+IMAGE="${IMAGE:-keepmind/swebench-agent:latest}"
 TIMEOUT="${TIMEOUT:-1800}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,7 +12,7 @@ RUN_DIR="$REPO_ROOT/evals/swebench/runs/smoke/$INSTANCE_ID"
 PREDICTIONS="$REPO_ROOT/evals/swebench/runs/smoke/predictions.jsonl"
 mkdir -p "$RUN_DIR" "$(dirname "$PREDICTIONS")"
 
-CREDS_FILE="$(mktemp -t claude-mem-creds.XXXXXX.json)"
+CREDS_FILE="$(mktemp -t keepmind-creds.XXXXXX.json)"
 trap 'rm -f "$CREDS_FILE"' EXIT
 
 creds_obtained=0
@@ -54,7 +54,7 @@ else:
     sys.exit(1)
 PY
 
-SCRATCH="$(mktemp -d -t claude-mem-smoke.XXXXXX)"
+SCRATCH="$(mktemp -d -t keepmind-smoke.XXXXXX)"
 trap 'rm -f "$CREDS_FILE" "$INSTANCE_JSON"; rm -rf "$SCRATCH"' EXIT
 
 read -r REPO BASE_COMMIT < <(
@@ -81,7 +81,7 @@ else
   echo "WARN: no \`timeout\`/\`gtimeout\` on PATH; container runs uncapped" >&2
 fi
 
-CONTAINER_NAME="claude-mem-smoke-$INSTANCE_ID-$$"
+CONTAINER_NAME="keepmind-smoke-$INSTANCE_ID-$$"
 
 set +e
 "${TIMEOUT_CMD[@]}" docker run --rm \
@@ -110,7 +110,7 @@ DIFF=""
 jq -nc \
   --arg id "$INSTANCE_ID" \
   --arg patch "$DIFF" \
-  --arg model "claude-opus-4-7+claude-mem" \
+  --arg model "claude-opus-4-7+keepmind" \
   '{instance_id:$id, model_patch:$patch, model_name_or_path:$model}' \
   >> "$PREDICTIONS"
 

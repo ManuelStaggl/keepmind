@@ -1,6 +1,6 @@
 ---
 title: "Troubleshooting"
-description: "Common issues and solutions for Claude-Mem"
+description: "Common issues and solutions for keepmind"
 ---
 
 # Troubleshooting Guide
@@ -66,7 +66,7 @@ The skill includes comprehensive diagnostics, automated repair sequences, and de
 1. Check browser localStorage is enabled:
    ```javascript
    // In browser console
-   localStorage.getItem('claude-mem-settings')
+   localStorage.getItem('keepmind-settings')
    ```
 
 2. Verify settings endpoint is working:
@@ -77,7 +77,7 @@ The skill includes comprehensive diagnostics, automated repair sequences, and de
 3. Clear localStorage and try again:
    ```javascript
    // In browser console
-   localStorage.removeItem('claude-mem-settings')
+   localStorage.removeItem('keepmind-settings')
    ```
 
 4. Check for browser privacy mode (blocks localStorage)
@@ -858,18 +858,18 @@ sqlite3 ~/.keepmind/keepmind.db "
 
 ### Plugin Not Found
 
-**Symptoms**: `/plugin install claude-mem` fails.
+**Symptoms**: `/plugin install keepmind` fails.
 
 **Solutions**:
 
 1. Add marketplace first:
    ```bash
-   /plugin marketplace add thedotmack/claude-mem
+   /plugin marketplace add ManuelStaggl/keepmind
    ```
 
 2. Then install:
    ```bash
-   /plugin install claude-mem
+   /plugin install keepmind
    ```
 
 3. Verify installation:
@@ -925,7 +925,7 @@ sqlite3 ~/.keepmind/keepmind.db "
 ### Enable Verbose Logging
 
 ```bash
-export DEBUG=claude-mem:*
+export DEBUG=keepmind:*
 npm run worker:restart
 npm run worker:logs
 ```
@@ -1021,7 +1021,7 @@ If none of these solutions work:
    npm run worker:logs
    ```
 
-2. **Create issue**: [GitHub Issues](https://github.com/thedotmack/claude-mem/issues)
+2. **Create issue**: [GitHub Issues](https://github.com/ManuelStaggl/keepmind/issues)
    - Include error messages
    - Include relevant logs
    - Include steps to reproduce
@@ -1030,6 +1030,6 @@ If none of these solutions work:
 
 ## Next Steps
 
-- [Configuration](configuration) - Customize Claude-Mem
+- [Configuration](configuration) - Customize keepmind
 - [Development](development) - Build from source
 - [Architecture](architecture/overview) - Understand the system

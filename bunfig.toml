@@ -1,5 +1,5 @@
 [test]
 smol = true
-# Pins CLAUDE_MEM_DATA_DIR to a temp dir before any module loads, so no test can
-# touch the real ~/.claude-mem. See tests/preload.ts.
+# Pins KEEPMIND_DATA_DIR to a temp dir before any module loads, so no test can
+# touch the real ~/.keepmind. See tests/preload.ts.
 preload = ["./tests/preload.ts"]

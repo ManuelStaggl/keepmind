@@ -1,8 +1,8 @@
-# Claude-Mem Server (Beta)
+# keepmind Server (Beta)
 
-Claude-Mem Server is the beta server runtime for Claude-Mem 13. It is a
+keepmind Server is the beta server runtime for keepmind 13. It is a
 Postgres-backed, BullMQ-driven, API-key-authenticated runtime that replaces
-the legacy `claude-mem worker` for deployable use cases.
+the legacy `keepmind worker` for deployable use cases.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ the legacy `claude-mem worker` for deployable use cases.
                           |  HTTPS / Bearer API key
                           v
 +-----------------+  +----+---------+   +-------------------+
-|    Postgres     |<-+ claude-mem-  +-->+      Valkey       |
+|    Postgres     |<-+ keepmind-  +-->+      Valkey       |
 | (canonical      |  |   server      |   | (BullMQ queue,   |
 |  storage:       |  | --daemon      |   |  noeviction,     |
 |  events,        |  | HTTP only,    |   |  appendonly yes) |
@@ -24,7 +24,7 @@ the legacy `claude-mem worker` for deployable use cases.
 +--------^--------+          |                      |
          |                   v                      |
          |          +-----------------+             |
-         +----------+ claude-mem-     +-------------+
+         +----------+ keepmind-     +-------------+
             read    |  worker (Nx)    |  consume jobs
             write   | server worker   |  call provider
                     |  start          |
@@ -36,11 +36,11 @@ and same codebase**, but are split into separate processes / containers so
 that:
 
 1. Long-running provider calls cannot block HTTP responsiveness.
-2. Generation can scale horizontally (`docker compose up --scale claude-mem-worker=N`).
+2. Generation can scale horizontally (`docker compose up --scale keepmind-worker=N`).
 3. Restarting the HTTP server does not lose enqueued generation work — jobs
    live in Valkey, persisted by AOF.
 
-The legacy `claude-mem worker` runtime is **not** spawned in Docker. The
+The legacy `keepmind worker` runtime is **not** spawned in Docker. The
 container entrypoint runs `bun server-service.cjs --daemon` (or
 `worker start`) and never `bun worker-service.cjs`.
 
@@ -64,12 +64,12 @@ the following are missing or invalid in Docker:
 Local development can still use SQLite + `local-dev` auth bypass **outside
 Docker only**. Deployable mode must use the table above.
 
-## Generation worker mode (`claude-mem server worker start`)
+## Generation worker mode (`keepmind server worker start`)
 
 The same image runs the generation worker via:
 
 ```sh
-claude-mem server worker start
+keepmind server worker start
 ```
 
 This starts a process that:
@@ -83,10 +83,10 @@ This starts a process that:
   is inherited from the shared compose file. The worker IS the generation
   process.
 
-In Compose this is the `claude-mem-worker` service. Scale it horizontally:
+In Compose this is the `keepmind-worker` service. Scale it horizontally:
 
 ```sh
-docker compose up -d --scale claude-mem-worker=4
+docker compose up -d --scale keepmind-worker=4
 ```
 
 BullMQ guarantees only one worker processes a given job at a time; the
@@ -103,7 +103,7 @@ KEEPMIND_AUTH_MODE=api-key
 API keys are created with:
 
 ```sh
-claude-mem server api-key create \
+keepmind server api-key create \
   --name "ci"                  \
   --scope memories:read,memories:write
 ```
@@ -112,7 +112,7 @@ The raw key is shown **once**; only a SHA-256 hash is stored in Postgres
 (`api_keys.key_hash`). Revoke with:
 
 ```sh
-claude-mem server api-key revoke <id>
+keepmind server api-key revoke <id>
 ```
 
 Revocation is enforced on every request because `requirePostgresServerAuth`
@@ -133,10 +133,10 @@ poison.
   `bootstrapServerBetaPostgresSchema()`.
 * `valkey` — BullMQ queue, configured with `appendonly yes`,
   `appendfsync everysec`, `maxmemory-policy noeviction`.
-* `claude-mem-server` — HTTP runtime.
+* `keepmind-server` — HTTP runtime.
   `KEEPMIND_GENERATION_DISABLED=true` so the BullMQ Worker is **not**
   attached here.
-* `claude-mem-worker` — generation worker. Scale horizontally.
+* `keepmind-worker` — generation worker. Scale horizontally.
 
 Bring it up:
 
@@ -155,7 +155,7 @@ docker compose down -v
 `scripts/e2e-server-docker.sh` brings up the full stack and verifies:
 
 * `POST /v1/events?wait=true` returns a `generationJob` descriptor.
-* Restart of `claude-mem-server` and `claude-mem-worker` mid-stream does
+* Restart of `keepmind-server` and `keepmind-worker` mid-stream does
   not lose data.
 * Revoking an API key denies subsequent reads and writes (401/403).
 * No `worker-service.cjs` process runs in any container.

@@ -1,4 +1,4 @@
-# How claude-mem works
+# How keepmind works
 
 ## What it does
 

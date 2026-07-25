@@ -16,7 +16,7 @@ const question = (query) => new Promise((resolve) => rl.question(query, resolve)
 
 async function publish() {
   try {
-    console.log('📦 Claude-mem Marketplace Release Tool\n');
+    console.log('📦 keepmind Marketplace Release Tool\n');
 
     console.log('🔍 Checking git status...');
     const { stdout: gitStatus } = await execAsync('git status --porcelain');
@@ -108,7 +108,7 @@ async function publish() {
     await execAsync(`git commit -m "chore: Release v${newVersion}
 
 Marketplace release for Claude Code plugin
-https://github.com/thedotmack/claude-mem"`);
+https://github.com/ManuelStaggl/keepmind"`);
     await execAsync(`git tag v${newVersion}`);
     console.log(`✓ Created commit and tag v${newVersion}`);
 
@@ -118,7 +118,7 @@ https://github.com/thedotmack/claude-mem"`);
     console.log('✓ Pushed to git');
 
     console.log(`\n✅ Successfully released v${newVersion}! 🎉`);
-    console.log(`\n🏷️  Tag: https://github.com/thedotmack/claude-mem/releases/tag/v${newVersion}`);
+    console.log(`\n🏷️  Tag: https://github.com/ManuelStaggl/keepmind/releases/tag/v${newVersion}`);
     console.log(`📦 Marketplace will sync from this tag automatically`);
 
   } catch (error) {

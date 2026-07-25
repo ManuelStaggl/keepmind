@@ -1,12 +1,12 @@
 {
   "$schema": "https://mintlify.com/schema.json",
-  "name": "Claude-Mem",
+  "name": "keepmind",
   "description": "Persistent memory compression system that preserves context across Claude Code sessions",
   "theme": "mint",
-  "favicon": "/claude-mem-logomark.webp",
+  "favicon": "/keepmind-logomark.webp",
   "logo": {
-    "light": "/claude-mem-logo-for-light-mode.webp",
-    "dark": "/claude-mem-logo-for-dark-mode.webp",
+    "light": "/keepmind-logo-for-light-mode.webp",
+    "dark": "/keepmind-logo-for-dark-mode.webp",
     "href": "https://github.com/thedotmack/claude-mem"
   },
   "colors": {
@@ -134,7 +134,7 @@
           },
           {
             "label": "Issues",
-            "href": "https://github.com/thedotmack/claude-mem/issues"
+            "href": "https://github.com/ManuelStaggl/keepmind/issues"
           }
         ]
       },
@@ -153,7 +153,7 @@
     "indexing": "all",
     "metatags": {
       "og:type": "website",
-      "og:site_name": "Claude-Mem Documentation",
+      "og:site_name": "keepmind Documentation",
       "og:description": "Persistent memory compression system that preserves context across Claude Code sessions"
     }
   },

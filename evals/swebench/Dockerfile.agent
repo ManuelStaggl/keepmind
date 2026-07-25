@@ -26,15 +26,15 @@ RUN set -eux \
 
 RUN npm install -g @anthropic-ai/claude-code@2.1.114
 
-COPY plugin/ /opt/claude-mem/
+COPY plugin/ /opt/keepmind/
 
 COPY evals/swebench/run-instance.sh /evals/swebench/run-instance.sh
 RUN chmod +x /evals/swebench/run-instance.sh
 
-RUN mkdir -p /root/.claude /root/.claude-mem
+RUN mkdir -p /root/.claude /root/.keepmind
 
-RUN mkdir -p /home/node/.claude /home/node/.claude-mem \
- && chown -R node:node /home/node /opt/claude-mem
+RUN mkdir -p /home/node/.claude /home/node/.keepmind \
+ && chown -R node:node /home/node /opt/keepmind
 
 USER node
 WORKDIR /home/node

@@ -79,8 +79,8 @@ Last 20 lines:
 [e2e] phase1 passed session=dcef676a-... event=2239a1ad-... job=629abbe8-...
 [e2e] revoking read-only key inside server container
 [e2e] restarting server container to verify persisted state and queue durability
- Container ...claude-mem-worker-1  Started
- Container ...claude-mem-server-1  Started
+ Container ...keepmind-worker-1  Started
+ Container ...keepmind-server-1  Started
 [e2e] verifying no legacy worker process is running
 [e2e] no legacy worker processes detected
 [e2e] running phase2 persistence and revoked-key checks in test container
@@ -104,7 +104,7 @@ Phases verified: API key auth, generic event submission and observation generati
 | - | ------------------------------------------------------------------------------------------------- | ------ | -------- |
 | 1 | Worker still works in legacy mode (health, observation flow)                                      | N/A — DEFERRED LIVE | Targeted unit/integration tests for worker (`tests/services/worker/`, `tests/worker/http/`, `tests/services/sqlite/`) all pass except 7 pre-existing baseline failures unrelated to server-beta. Live worker round-trip not run (no provider creds in this env). Phase 7 commit explicitly notes worker round-trip integration deferred (needs Redis); covered functionally by Docker E2E phase1. |
 | 2 | Stop worker — no PID file                                                                         | N/A   | No worker started in this verification run; covered by Docker E2E `[e2e] no legacy worker processes detected` assertion in both phase1 and phase2. |
-| 3 | Start server-beta with Valkey                                                                     | PASS  | Docker E2E containers `claude-mem-server-1` and `valkey-1` reach `Healthy`. |
+| 3 | Start server-beta with Valkey                                                                     | PASS  | Docker E2E containers `keepmind-server-1` and `valkey-1` reach `Healthy`. |
 | 4 | Submit generic REST event                                                                         | PASS  | Docker E2E phase1: `event=2239a1ad-7983-49f3-b361-e712d29f5e7f`. |
 | 5 | Observations appear without worker running                                                        | PASS  | Docker E2E phase1: `job=629abbe8-... passed` while `[e2e] no legacy worker processes detected`. |
 | 6 | Submit Claude Code PostToolUse payload through compat adapter                                     | PASS  | `tests/compat/sessions-observations-adapter.test.ts` + `tests/hooks/server-client.test.ts`: 15 pass, 0 fail (Phase 9 compat surface). |
