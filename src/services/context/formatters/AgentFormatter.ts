@@ -46,8 +46,13 @@ export function renderAgentContextEconomics(
 ): string[] {
   const output: string[] = [];
 
+  // "Nt read" used to print totalReadTokens — the size of the FULL stored records
+  // of every listed observation. But this block lists headlines only, so the
+  // number overstated the injection cost by ~4x (measured: "3,997t read" on a
+  // ~900-token block) and was read as a budget figure by both humans and models.
+  // Label it for what it is: how much stored detail those headlines index.
   const parts: string[] = [
-    `${economics.totalObservations} obs (${economics.totalReadTokens.toLocaleString('en-US')}t read)`,
+    `${economics.totalObservations} obs (${economics.totalReadTokens.toLocaleString('en-US')}t indexed)`,
     `${economics.totalDiscoveryTokens.toLocaleString('en-US')}t work`
   ];
 
@@ -65,9 +70,35 @@ export function renderAgentContextEconomics(
   return output;
 }
 
+/**
+ * Human-scale age of a calendar day ("today", "yesterday", "12 days ago").
+ * Returns null when the day cannot be parsed.
+ *
+ * Absolute dates alone make stale memory read as current: a block headed
+ * "Jul 18, 2026" looks equally authoritative whether that was yesterday or six
+ * weeks ago. The age is what tells a reader (and the model) how much to trust
+ * the entry, so it belongs in the header rather than being left to arithmetic.
+ */
+export function relativeDayLabel(day: string, now: Date = new Date()): string | null {
+  const parsed = new Date(day);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  const startOfDay = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  const days = Math.round((startOfDay(now) - startOfDay(parsed)) / 86_400_000);
+
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days} days ago`;
+  if (days < 14) return 'last week';
+  if (days < 60) return `${days} days ago`;
+  const months = Math.round(days / 30);
+  return `~${months} months ago`;
+}
+
 export function renderAgentDayHeader(day: string): string[] {
+  const age = relativeDayLabel(day);
   return [
-    `### ${day}`,
+    age ? `### ${day} (${age})` : `### ${day}`,
   ];
 }
 

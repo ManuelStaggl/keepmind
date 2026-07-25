@@ -31,6 +31,7 @@ import {
   renderAgentLegend,
   renderAgentContextEconomics,
   renderAgentDayHeader,
+  relativeDayLabel,
   renderAgentTableRow,
   renderAgentFullObservation,
   renderAgentSummaryItem,
@@ -147,7 +148,9 @@ describe('AgentFormatter', () => {
       const result = renderAgentContextEconomics(economics, config);
       const joined = result.join('\n');
 
-      expect(joined).toContain('1,500t read');
+      // Labelled "indexed", not "read": the block lists headlines, so this number
+      // is the stored detail those headlines index — not the injection cost.
+      expect(joined).toContain('1,500t indexed');
     });
 
     it('should include work investment', () => {
@@ -192,11 +195,35 @@ describe('AgentFormatter', () => {
   });
 
   describe('renderAgentDayHeader', () => {
-    it('should render day as h3 heading', () => {
+    it('should render day as h3 heading with a relative age', () => {
       const result = renderAgentDayHeader('2025-01-01');
 
       expect(result).toHaveLength(1);
-      expect(result[0]).toBe('### 2025-01-01');
+      // The age is what tells the reader whether a dated block is still current;
+      // an absolute date alone makes stale memory read as fresh.
+      expect(result[0]).toMatch(/^### 2025-01-01 \(.+\)$/);
+    });
+  });
+
+  describe('relativeDayLabel', () => {
+    const now = new Date('2026-07-25T12:00:00Z');
+
+    it('names today and yesterday', () => {
+      expect(relativeDayLabel('2026-07-25', now)).toBe('today');
+      expect(relativeDayLabel('2026-07-24', now)).toBe('yesterday');
+    });
+
+    it('counts days within the recent window', () => {
+      expect(relativeDayLabel('2026-07-22', now)).toBe('3 days ago');
+      expect(relativeDayLabel('2026-06-25', now)).toBe('30 days ago');
+    });
+
+    it('collapses to months once the entry is old', () => {
+      expect(relativeDayLabel('2026-01-25', now)).toBe('~6 months ago');
+    });
+
+    it('returns null for an unparseable day', () => {
+      expect(relativeDayLabel('not-a-date', now)).toBeNull();
     });
   });
 
