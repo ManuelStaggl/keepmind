@@ -43,6 +43,7 @@ export interface SettingsDefaults {
   CLAUDE_MEM_CONTEXT_SESSION_COUNT: string;
   /** Max observations coalesced into ONE compression turn (perf plan L1). Default '3': batching only engages UNDER BACKLOG (a trickle of tool-uses still compresses one-at-a-time), so it cuts turn count / LLM cost exactly when a burst piles up while leaving light sessions unchanged. '1' restores strict one-turn-per-tool-use; clamped to [1,12]. */
   CLAUDE_MEM_OBSERVATION_BATCH_MAX: string;
+  CLAUDE_MEM_OBSERVATION_COALESCE_MS: string;
   /** Max compression turns in ONE resumed Claude SDK conversation before a fresh session is forced (perf plan L3). Bounds the resume/context-window growth (quadratic cost + eventual "prompt is too long"). '0' = unbounded (legacy behavior). */
   CLAUDE_MEM_MAX_CONTEXT_MESSAGES: string;
   CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY: string;
@@ -100,7 +101,17 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_WORKER_PORT: String(37700 + ((process.getuid?.() ?? 77) % 100)),
     CLAUDE_MEM_WORKER_HOST: '127.0.0.1',
     CLAUDE_MEM_API_TIMEOUT_MS: String(getTimeout(HOOK_TIMEOUTS.API_REQUEST)),
-    CLAUDE_MEM_SKIP_TOOLS: 'ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion',
+    // Tools whose use carries no recallable content: harness bookkeeping, mode
+    // toggles, schema loading, and shell polling. Skipping them at ingest means
+    // the event never reaches the compression LLM at all — cheaper than letting
+    // the model decide "not worth recording" one paid turn at a time.
+    CLAUDE_MEM_SKIP_TOOLS: [
+      'ListMcpResourcesTool', 'SlashCommand', 'Skill', 'TodoWrite', 'AskUserQuestion',
+      'ToolSearch',                                   // loads tool schemas; no work happened
+      'BashOutput', 'KillShell',                      // polling/teardown of a shell already observed
+      'EnterPlanMode', 'ExitPlanMode',                // mode toggle; the plan itself is observed elsewhere
+      'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',  // task-list bookkeeping, like TodoWrite
+    ].join(','),
     CLAUDE_MEM_PROVIDER: 'claude',  // Default to Claude
     CLAUDE_MEM_CLAUDE_AUTH_METHOD: 'subscription',  // Default to logged-in Claude SDK auth (not API key)
     CLAUDE_MEM_GEMINI_API_KEY: '',  // Empty by default, can be set via UI or env
@@ -127,7 +138,8 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_CONTEXT_FULL_COUNT: '0',
     CLAUDE_MEM_CONTEXT_FULL_FIELD: 'narrative',
     CLAUDE_MEM_CONTEXT_SESSION_COUNT: '5',
-    CLAUDE_MEM_OBSERVATION_BATCH_MAX: '3',  // perf plan L1: coalesce up to 3 buffered observations per turn under backlog (validated: quality holds, noise still skipped). Set '1' for strict one-turn-per-tool-use.
+    CLAUDE_MEM_OBSERVATION_BATCH_MAX: '8',  // perf plan L1: coalesce up to N observations per compression turn. Raised 3→8 now that the coalesce window below actually fills a batch; ≥65% of turns previously produced nothing while paying the full conversation prefix. Set '1' for strict one-turn-per-tool-use.
+    CLAUDE_MEM_OBSERVATION_COALESCE_MS: '2500',  // perf plan L1b: wait up to this long for sibling observations before compressing. 0 = off (batch only what happens to be buffered — L1 then rarely engages). Compression is background work, so the added latency is not user-visible.
     CLAUDE_MEM_MAX_CONTEXT_MESSAGES: '40',  // Claude path: force a fresh SDK session after N compression turns (perf plan L3). 0 = unbounded.
     CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY: 'true',
     CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE: 'false',
@@ -146,7 +158,12 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_FOLDER_MD_SKELETON_DENYLIST: '[]',  // #2400 — JSON array of glob patterns; when a folder matches AND its generated CLAUDE.md would be empty/skeleton, skip injection (avoids polluting non-content dirs with empty skeletons). Default [] preserves existing behavior.
     CLAUDE_MEM_SEMANTIC_INJECT: 'false',             // Inject relevant past observations on every UserPromptSubmit (experimental, disabled by default)
     CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: '5',           // Top-N most relevant observations to inject per prompt
-    CLAUDE_MEM_TIER_ROUTING_ENABLED: 'true',         // Route observations to models by complexity
+    // OFF by default: the default model is already Haiku and the only tier that
+    // overrides it (TIER_SIMPLE_MODEL) is *also* Haiku, while TIER_SUMMARY_MODEL is
+    // empty. Routing therefore cannot save anything — it can only swap the model
+    // string mid-conversation and invalidate the (model-scoped) prompt cache.
+    // Set 'true' only after pointing a tier at a genuinely different model.
+    CLAUDE_MEM_TIER_ROUTING_ENABLED: 'false',
     CLAUDE_MEM_TIER_SIMPLE_MODEL: 'haiku', // Portable tier alias — works across Direct API, Bedrock, Vertex, Azure (see #1463)
     CLAUDE_MEM_TIER_SUMMARY_MODEL: '',                // Empty = use default model for summaries
     CLAUDE_MEM_TIER_FAST_MODEL: 'haiku',              // #2289 — $TIER:fast resolves here (portable alias)
