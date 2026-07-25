@@ -30,7 +30,7 @@ from the calling process**:
 
 | Dependency           | Required? | How it runs                                                                                  |
 |----------------------|-----------|----------------------------------------------------------------------------------------------|
-| **Postgres**         | Yes       | Reached via `CLAUDE_MEM_SERVER_DATABASE_URL`, `options.databaseUrl`, or a supplied `pg.Pool`. System of record. |
+| **Postgres**         | Yes       | Reached via `KEEPMIND_SERVER_DATABASE_URL`, `options.databaseUrl`, or a supplied `pg.Pool`. System of record. |
 | **Chroma**           | Yes       | A local `uvx chroma-mcp` subprocess the SDK spawns for you. Powers semantic search.          |
 | **LLM provider**     | For `generate()` only | Claude / Gemini / OpenRouter, via API key. Capture and search work without it. |
 
@@ -64,7 +64,7 @@ consumers.
 
 Before the first `createCmemClient` call succeeds you need all three of:
 
-1. **A reachable Postgres**, via `CLAUDE_MEM_SERVER_DATABASE_URL` (or
+1. **A reachable Postgres**, via `KEEPMIND_SERVER_DATABASE_URL` (or
    `options.databaseUrl`, or a `options.pool` you build yourself). The SDK
    bootstraps its schema idempotently on connect.
 2. **`uv` / `uvx` on `PATH`.** The SDK spawns `uvx chroma-mcp` for the
@@ -90,7 +90,7 @@ variables.
 ```ts
 import { createCmemClient } from 'claude-mem/sdk';
 
-// Reads CLAUDE_MEM_SERVER_DATABASE_URL and (for generate) ANTHROPIC_API_KEY.
+// Reads KEEPMIND_SERVER_DATABASE_URL and (for generate) ANTHROPIC_API_KEY.
 const client = await createCmemClient({});
 
 const { result } = await client.captureAndGenerate({
@@ -109,7 +109,7 @@ await client.close();
 Run it:
 
 ```bash
-CLAUDE_MEM_SERVER_DATABASE_URL=postgres://user:pass@host:5432/db \
+KEEPMIND_SERVER_DATABASE_URL=postgres://user:pass@host:5432/db \
 ANTHROPIC_API_KEY=sk-ant-... \
   node example.mjs
 ```
@@ -353,21 +353,21 @@ scheduling are deliberately out of scope.
 
 | Variable | Used for | Notes |
 |----------|----------|-------|
-| `CLAUDE_MEM_SERVER_DATABASE_URL` | Postgres connection | Fallback when neither `options.databaseUrl` nor `options.pool` is given. |
-| `CLAUDE_MEM_DATA_DIR` | Data directory | Defaults to `$HOME/.claude-mem`. Holds `sdk-tenant.json` (the persisted bootstrap tenant) and Chroma data. |
-| `CLAUDE_MEM_SERVER_PROVIDER` | Provider selection | `'claude'`, `'gemini'`, or `'openrouter'`. Empty/unset falls through to whichever API key is present. |
-| `CLAUDE_MEM_SERVER_MODEL` | Model override | Optional model id for the env-resolved provider. |
-| `ANTHROPIC_API_KEY` | Claude API key | Also accepts `CLAUDE_MEM_ANTHROPIC_API_KEY`. Default provider when set. |
-| `GEMINI_API_KEY` | Gemini API key | Also accepts `CLAUDE_MEM_GEMINI_API_KEY`. |
-| `OPENROUTER_API_KEY` | OpenRouter API key | Also accepts `CLAUDE_MEM_OPENROUTER_API_KEY`. |
-| `CLAUDE_MEM_OPENROUTER_BASE_URL` | OpenRouter base URL | Also accepts `OPENROUTER_BASE_URL`. OpenRouter only. |
+| `KEEPMIND_SERVER_DATABASE_URL` | Postgres connection | Fallback when neither `options.databaseUrl` nor `options.pool` is given. |
+| `KEEPMIND_DATA_DIR` | Data directory | Defaults to `$HOME/.claude-mem`. Holds `sdk-tenant.json` (the persisted bootstrap tenant) and Chroma data. |
+| `KEEPMIND_SERVER_PROVIDER` | Provider selection | `'claude'`, `'gemini'`, or `'openrouter'`. Empty/unset falls through to whichever API key is present. |
+| `KEEPMIND_SERVER_MODEL` | Model override | Optional model id for the env-resolved provider. |
+| `ANTHROPIC_API_KEY` | Claude API key | Also accepts `KEEPMIND_ANTHROPIC_API_KEY`. Default provider when set. |
+| `GEMINI_API_KEY` | Gemini API key | Also accepts `KEEPMIND_GEMINI_API_KEY`. |
+| `OPENROUTER_API_KEY` | OpenRouter API key | Also accepts `KEEPMIND_OPENROUTER_API_KEY`. |
+| `KEEPMIND_OPENROUTER_BASE_URL` | OpenRouter base URL | Also accepts `OPENROUTER_BASE_URL`. OpenRouter only. |
 
 ### Tenancy resolution
 
 Every SDK call is scoped to a `(teamId, projectId)` pair. Pass both
 explicitly in production. If you omit them, the SDK creates a `"default"`
 team + project on first run and persists the resolved UUIDs to
-`$CLAUDE_MEM_DATA_DIR/sdk-tenant.json`, reusing them on subsequent runs —
+`$KEEPMIND_DATA_DIR/sdk-tenant.json`, reusing them on subsequent runs —
 fine for local development and single-tenant CLIs, not for multi-tenant
 servers.
 

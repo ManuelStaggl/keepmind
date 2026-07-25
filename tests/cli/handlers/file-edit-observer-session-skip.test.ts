@@ -15,16 +15,16 @@ const workerCallLog: Array<{ path: string; method: string; body: unknown }> = []
 mock.module('../../../src/shared/SettingsDefaultsManager.js', () => ({
   SettingsDefaultsManager: {
     get: (key: string) => {
-      if (key === 'CLAUDE_MEM_DATA_DIR') return dataDir;
+      if (key === 'KEEPMIND_DATA_DIR') return dataDir;
       return '';
     },
     getInt: () => 0,
-    loadFromFile: () => ({ CLAUDE_MEM_EXCLUDED_PROJECTS: '' }),
+    loadFromFile: () => ({ KEEPMIND_EXCLUDED_PROJECTS: '' }),
   },
 }));
 
 mock.module('../../../src/shared/hook-settings.js', () => ({
-  loadFromFileOnce: () => ({ CLAUDE_MEM_EXCLUDED_PROJECTS: '' }),
+  loadFromFileOnce: () => ({ KEEPMIND_EXCLUDED_PROJECTS: '' }),
 }));
 
 mock.module('../../../src/shared/worker-utils.js', () => ({

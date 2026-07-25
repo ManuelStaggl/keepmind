@@ -81,13 +81,13 @@ describe('SearchRoutes Welcome Hint', () => {
     };
 
     generateContextStub.mockClear();
-    delete process.env.CLAUDE_MEM_WELCOME_HINT_ENABLED;
+    delete process.env.KEEPMIND_WELCOME_HINT_ENABLED;
   });
 
   afterEach(() => {
     loggerSpies.forEach(spy => spy.mockRestore());
-    delete process.env.CLAUDE_MEM_WELCOME_HINT_ENABLED;
-    delete process.env.CLAUDE_MEM_WORKER_PORT;
+    delete process.env.KEEPMIND_WELCOME_HINT_ENABLED;
+    delete process.env.KEEPMIND_WORKER_PORT;
   });
 
   afterAll(() => {
@@ -135,8 +135,8 @@ describe('SearchRoutes Welcome Hint', () => {
     expect(res.send).toHaveBeenCalledWith('CONTEXT_FROM_GENERATOR');
   });
 
-  it('skips the welcome hint when CLAUDE_MEM_WELCOME_HINT_ENABLED=false', async () => {
-    process.env.CLAUDE_MEM_WELCOME_HINT_ENABLED = 'false';
+  it('skips the welcome hint when KEEPMIND_WELCOME_HINT_ENABLED=false', async () => {
+    process.env.KEEPMIND_WELCOME_HINT_ENABLED = 'false';
 
     const routes = new SearchRoutes(mockSearchManager);
     const handler = captureContextInjectHandler(routes);
@@ -243,7 +243,7 @@ describe('SearchRoutes Welcome Hint', () => {
   });
 
   it('uses the request-local worker port env override in the welcome hint URL', async () => {
-    process.env.CLAUDE_MEM_WORKER_PORT = '43210';
+    process.env.KEEPMIND_WORKER_PORT = '43210';
 
     const routes = new SearchRoutes(mockSearchManager);
     const handler = captureContextInjectHandler(routes);

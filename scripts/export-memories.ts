@@ -17,13 +17,13 @@ const WORKER_FETCH_TIMEOUT_MS = 30_000;
 
 function parseWorkerPort(rawPort: unknown): number {
   if (typeof rawPort !== 'string' || rawPort.trim() === '') {
-    throw new Error('Invalid CLAUDE_MEM_WORKER_PORT in settings.json: missing');
+    throw new Error('Invalid KEEPMIND_WORKER_PORT in settings.json: missing');
   }
 
   const normalized = rawPort.trim();
   const port = Number.parseInt(normalized, 10);
   if (!Number.isInteger(port) || port < 1 || port > 65535 || String(port) !== normalized) {
-    throw new Error(`Invalid CLAUDE_MEM_WORKER_PORT in settings.json: ${rawPort}`);
+    throw new Error(`Invalid KEEPMIND_WORKER_PORT in settings.json: ${rawPort}`);
   }
   return port;
 }
@@ -49,7 +49,7 @@ async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Respon
 
 export async function exportMemories(query: string, outputFile: string, project?: string) {
   const settings = SettingsDefaultsManager.loadFromFile(join(resolveDataDir(), 'settings.json'));
-  const port = parseWorkerPort(settings.CLAUDE_MEM_WORKER_PORT);
+  const port = parseWorkerPort(settings.KEEPMIND_WORKER_PORT);
   const baseUrl = `http://localhost:${port}`;
 
   console.log(`🔍 Searching for: "${query}"${project ? ` (project: ${project})` : ' (all projects)'}`);
@@ -128,7 +128,7 @@ export async function exportMemories(query: string, outputFile: string, project?
 }
 
 function isDirectRun(): boolean {
-  if (process.env.CLAUDE_MEM_EXPORT_MEMORIES_NO_MAIN === '1') {
+  if (process.env.KEEPMIND_EXPORT_MEMORIES_NO_MAIN === '1') {
     return false;
   }
   return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;

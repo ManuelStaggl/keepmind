@@ -4,7 +4,7 @@ import { normalize } from 'path';
 
 // Mock loadFromFileOnce to avoid real file I/O and settings-dependent results
 mock.module('../../src/shared/hook-settings.js', () => ({
-  loadFromFileOnce: () => ({ CLAUDE_MEM_EXCLUDED_PROJECTS: '' }),
+  loadFromFileOnce: () => ({ KEEPMIND_EXCLUDED_PROJECTS: '' }),
 }));
 
 // Import after mock so the module picks up the mocked dependency
@@ -14,15 +14,15 @@ describe('shouldTrackProject — path normalization', () => {
   let savedInternal: string | undefined;
 
   beforeEach(() => {
-    savedInternal = process.env.CLAUDE_MEM_INTERNAL;
-    delete process.env.CLAUDE_MEM_INTERNAL;
+    savedInternal = process.env.KEEPMIND_INTERNAL;
+    delete process.env.KEEPMIND_INTERNAL;
   });
 
   afterEach(() => {
     if (savedInternal !== undefined) {
-      process.env.CLAUDE_MEM_INTERNAL = savedInternal;
+      process.env.KEEPMIND_INTERNAL = savedInternal;
     } else {
-      delete process.env.CLAUDE_MEM_INTERNAL;
+      delete process.env.KEEPMIND_INTERNAL;
     }
   });
 
@@ -46,8 +46,8 @@ describe('shouldTrackProject — path normalization', () => {
     expect(shouldTrackProject(unrelated)).toBe(true);
   });
 
-  it('returns false when CLAUDE_MEM_INTERNAL is set', () => {
-    process.env.CLAUDE_MEM_INTERNAL = '1';
+  it('returns false when KEEPMIND_INTERNAL is set', () => {
+    process.env.KEEPMIND_INTERNAL = '1';
     expect(shouldTrackProject('/any/path')).toBe(false);
   });
 });

@@ -131,7 +131,7 @@ Claude-Mem uses lifecycle hook scripts across 5 lifecycle events. Runtime setup 
 - ✅ Runs on startup, clear, and compact
 - ✅ 300-second timeout (allows for npm install if needed)
 - ✅ Progressive disclosure format (index, not full details)
-- ✅ Configurable observation count via `CLAUDE_MEM_CONTEXT_OBSERVATIONS`
+- ✅ Configurable observation count via `KEEPMIND_CONTEXT_OBSERVATIONS`
 
 **Output format:**
 ```markdown
@@ -495,7 +495,7 @@ npm run worker:stop
 
 ### Worker HTTP API
 
-**Technology:** Express.js REST API on the worker's per-user port (default `37700 + (uid % 100)`, override via `CLAUDE_MEM_WORKER_PORT`)
+**Technology:** Express.js REST API on the worker's per-user port (default `37700 + (uid % 100)`, override via `KEEPMIND_WORKER_PORT`)
 
 **Endpoints:**
 

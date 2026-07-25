@@ -22,7 +22,7 @@ The example calls, in order:
 ## Prerequisites
 
 - **Postgres**, with the connection URL exported as
-  `CLAUDE_MEM_SERVER_DATABASE_URL`. The SDK runs idempotent schema
+  `KEEPMIND_SERVER_DATABASE_URL`. The SDK runs idempotent schema
   bootstrap on construction, so an empty database is fine.
 - **`uvx`** on `PATH`. The SDK spawns a `uvx chroma-mcp` subprocess for
   semantic search; Chroma is required (see `src/sdk/index.ts` and the
@@ -30,8 +30,8 @@ The example calls, in order:
   [astral-sh/uv](https://docs.astral.sh/uv/) one-liner.
 - **One provider API key**, depending on which generator you want:
   - `ANTHROPIC_API_KEY` (default)
-  - `GEMINI_API_KEY` (`CLAUDE_MEM_SERVER_PROVIDER=gemini`)
-  - `OPENROUTER_API_KEY` (`CLAUDE_MEM_SERVER_PROVIDER=openrouter`)
+  - `GEMINI_API_KEY` (`KEEPMIND_SERVER_PROVIDER=gemini`)
+  - `OPENROUTER_API_KEY` (`KEEPMIND_SERVER_PROVIDER=openrouter`)
 
 ## Run
 
@@ -39,7 +39,7 @@ From this directory:
 
 ```bash
 npm install
-CLAUDE_MEM_SERVER_DATABASE_URL=postgres://user:pass@host:5432/db \
+KEEPMIND_SERVER_DATABASE_URL=postgres://user:pass@host:5432/db \
 ANTHROPIC_API_KEY=sk-ant-... \
   node index.mjs
 ```
@@ -80,9 +80,9 @@ the degraded-mode contract.
 ## Where the data lives
 
 - **Observations, events, jobs, sessions** — in the Postgres database at
-  `CLAUDE_MEM_SERVER_DATABASE_URL`. The schema is created on first run.
+  `KEEPMIND_SERVER_DATABASE_URL`. The schema is created on first run.
 - **Chroma vectors** — in `~/.claude-mem/chroma/` (or
-  `$CLAUDE_MEM_DATA_DIR/chroma/`).
-- **Default tenancy** — `$CLAUDE_MEM_DATA_DIR/sdk-tenant.json`. Production
+  `$KEEPMIND_DATA_DIR/chroma/`).
+- **Default tenancy** — `$KEEPMIND_DATA_DIR/sdk-tenant.json`. Production
   consumers should pass explicit `teamId` and `projectId` to
   `createCmemClient` and skip this file entirely.

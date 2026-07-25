@@ -7,9 +7,10 @@ import { ErrorSeverity } from './error-taxonomy.js';
 import { installerError, type InstallSummary } from './error-reporter.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
 import { IS_WINDOWS } from '../utils/paths.js';
+import { envValue, settingValue } from '../../shared/legacy-env.js';
 
 const INSTALL_TIMEOUT_MS = (() => {
-  const override = process.env.CLAUDE_MEM_INSTALL_TIMEOUT_MS;
+  const override = envValue('KEEPMIND_INSTALL_TIMEOUT_MS');
   if (override && Number.isFinite(Number(override))) return Number(override);
   return 5 * 60 * 1000;
 })();
@@ -41,7 +42,10 @@ function userHasOptedOutOfVectorSearch(): boolean {
     const envBlock = (record.env && typeof record.env === 'object')
       ? (record.env as Record<string, unknown>)
       : {};
-    const value = record.CLAUDE_MEM_DISABLE_VECTOR_SEARCH ?? envBlock.CLAUDE_MEM_DISABLE_VECTOR_SEARCH;
+    // settingValue also accepts the pre-rename CLAUDE_MEM_ spelling — an opt-out
+    // written before the rename must not be silently reverted into an install.
+    const value = settingValue('KEEPMIND_DISABLE_VECTOR_SEARCH', record)
+      ?? settingValue('KEEPMIND_DISABLE_VECTOR_SEARCH', envBlock);
     return value === true || value === 'true' || value === '1';
   } catch {
     return false;

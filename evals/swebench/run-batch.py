@@ -279,14 +279,14 @@ def run_one_instance(
             "--name",
             container_name,
             "-e",
-            "CLAUDE_MEM_OUTPUT_DIR=/scratch",
+            "KEEPMIND_OUTPUT_DIR=/scratch",
             "-v",
             f"{scratch_dir}:/scratch",
         ]
         if oauth_creds_path is not None:
             cmd += [
                 "-e",
-                "CLAUDE_MEM_CREDENTIALS_FILE=/auth/.credentials.json",
+                "KEEPMIND_CREDENTIALS_FILE=/auth/.credentials.json",
                 "-v",
                 f"{oauth_creds_path}:/auth/.credentials.json:ro",
             ]

@@ -41,7 +41,7 @@ Then a minimal end-to-end script:
 import { createCmemClient } from 'claude-mem/sdk';
 
 const client = await createCmemClient({
-  databaseUrl: process.env.CLAUDE_MEM_SERVER_DATABASE_URL,
+  databaseUrl: process.env.KEEPMIND_SERVER_DATABASE_URL,
 });
 
 const captured = await client.captureAndGenerate({
@@ -62,7 +62,7 @@ await client.close();
 Run it:
 
 ```bash
-CLAUDE_MEM_SERVER_DATABASE_URL=postgres://user:pass@host:5432/db \
+KEEPMIND_SERVER_DATABASE_URL=postgres://user:pass@host:5432/db \
 ANTHROPIC_API_KEY=sk-ant-... \
   node example.mjs
 ```
@@ -74,9 +74,9 @@ A runnable copy of this script lives at `examples/sdk-node/` in the
 
 | Option        | Type                                  | Default                                         | Notes                                                                                                              |
 |---------------|---------------------------------------|-------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
-| `databaseUrl` | `string`                              | `process.env.CLAUDE_MEM_SERVER_DATABASE_URL`    | Required if `pool` is not supplied. The SDK creates and owns the pool when this is set.                            |
+| `databaseUrl` | `string`                              | `process.env.KEEPMIND_SERVER_DATABASE_URL`    | Required if `pool` is not supplied. The SDK creates and owns the pool when this is set.                            |
 | `pool`        | `pg.Pool`                             | —                                               | A consumer-supplied `pg.Pool`. The SDK does NOT close it on `client.close()`.                                      |
-| `teamId`      | `string` (UUID)                       | bootstrapped default                            | Tenant team id. If omitted, the SDK creates a "default" team and persists the id to `$CLAUDE_MEM_DATA_DIR/sdk-tenant.json`. |
+| `teamId`      | `string` (UUID)                       | bootstrapped default                            | Tenant team id. If omitted, the SDK creates a "default" team and persists the id to `$KEEPMIND_DATA_DIR/sdk-tenant.json`. |
 | `projectId`   | `string` (UUID)                       | bootstrapped default                            | Tenant project id. Same bootstrap rules as `teamId`.                                                               |
 | `teamName`    | `string`                              | `'default'`                                     | Used only when the SDK has to create a default team.                                                                |
 | `projectName` | `string`                              | `'default'`                                     | Used only when the SDK has to create a default project.                                                             |
@@ -148,7 +148,7 @@ have two options:
 2. **Let the SDK bootstrap a default.** If you omit `teamId` /
    `projectId`, the SDK creates a `"default"` team + project on first
    run and persists the resolved UUIDs to
-   `$CLAUDE_MEM_DATA_DIR/sdk-tenant.json`. Subsequent runs reuse the
+   `$KEEPMIND_DATA_DIR/sdk-tenant.json`. Subsequent runs reuse the
    same IDs from disk. This is fine for local development and
    single-tenant CLIs; it is not appropriate for multi-tenant servers.
 
@@ -172,9 +172,9 @@ The SDK resolves a generation provider in this order:
 
 3. **Environment** — when `options.provider` is `undefined`, the SDK
    reads:
-   - `CLAUDE_MEM_SERVER_PROVIDER` (`'claude'`, `'gemini'`, `'openrouter'`)
+   - `KEEPMIND_SERVER_PROVIDER` (`'claude'`, `'gemini'`, `'openrouter'`)
    - `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY`
-   - `CLAUDE_MEM_SERVER_MODEL` (optional model id override)
+   - `KEEPMIND_SERVER_MODEL` (optional model id override)
 
 If none of the above resolves to a usable provider, `createCmemClient`
 still succeeds (capture, search, and `repos` access keep working) but

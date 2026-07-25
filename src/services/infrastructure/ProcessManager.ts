@@ -271,7 +271,7 @@ export function spawnDaemon(
 
   const env = sanitizeEnv({
     ...process.env,
-    CLAUDE_MEM_WORKER_PORT: String(port),
+    KEEPMIND_WORKER_PORT: String(port),
     ...extraEnv
   });
 

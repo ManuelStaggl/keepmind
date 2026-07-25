@@ -14,9 +14,9 @@ icon: plug
 
 ```typescript
 // Resolve the worker port at runtime. The default is per-user (37700 + uid % 100),
-// or whatever the user set via CLAUDE_MEM_WORKER_PORT / settings.json. Read it from
-// process.env.CLAUDE_MEM_WORKER_PORT, then ~/.keepmind/settings.json
-// (CLAUDE_MEM_WORKER_PORT key), then fall back to the deterministic default.
+// or whatever the user set via KEEPMIND_WORKER_PORT / settings.json. Read it from
+// process.env.KEEPMIND_WORKER_PORT, then ~/.keepmind/settings.json
+// (KEEPMIND_WORKER_PORT key), then fall back to the deterministic default.
 const WORKER_BASE_URL = `http://127.0.0.1:${workerPort}`;
 ```
 
@@ -48,11 +48,11 @@ GET /api/context/recent?project=my-project&limit=3
 ### Environment Variables
 
 ```bash
-CLAUDE_MEM_MODEL=claude-haiku-4-5-20251001  # Default Claude model for observations/summaries
-CLAUDE_MEM_CONTEXT_OBSERVATIONS=50          # Observations injected at SessionStart
-CLAUDE_MEM_WORKER_PORT=                     # Optional override; default = 37700 + (uid % 100)
-CLAUDE_MEM_DATA_DIR=                        # Optional override for the data directory
-CLAUDE_MEM_PYTHON_VERSION=3.13              # Python version for chroma-mcp
+KEEPMIND_MODEL=claude-haiku-4-5-20251001  # Default Claude model for observations/summaries
+KEEPMIND_CONTEXT_OBSERVATIONS=50          # Observations injected at SessionStart
+KEEPMIND_WORKER_PORT=                     # Optional override; default = 37700 + (uid % 100)
+KEEPMIND_DATA_DIR=                        # Optional override for the data directory
+KEEPMIND_PYTHON_VERSION=3.13              # Python version for chroma-mcp
 ```
 
 ### Build Commands (Local Development)
@@ -1219,7 +1219,7 @@ describe('Worker Integration', () => {
   beforeAll(async () => {
     // Start worker process
     workerProcess = spawn('node', ['dist/worker-service.js'], {
-      env: { ...process.env, CLAUDE_MEM_WORKER_PORT: '37778' }
+      env: { ...process.env, KEEPMIND_WORKER_PORT: '37778' }
     });
 
     // Wait for worker to be ready

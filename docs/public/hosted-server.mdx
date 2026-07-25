@@ -65,7 +65,7 @@ write, and delete.
 
 ### Authentication
 
-Set `CLAUDE_MEM_AUTH_MODE=api-key` and send `Authorization: Bearer <key>` on every
+Set `KEEPMIND_AUTH_MODE=api-key` and send `Authorization: Bearer <key>` on every
 request. Scopes gate access:
 
 - **Read** endpoints (search, context, recall, usage) require `memories:read`.
@@ -125,7 +125,7 @@ Two routes turn "I have a server" into "Claude Code is recalling my cloud memory
 
 - **`GET /v1/connect`** (requires `memories:read`) returns the same command with a
   `<YOUR_API_KEY>` placeholder — a GET never mints. The `mcpUrl` is built from
-  `CLAUDE_MEM_PUBLIC_URL` (recommended when behind a proxy or load balancer) or,
+  `KEEPMIND_PUBLIC_URL` (recommended when behind a proxy or load balancer) or,
   failing that, the request host.
 
 <Warning>
@@ -146,10 +146,10 @@ error never blocks a legitimate request.
 
 | Env var | Effect | Response when exceeded |
 |---------|--------|------------------------|
-| `CLAUDE_MEM_RATE_LIMIT_PER_MIN` | Max requests per **API key** per minute. | `429` with `Retry-After` and `X-RateLimit-*` headers. |
-| `CLAUDE_MEM_MONTHLY_REQUEST_CAP` | Max requests per **team** per calendar month (UTC). | `402 quota_exceeded`. |
-| `CLAUDE_MEM_MONTHLY_TOKEN_CAP` | Max provider **tokens** per team per month. Gates **writes only** — reads stay open so a team over budget can still recall. | `402` at the cap. |
-| `CLAUDE_MEM_USAGE_METERING=1` | Records one `request` usage event per authenticated call (fire-and-forget). | — |
+| `KEEPMIND_RATE_LIMIT_PER_MIN` | Max requests per **API key** per minute. | `429` with `Retry-After` and `X-RateLimit-*` headers. |
+| `KEEPMIND_MONTHLY_REQUEST_CAP` | Max requests per **team** per calendar month (UTC). | `402 quota_exceeded`. |
+| `KEEPMIND_MONTHLY_TOKEN_CAP` | Max provider **tokens** per team per month. Gates **writes only** — reads stay open so a team over budget can still recall. | `402` at the cap. |
+| `KEEPMIND_USAGE_METERING=1` | Records one `request` usage event per authenticated call (fire-and-forget). | — |
 
 Token and observation metering is written to the same `usage_events` table from
 the generation worker, so usage reflects real provider spend, not just HTTP calls.

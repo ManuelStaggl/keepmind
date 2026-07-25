@@ -1,5 +1,6 @@
 import { inflateRawSync } from 'zlib';
 import { BANNER } from './banner-frames.js';
+import { envValue } from '../shared/legacy-env.js';
 
 const HIDE_CURSOR = '\x1b[?25l';
 const SHOW_CURSOR = '\x1b[?25h';
@@ -99,7 +100,7 @@ function writeTaglineRow(text: string): string {
 export function isBannerEnabled(): boolean {
   if (!process.stdout.isTTY) return false;
   if (process.env.CI) return false;
-  if (process.env.CLAUDE_MEM_NO_BANNER) return false;
+  if (envValue('KEEPMIND_NO_BANNER')) return false;
   if (process.env.NO_COLOR) return false;
   const cols = process.stdout.columns ?? 0;
   return cols >= BANNER.width;

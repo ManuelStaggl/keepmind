@@ -73,14 +73,14 @@ function shellTemplateManifest(buildShellCommand) {
   const codexHook = (tail) => buildShellCommand({
     host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
     trailingCommand: ccTrailing(...tail), notFoundMessage: 'keepmind: plugin scripts not found',
-    extraEnv: { CLAUDE_MEM_CODEX_HOOK: '1' },
+    extraEnv: { KEEPMIND_CODEX_HOOK: '1' },
   });
   const codexStartupHook = () => buildShellCommand({
     host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
     trailingCommand: [
-      '_V=$(CLAUDE_MEM_CODEX_HOOK=1 node "$_P/scripts/version-check.js" || true);',
+      '_V=$(KEEPMIND_CODEX_HOOK=1 node "$_P/scripts/version-check.js" || true);',
       'if [ -n "$_V" ]; then printf \'%s\\n\' "$_V"; else',
-      'CLAUDE_MEM_CODEX_HOOK=1', ...ccTrailing('hook', 'codex', 'context'),
+      'KEEPMIND_CODEX_HOOK=1', ...ccTrailing('hook', 'codex', 'context'),
       '; fi',
     ],
     notFoundMessage: 'keepmind: plugin scripts not found',

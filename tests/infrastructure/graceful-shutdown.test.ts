@@ -20,8 +20,8 @@ import type {
 // under test is loaded with dynamic imports below. (`import type` above is
 // erased at compile time and loads nothing.)
 const TEST_DATA_DIR = mkdtempSync(path.join(tmpdir(), 'claude-mem-shutdown-test-'));
-const PREVIOUS_DATA_DIR = process.env.CLAUDE_MEM_DATA_DIR;
-process.env.CLAUDE_MEM_DATA_DIR = TEST_DATA_DIR;
+const PREVIOUS_DATA_DIR = process.env.KEEPMIND_DATA_DIR;
+process.env.KEEPMIND_DATA_DIR = TEST_DATA_DIR;
 
 const {
   performGracefulShutdown,
@@ -64,9 +64,9 @@ describe('GracefulShutdown', () => {
 
   afterAll(() => {
     if (PREVIOUS_DATA_DIR === undefined) {
-      delete process.env.CLAUDE_MEM_DATA_DIR;
+      delete process.env.KEEPMIND_DATA_DIR;
     } else {
-      process.env.CLAUDE_MEM_DATA_DIR = PREVIOUS_DATA_DIR;
+      process.env.KEEPMIND_DATA_DIR = PREVIOUS_DATA_DIR;
     }
     if (DATA_DIR === TEST_DATA_DIR) {
       // paths.ts froze on our per-file dir (this file evaluated it first):

@@ -13,8 +13,8 @@ import {
 } from '../../shared/dependency-health.js';
 
 interface DependencyPreflightSettings {
-  CLAUDE_MEM_PROVIDER?: string;
-  CLAUDE_MEM_CHROMA_ENABLED?: string;
+  KEEPMIND_PROVIDER?: string;
+  KEEPMIND_CHROMA_ENABLED?: string;
 }
 
 interface ClassifiedClaudeSetupError {
@@ -68,7 +68,7 @@ function pathSeparatorFor(platform: NodeJS.Platform): string {
 }
 
 function uvxBinDirs(options: Required<Pick<WorkerDependencyPreflightOptions, 'homedir' | 'isFile'>>, env: Record<string, string>): string[] {
-  const override = env.CLAUDE_MEM_CHROMA_UVX_PATH;
+  const override = env.KEEPMIND_CHROMA_UVX_PATH;
   const dirs = [
     override,
     path.join(options.homedir(), '.local', 'bin'),
@@ -134,7 +134,7 @@ function resolveUvxCommand(options: WorkerDependencyPreflightOptions): string {
 
   const isFile = options.isFile ?? defaultIsFile;
   const env = effectiveUvxEnv(options);
-  const override = env.CLAUDE_MEM_CHROMA_UVX_PATH;
+  const override = env.KEEPMIND_CHROMA_UVX_PATH;
   if (override && isFile(override)) {
     return override;
   }
@@ -151,8 +151,8 @@ function resolveUvxCommand(options: WorkerDependencyPreflightOptions): string {
 }
 
 export function runWorkerDependencyPreflight(options: WorkerDependencyPreflightOptions): DependencyHealthSnapshot {
-  const provider = options.settings.CLAUDE_MEM_PROVIDER || 'claude';
-  const chromaEnabled = options.settings.CLAUDE_MEM_CHROMA_ENABLED !== 'false';
+  const provider = options.settings.KEEPMIND_PROVIDER || 'claude';
+  const chromaEnabled = options.settings.KEEPMIND_CHROMA_ENABLED !== 'false';
 
   if (provider === 'claude') {
     const findClaudeExecutable = options.findClaudeExecutable ?? (() => defaultFindClaudeExecutable('WORKER'));

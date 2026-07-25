@@ -12,13 +12,13 @@ BASE_COMMIT="$3"
 PROBLEM_STATEMENT_FILE="$4"
 OUT_PREDICTIONS_PATH="$5"
 
-if [[ -z "${ANTHROPIC_API_KEY:-}" && -z "${CLAUDE_MEM_CREDENTIALS_FILE:-}" ]]; then
-  echo "ERROR: one of ANTHROPIC_API_KEY or CLAUDE_MEM_CREDENTIALS_FILE is required" >&2
+if [[ -z "${ANTHROPIC_API_KEY:-}" && -z "${KEEPMIND_CREDENTIALS_FILE:-}" ]]; then
+  echo "ERROR: one of ANTHROPIC_API_KEY or KEEPMIND_CREDENTIALS_FILE is required" >&2
   exit 1
 fi
 
-if [[ -n "${CLAUDE_MEM_CREDENTIALS_FILE:-}" && ! -f "$CLAUDE_MEM_CREDENTIALS_FILE" ]]; then
-  echo "ERROR: CLAUDE_MEM_CREDENTIALS_FILE set but file missing: $CLAUDE_MEM_CREDENTIALS_FILE" >&2
+if [[ -n "${KEEPMIND_CREDENTIALS_FILE:-}" && ! -f "$KEEPMIND_CREDENTIALS_FILE" ]]; then
+  echo "ERROR: KEEPMIND_CREDENTIALS_FILE set but file missing: $KEEPMIND_CREDENTIALS_FILE" >&2
   exit 1
 fi
 
@@ -35,12 +35,12 @@ MEM_DIR="$SCRATCH/.claude-mem"
 CLAUDE_DIR="$SCRATCH/.claude"
 mkdir -p "$MEM_DIR" "$CLAUDE_DIR"
 
-if [[ -n "${CLAUDE_MEM_CREDENTIALS_FILE:-}" ]]; then
-  cp "$CLAUDE_MEM_CREDENTIALS_FILE" "$CLAUDE_DIR/.credentials.json"
+if [[ -n "${KEEPMIND_CREDENTIALS_FILE:-}" ]]; then
+  cp "$KEEPMIND_CREDENTIALS_FILE" "$CLAUDE_DIR/.credentials.json"
   chmod 600 "$CLAUDE_DIR/.credentials.json"
 fi
 
-OUTPUT_DIR="${CLAUDE_MEM_OUTPUT_DIR:-$SCRATCH}"
+OUTPUT_DIR="${KEEPMIND_OUTPUT_DIR:-$SCRATCH}"
 mkdir -p "$OUTPUT_DIR"
 
 DIFF_OUT="$OUTPUT_DIR/model_patch.diff"

@@ -51,14 +51,14 @@ the following are missing or invalid in Docker:
 
 | Variable                          | Required | Notes                                                        |
 |-----------------------------------|----------|--------------------------------------------------------------|
-| `CLAUDE_MEM_RUNTIME`              | Docker   | Must be `server-beta` in Docker (warned otherwise).          |
-| `CLAUDE_MEM_QUEUE_ENGINE`         | Docker   | Must be `bullmq`. In-process queues are rejected in Docker.  |
-| `CLAUDE_MEM_SERVER_DATABASE_URL`  | Always   | Postgres connection string. Fails fast at startup.           |
-| `CLAUDE_MEM_REDIS_URL`            | bullmq   | Required when queue engine is `bullmq`.                      |
-| `CLAUDE_MEM_AUTH_MODE`            | Always   | Must NOT be `local-dev` in Docker.                           |
-| `CLAUDE_MEM_ALLOW_LOCAL_DEV_BYPASS` | Docker | Must NOT be `1`/`true` in Docker.                            |
-| `CLAUDE_MEM_GENERATION_DISABLED`  | Optional | Set to `true` on the HTTP service when running a separate worker. |
-| `CLAUDE_MEM_SERVER_PROVIDER`      | Worker   | One of `claude`, `gemini`, `openrouter`. Worker only.        |
+| `KEEPMIND_RUNTIME`              | Docker   | Must be `server-beta` in Docker (warned otherwise).          |
+| `KEEPMIND_QUEUE_ENGINE`         | Docker   | Must be `bullmq`. In-process queues are rejected in Docker.  |
+| `KEEPMIND_SERVER_DATABASE_URL`  | Always   | Postgres connection string. Fails fast at startup.           |
+| `KEEPMIND_REDIS_URL`            | bullmq   | Required when queue engine is `bullmq`.                      |
+| `KEEPMIND_AUTH_MODE`            | Always   | Must NOT be `local-dev` in Docker.                           |
+| `KEEPMIND_ALLOW_LOCAL_DEV_BYPASS` | Docker | Must NOT be `1`/`true` in Docker.                            |
+| `KEEPMIND_GENERATION_DISABLED`  | Optional | Set to `true` on the HTTP service when running a separate worker. |
+| `KEEPMIND_SERVER_PROVIDER`      | Worker   | One of `claude`, `gemini`, `openrouter`. Worker only.        |
 | `ANTHROPIC_API_KEY` (or alt)      | Worker   | Required by the chosen provider.                             |
 
 Local development can still use SQLite + `local-dev` auth bypass **outside
@@ -79,7 +79,7 @@ This starts a process that:
 * Attaches BullMQ Workers to the `event` and `summary` queues.
 * Never opens an HTTP listener.
 * Blocks in the foreground (good for `docker run`, `kubectl run`, systemd).
-* Forces generation enabled even if `CLAUDE_MEM_GENERATION_DISABLED=true`
+* Forces generation enabled even if `KEEPMIND_GENERATION_DISABLED=true`
   is inherited from the shared compose file. The worker IS the generation
   process.
 
@@ -97,7 +97,7 @@ duplicate observations.
 ## Auth in production
 
 ```sh
-CLAUDE_MEM_AUTH_MODE=api-key
+KEEPMIND_AUTH_MODE=api-key
 ```
 
 API keys are created with:
@@ -119,7 +119,7 @@ Revocation is enforced on every request because `requirePostgresServerAuth`
 reloads the row by hash on each call. There is no in-memory cache to
 poison.
 
-> **Do not enable `CLAUDE_MEM_AUTH_MODE=local-dev` in Docker.** The
+> **Do not enable `KEEPMIND_AUTH_MODE=local-dev` in Docker.** The
 > loopback bypass relies on the request originating from `127.0.0.1` on
 > the HTTP listener, which is not a meaningful boundary inside a
 > container. The startup validator refuses to boot with this combination
@@ -134,7 +134,7 @@ poison.
 * `valkey` — BullMQ queue, configured with `appendonly yes`,
   `appendfsync everysec`, `maxmemory-policy noeviction`.
 * `claude-mem-server` — HTTP runtime.
-  `CLAUDE_MEM_GENERATION_DISABLED=true` so the BullMQ Worker is **not**
+  `KEEPMIND_GENERATION_DISABLED=true` so the BullMQ Worker is **not**
   attached here.
 * `claude-mem-worker` — generation worker. Scale horizontally.
 
@@ -159,4 +159,4 @@ docker compose down -v
   not lose data.
 * Revoking an API key denies subsequent reads and writes (401/403).
 * No `worker-service.cjs` process runs in any container.
-* `CLAUDE_MEM_AUTH_MODE=local-dev` is rejected inside Docker.
+* `KEEPMIND_AUTH_MODE=local-dev` is rejected inside Docker.

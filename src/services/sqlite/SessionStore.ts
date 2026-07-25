@@ -23,6 +23,7 @@ import { DEFAULT_PLATFORM_SOURCE, normalizePlatformSource, sortPlatformSources }
 import { findRecentDuplicateUserPrompt as findRecentDuplicateUserPromptRecord } from './prompts/get.js';
 import { normalizeStoredPromptText } from './prompt-storage.js';
 import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_JOURNAL_SIZE_LIMIT_BYTES } from './pragmas.js';
+import { envValue } from '../../shared/legacy-env.js';
 
 interface IndexColumnInfo {
   seqno: number;
@@ -68,7 +69,7 @@ export class SessionStore {
     } catch {
       // Fail-safe: redaction ON by defaults if config can't load.
       this.mq = MEMORY_QUALITY_DEFAULTS;
-      this.redactEnabled = process.env.CLAUDE_MEM_REDACT_SECRETS !== '0' && process.env.CLAUDE_MEM_REDACT_SECRETS !== 'false';
+      this.redactEnabled = envValue('KEEPMIND_REDACT_SECRETS') !== '0' && envValue('KEEPMIND_REDACT_SECRETS') !== 'false';
       this.redactOpts = { entropySweep: true, entropyThreshold: 4.0 };
     }
     if (dbPathOrDb instanceof Database) {

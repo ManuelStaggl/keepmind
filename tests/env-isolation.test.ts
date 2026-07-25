@@ -22,7 +22,7 @@ const { findViolations } = requireCjs('../scripts/check-spawn-env-discipline.cjs
  * must not inject the user's Anthropic OAuth token onto a custom gateway URL
  * (which would be a token leak to a third party).
  *
- * Redirect EnvManager to a per-suite temp file via CLAUDE_MEM_ENV_FILE so
+ * Redirect EnvManager to a per-suite temp file via KEEPMIND_ENV_FILE so
  * the user's real ~/.claude-mem/.env is never read or mutated even if a test
  * fails mid-flight. envFilePath() resolves the override on every call, so
  * this works regardless of the order other tests imported the module.
@@ -30,7 +30,7 @@ const { findViolations } = requireCjs('../scripts/check-spawn-env-discipline.cjs
 
 const TEST_DATA_DIR = fs.mkdtempSync(join(tmpdir(), 'claude-mem-env-isolation-'));
 const TEST_ENV_FILE = join(TEST_DATA_DIR, '.env');
-const ORIGINAL_ENV_FILE = process.env.CLAUDE_MEM_ENV_FILE;
+const ORIGINAL_ENV_FILE = process.env.KEEPMIND_ENV_FILE;
 
 const ORIGINAL_BASE_URL = process.env.ANTHROPIC_BASE_URL;
 const ORIGINAL_API_KEY = process.env.ANTHROPIC_API_KEY;
@@ -76,16 +76,16 @@ function restoreOriginalEnv(): void {
 describe('Issue #2375: ANTHROPIC_BASE_URL env-var isolation', () => {
   beforeAll(() => {
     fs.mkdirSync(TEST_DATA_DIR, { recursive: true, mode: 0o700 });
-    process.env.CLAUDE_MEM_ENV_FILE = TEST_ENV_FILE;
+    process.env.KEEPMIND_ENV_FILE = TEST_ENV_FILE;
     expect(envFilePath()).toBe(TEST_ENV_FILE);
   });
 
   afterAll(() => {
     fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
     if (ORIGINAL_ENV_FILE === undefined) {
-      delete process.env.CLAUDE_MEM_ENV_FILE;
+      delete process.env.KEEPMIND_ENV_FILE;
     } else {
-      process.env.CLAUDE_MEM_ENV_FILE = ORIGINAL_ENV_FILE;
+      process.env.KEEPMIND_ENV_FILE = ORIGINAL_ENV_FILE;
     }
   });
 

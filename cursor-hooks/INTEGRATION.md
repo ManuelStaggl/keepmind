@@ -169,8 +169,8 @@ session-summary.sh
 
 ### Worker Settings
 Located in `~/.claude-mem/settings.json`:
-- `CLAUDE_MEM_WORKER_PORT` (default: 37777)
-- `CLAUDE_MEM_WORKER_HOST` (default: 127.0.0.1)
+- `KEEPMIND_WORKER_PORT` (default: 37777)
+- `KEEPMIND_WORKER_HOST` (default: 127.0.0.1)
 
 ### Hook Settings
 Located in `hooks.json`:

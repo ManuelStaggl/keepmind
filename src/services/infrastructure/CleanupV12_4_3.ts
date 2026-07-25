@@ -5,6 +5,7 @@ import { Database } from '../../storage/db.js';
 import { DATA_DIR, OBSERVER_SESSIONS_PROJECT, dbFileForDataDir } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
 import { toError } from '../../utils/to-error.js';
+import { envValue } from '../../shared/legacy-env.js';
 
 const MARKER_FILENAME = '.cleanup-v12.4.3-applied';
 const STUCK_PENDING_THRESHOLD = 10;
@@ -37,8 +38,8 @@ export function runOneTimeV12_4_3Cleanup(
     return;
   }
 
-  if (process.env.CLAUDE_MEM_SKIP_CLEANUP_V12_4_3 === '1' && !dryRun) {
-    logger.warn('SYSTEM', 'v12.4.3 cleanup skipped via CLAUDE_MEM_SKIP_CLEANUP_V12_4_3=1; marker not written');
+  if (envValue('KEEPMIND_SKIP_CLEANUP_V12_4_3') === '1' && !dryRun) {
+    logger.warn('SYSTEM', 'v12.4.3 cleanup skipped via KEEPMIND_SKIP_CLEANUP_V12_4_3=1; marker not written');
     return;
   }
 

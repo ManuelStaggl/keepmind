@@ -71,13 +71,13 @@ All free models support:
 
 | Setting | Values | Default | Description |
 |---------|--------|---------|-------------|
-| `CLAUDE_MEM_PROVIDER` | `claude`, `gemini`, `openrouter` | `claude` | AI provider for observation extraction |
-| `CLAUDE_MEM_OPENROUTER_API_KEY` | string | — | Your OpenRouter API key |
-| `CLAUDE_MEM_OPENROUTER_MODEL` | string | `xiaomi/mimo-v2-flash:free` | Model identifier (see list above) |
-| `CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES` | number | `20` | Max messages in conversation history |
-| `CLAUDE_MEM_OPENROUTER_MAX_TOKENS` | number | `100000` | Token budget safety limit |
-| `CLAUDE_MEM_OPENROUTER_SITE_URL` | string | — | Optional: URL for analytics attribution |
-| `CLAUDE_MEM_OPENROUTER_APP_NAME` | string | `claude-mem` | Optional: App name for analytics |
+| `KEEPMIND_PROVIDER` | `claude`, `gemini`, `openrouter` | `claude` | AI provider for observation extraction |
+| `KEEPMIND_OPENROUTER_API_KEY` | string | — | Your OpenRouter API key |
+| `KEEPMIND_OPENROUTER_MODEL` | string | `xiaomi/mimo-v2-flash:free` | Model identifier (see list above) |
+| `KEEPMIND_OPENROUTER_MAX_CONTEXT_MESSAGES` | number | `20` | Max messages in conversation history |
+| `KEEPMIND_OPENROUTER_MAX_TOKENS` | number | `100000` | Token budget safety limit |
+| `KEEPMIND_OPENROUTER_SITE_URL` | string | — | Optional: URL for analytics attribution |
+| `KEEPMIND_OPENROUTER_APP_NAME` | string | `claude-mem` | Optional: App name for analytics |
 
 ### Using the Settings UI
 
@@ -95,9 +95,9 @@ Edit `~/.keepmind/settings.json`:
 
 ```json
 {
-  "CLAUDE_MEM_PROVIDER": "openrouter",
-  "CLAUDE_MEM_OPENROUTER_API_KEY": "sk-or-v1-your-key-here",
-  "CLAUDE_MEM_OPENROUTER_MODEL": "xiaomi/mimo-v2-flash:free"
+  "KEEPMIND_PROVIDER": "openrouter",
+  "KEEPMIND_OPENROUTER_API_KEY": "sk-or-v1-your-key-here",
+  "KEEPMIND_OPENROUTER_MODEL": "xiaomi/mimo-v2-flash:free"
 }
 ```
 
@@ -183,13 +183,13 @@ You can switch between providers at any time:
 
 ```json
 {
-  "CLAUDE_MEM_PROVIDER": "openrouter"
+  "KEEPMIND_PROVIDER": "openrouter"
 }
 ```
 
 ## Error Behavior
 
-If OpenRouter errors, claude-mem logs the failure and re-throws so the message stays pending for later retry. There is no Claude SDK fallback — earlier docs claimed automatic Claude fallback, but the wiring was never actually engaged in production (#2087). To switch providers, change `CLAUDE_MEM_PROVIDER` in settings.
+If OpenRouter errors, claude-mem logs the failure and re-throws so the message stays pending for later retry. There is no Claude SDK fallback — earlier docs claimed automatic Claude fallback, but the wiring was never actually engaged in production (#2087). To switch providers, change `KEEPMIND_PROVIDER` in settings.
 
 **Throwing conditions:**
 - Rate limiting (HTTP 429)
@@ -227,7 +227,7 @@ This enables:
 ### "OpenRouter API key not configured"
 
 Either:
-- Set `CLAUDE_MEM_OPENROUTER_API_KEY` in `~/.keepmind/settings.json`, or
+- Set `KEEPMIND_OPENROUTER_API_KEY` in `~/.keepmind/settings.json`, or
 - Set the `OPENROUTER_API_KEY` environment variable
 
 ### Rate Limiting
@@ -247,8 +247,8 @@ Verify the model ID is correct:
 ### High Token Usage Warning
 
 If you see warnings about high token usage (>50,000 per request):
-- Reduce `CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES`
-- Reduce `CLAUDE_MEM_OPENROUTER_MAX_TOKENS`
+- Reduce `KEEPMIND_OPENROUTER_MAX_CONTEXT_MESSAGES`
+- Reduce `KEEPMIND_OPENROUTER_MAX_TOKENS`
 - Consider a model with larger context window
 
 ### Connection Errors

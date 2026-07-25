@@ -103,7 +103,7 @@ describe('MemoryRoutes — POST /api/memory/save (#2116)', () => {
     const handler = buildHandler();
     const metadata = {
       obsidian_note: 'Atom — Test',
-      claude_mem_version: '12.4.4',
+      keepmind_version: '12.4.4',
       custom_key: 'value',
     };
     const { req, res } = createMockReqRes({ text: 'hello', metadata });

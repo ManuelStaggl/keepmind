@@ -154,7 +154,7 @@ The actual runtime install (Bun, uv, `bun install`) is performed by `npx claude-
 See [Plugin Hooks](/architecture/hooks) for detailed hook documentation.
 
 ### 2. Worker Service
-Express.js HTTP server on a per-user port (default `37700 + (uid % 100)`, override via `CLAUDE_MEM_WORKER_PORT`) with:
+Express.js HTTP server on a per-user port (default `37700 + (uid % 100)`, override via `KEEPMIND_WORKER_PORT`) with:
 - Search HTTP API endpoints
 - Viewer UI HTTP/SSE endpoints
 - Async observation processing via the Claude Agent SDK (or Gemini / OpenRouter)

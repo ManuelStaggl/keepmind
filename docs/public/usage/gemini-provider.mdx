@@ -37,10 +37,10 @@ Claude-mem supports Google's Gemini API as an alternative to the Claude Agent SD
 
 | Setting | Values | Default | Description |
 |---------|--------|---------|-------------|
-| `CLAUDE_MEM_PROVIDER` | `claude`, `gemini` | `claude` | AI provider for observation extraction |
-| `CLAUDE_MEM_GEMINI_API_KEY` | string | — | Your Gemini API key |
-| `CLAUDE_MEM_GEMINI_MODEL` | `gemini-2.5-flash-lite`, `gemini-2.5-flash`, `gemini-3-flash-preview` | `gemini-2.5-flash-lite` | Gemini model to use |
-| `CLAUDE_MEM_GEMINI_BILLING_ENABLED` | `true`, `false` | `false` | Skip rate limiting if billing is enabled on Google Cloud |
+| `KEEPMIND_PROVIDER` | `claude`, `gemini` | `claude` | AI provider for observation extraction |
+| `KEEPMIND_GEMINI_API_KEY` | string | — | Your Gemini API key |
+| `KEEPMIND_GEMINI_MODEL` | `gemini-2.5-flash-lite`, `gemini-2.5-flash`, `gemini-3-flash-preview` | `gemini-2.5-flash-lite` | Gemini model to use |
+| `KEEPMIND_GEMINI_BILLING_ENABLED` | `true`, `false` | `false` | Skip rate limiting if billing is enabled on Google Cloud |
 
 ### Using the Settings UI
 
@@ -58,10 +58,10 @@ Edit `~/.keepmind/settings.json`:
 
 ```json
 {
-  "CLAUDE_MEM_PROVIDER": "gemini",
-  "CLAUDE_MEM_GEMINI_API_KEY": "your-api-key-here",
-  "CLAUDE_MEM_GEMINI_MODEL": "gemini-2.5-flash-lite",
-  "CLAUDE_MEM_GEMINI_BILLING_ENABLED": "true"
+  "KEEPMIND_PROVIDER": "gemini",
+  "KEEPMIND_GEMINI_API_KEY": "your-api-key-here",
+  "KEEPMIND_GEMINI_MODEL": "gemini-2.5-flash-lite",
+  "KEEPMIND_GEMINI_BILLING_ENABLED": "true"
 }
 ```
 
@@ -99,13 +99,13 @@ You can switch between Claude and Gemini at any time:
 
 ```json
 {
-  "CLAUDE_MEM_PROVIDER": "gemini"
+  "KEEPMIND_PROVIDER": "gemini"
 }
 ```
 
 ## Error Behavior
 
-If Gemini is selected and the API errors, claude-mem logs the failure and re-throws so the message stays pending for later retry. There is no Claude SDK fallback — earlier docs claimed automatic Claude fallback, but the wiring was never actually engaged in production (#2087). To switch providers, change `CLAUDE_MEM_PROVIDER` in settings.
+If Gemini is selected and the API errors, claude-mem logs the failure and re-throws so the message stays pending for later retry. There is no Claude SDK fallback — earlier docs claimed automatic Claude fallback, but the wiring was never actually engaged in production (#2087). To switch providers, change `KEEPMIND_PROVIDER` in settings.
 
 **Throwing conditions:**
 - Rate limiting (HTTP 429)
@@ -119,7 +119,7 @@ If Gemini is selected and the API errors, claude-mem logs the failure and re-thr
 ### "Gemini API key not configured"
 
 Either:
-- Set `CLAUDE_MEM_GEMINI_API_KEY` in `~/.keepmind/settings.json`, or
+- Set `KEEPMIND_GEMINI_API_KEY` in `~/.keepmind/settings.json`, or
 - Set the `GEMINI_API_KEY` environment variable
 
 ### Rate Limiting

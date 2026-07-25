@@ -3,6 +3,7 @@ import { relative, isAbsolute, normalize } from 'path';
 import { isProjectExcluded } from '../utils/project-filter.js';
 import { loadFromFileOnce } from './hook-settings.js';
 import { OBSERVER_SESSIONS_DIR, OBSERVER_SESSIONS_PROJECT } from './paths.js';
+import { envValue } from './legacy-env.js';
 
 function isWithin(child: string, parent: string): boolean {
   const normChild = normalize(child);
@@ -13,13 +14,13 @@ function isWithin(child: string, parent: string): boolean {
 }
 
 export function shouldTrackProject(cwd: string): boolean {
-  if (process.env.CLAUDE_MEM_INTERNAL === '1') return false;
+  if (envValue('KEEPMIND_INTERNAL') === '1') return false;
   if (!cwd) return true;
   if (isWithin(cwd, OBSERVER_SESSIONS_DIR)) {
     return false;
   }
   const settings = loadFromFileOnce();
-  return !isProjectExcluded(cwd, settings.CLAUDE_MEM_EXCLUDED_PROJECTS);
+  return !isProjectExcluded(cwd, settings.KEEPMIND_EXCLUDED_PROJECTS);
 }
 
 export function shouldEmitProjectRow(project: string | null | undefined): boolean {

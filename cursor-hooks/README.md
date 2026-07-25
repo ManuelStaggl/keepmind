@@ -156,8 +156,8 @@ chmod +x .cursor/hooks/*.sh
 
 The hooks read configuration from `~/.claude-mem/settings.json`:
 
-- `CLAUDE_MEM_WORKER_PORT`: Worker port (default: 37777)
-- `CLAUDE_MEM_WORKER_HOST`: Worker host (default: 127.0.0.1)
+- `KEEPMIND_WORKER_PORT`: Worker port (default: 37777)
+- `KEEPMIND_WORKER_HOST`: Worker host (default: 127.0.0.1)
 
 ## Dependencies
 

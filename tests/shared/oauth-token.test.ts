@@ -22,7 +22,7 @@ import { buildIsolatedEnvWithFreshOAuth } from '../../src/shared/EnvManager.js';
 const ORIGINAL_EXEC_FILE = childProcess.execFile;
 const ORIGINAL_PLATFORM = process.platform;
 const ORIGINAL_ENV_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN;
-const ORIGINAL_DATA_DIR = process.env.CLAUDE_MEM_DATA_DIR;
+const ORIGINAL_DATA_DIR = process.env.KEEPMIND_DATA_DIR;
 
 let dataDirSpy: ReturnType<typeof spyOn> | undefined;
 let tempDir: string;
@@ -69,9 +69,9 @@ afterEach(() => {
     process.env.CLAUDE_CODE_OAUTH_TOKEN = ORIGINAL_ENV_TOKEN;
   }
   if (ORIGINAL_DATA_DIR === undefined) {
-    delete process.env.CLAUDE_MEM_DATA_DIR;
+    delete process.env.KEEPMIND_DATA_DIR;
   } else {
-    process.env.CLAUDE_MEM_DATA_DIR = ORIGINAL_DATA_DIR;
+    process.env.KEEPMIND_DATA_DIR = ORIGINAL_DATA_DIR;
   }
   // Clean up temp dir
   try {

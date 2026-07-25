@@ -93,7 +93,7 @@ keepmind exposes MCP search tools (`mcp__keepmind__*`) plus the `/mem-search` sk
 
 Settings live in `~/.keepmind/settings.json` (auto-created with defaults on first run): AI model, worker port/host, data directory, log level, and context-injection behavior.
 
-Environment variables use the canonical `KEEPMIND_*` prefix; the legacy `CLAUDE_MEM_*` names are still honored as a fallback. Examples:
+Environment variables use the canonical `KEEPMIND_*` prefix; the legacy `KEEPMIND_*` names are still honored as a fallback. Examples:
 
 ```bash
 KEEPMIND_DATA_DIR       # override the data directory (default ~/.keepmind)

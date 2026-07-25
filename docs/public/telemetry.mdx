@@ -152,10 +152,10 @@ The redaction pipeline is **pure and never throws** — hostile input (null, cir
 
 **Rate-limiting.** At most **one `$exception` per error fingerprint per 60 seconds**. Errors are fingerprinted by type + a normalized message template + top stack frame, so a storm of the "same" error with varying ids/numbers dedupes to a single send with an occurrence count attached. This applies to both our manual captures and any SDK autocapture. (Autocapture is additionally re-scrubbed before send — raw source-context lines that posthog-node reads off disk are deleted, and filenames are redacted to basenames.)
 
-**Consent-gated, with an independent kill-switch.** Error capture is gated by the normal telemetry consent chain (opting out of telemetry disables errors too) **and** by a separate `CLAUDE_MEM_TELEMETRY_ERRORS` switch — see [How to opt out](#how-to-opt-out-four-ways). No person profile is built for `$exception` events (`$process_person_profile: false`).
+**Consent-gated, with an independent kill-switch.** Error capture is gated by the normal telemetry consent chain (opting out of telemetry disables errors too) **and** by a separate `KEEPMIND_TELEMETRY_ERRORS` switch — see [How to opt out](#how-to-opt-out-four-ways). No person profile is built for `$exception` events (`$process_person_profile: false`).
 
 <Warning>
-**One-way door.** Unlike the whitelisted analytics events — every field of which is a number, boolean, or value from a closed set — `$exception` events carry real (redacted) message text. Once an error message is ingested into PostHog, it **cannot be selectively deleted** after the fact. This is a deliberate trade-off made to get actionable crash diagnostics, mitigated by aggressive redaction, rate-limiting, consent-gating, and the `CLAUDE_MEM_TELEMETRY_ERRORS=0` kill-switch. If you would rather send nothing free-form, set that variable.
+**One-way door.** Unlike the whitelisted analytics events — every field of which is a number, boolean, or value from a closed set — `$exception` events carry real (redacted) message text. Once an error message is ingested into PostHog, it **cannot be selectively deleted** after the fact. This is a deliberate trade-off made to get actionable crash diagnostics, mitigated by aggressive redaction, rate-limiting, consent-gating, and the `KEEPMIND_TELEMETRY_ERRORS=0` kill-switch. If you would rather send nothing free-form, set that variable.
 </Warning>
 
 ## Historical backfill
@@ -172,7 +172,7 @@ Like everything else, these are counts and closed-set values only — **never ti
 A few things worth knowing:
 
 - **It runs once.** A completion marker (`backfill.json` in the claude-mem data directory) is written after a successful send and prevents the backfill from ever running again. Until a run succeeds, no marker is written, so a failed attempt simply retries on the next worker start.
-- **It honors the exact same consent gates as live telemetry** — `DO_NOT_TRACK`, `CLAUDE_MEM_TELEMETRY=0`, and `enabled: false` in `telemetry.json` all block it, and [debug mode](#debug-mode) prints the would-be payload without sending.
+- **It honors the exact same consent gates as live telemetry** — `DO_NOT_TRACK`, `KEEPMIND_TELEMETRY=0`, and `enabled: false` in `telemetry.json` all block it, and [debug mode](#debug-mode) prints the would-be payload without sending.
 - **Opting out before the first worker start after upgrading prevents it entirely.** Nothing is sent and no marker is written while you are opted out — though if you opt back in later, the backfill will then run.
 - **Location is upload-time, not historical.** The coarse location PostHog derives at ingestion (see above) reflects where the events were uploaded from, not where you were on the historical dates they describe.
 
@@ -199,7 +199,7 @@ Analytics properties are enforced in code: they go through a whitelist (only the
 Any one of these keeps telemetry off — they are checked in this order, first match wins:
 
 1. **`DO_NOT_TRACK`** — the [universal opt-out](https://consoledonottrack.com). Set `DO_NOT_TRACK=1` and telemetry is forced off, overriding everything else.
-2. **`CLAUDE_MEM_TELEMETRY=0`** (also `false` / `off`) — environment override. (`CLAUDE_MEM_TELEMETRY=1` conversely forces it on.)
+2. **`KEEPMIND_TELEMETRY=0`** (also `false` / `off`) — environment override. (`KEEPMIND_TELEMETRY=1` conversely forces it on.)
 3. **Telemetry config file** — `enabled: false` in `telemetry.json` (see below).
 4. **CLI command**:
    ```bash
@@ -211,7 +211,7 @@ Any one of these keeps telemetry off — they are checked in this order, first m
 [Error tracking](#error-tracking) (`$exception` events with redacted message/stack) can be disabled **on its own**, without turning off anonymous analytics:
 
 ```bash
-CLAUDE_MEM_TELEMETRY_ERRORS=0   # also accepts 'false' / 'off'
+KEEPMIND_TELEMETRY_ERRORS=0   # also accepts 'false' / 'off'
 ```
 
 This is the one telemetry path that carries free-form (redacted) text and is a [one-way door](#error-tracking) once ingested, so it has its own kill-switch for operators who are fine with anonymous counters but not error text. It defaults on whenever telemetry consent is on; any of the four opt-outs above also disables it implicitly (no consent ⇒ no errors).
@@ -227,7 +227,7 @@ npx claude-mem telemetry status
 Want to see exactly what would be sent? Set:
 
 ```bash
-CLAUDE_MEM_TELEMETRY_DEBUG=1
+KEEPMIND_TELEMETRY_DEBUG=1
 ```
 
 With debug mode on (and telemetry enabled), every would-be event payload is printed to stderr and **nothing is sent over the network**.
@@ -237,7 +237,7 @@ With debug mode on (and telemetry enabled), every would-be event payload is prin
 Consent and the anonymous install ID are stored in `telemetry.json` inside the claude-mem data directory:
 
 - Default: `~/.keepmind/telemetry.json`
-- Or `$CLAUDE_MEM_DATA_DIR/telemetry.json` if you've overridden the data dir
+- Or `$KEEPMIND_DATA_DIR/telemetry.json` if you've overridden the data dir
 
 ```json
 {

@@ -141,8 +141,8 @@ The plugin's hook layer hasn't changed — `plugin/hooks/hooks.json` still dispa
 ┌──────────────────────────────────────────────────────────┐
 │  worker-service.cjs                                      │
 │   ├─ runtime-selector.ts decides:                       │
-│   │    • CLAUDE_MEM_RUNTIME=worker     → legacy SQLite  │
-│   │    • CLAUDE_MEM_RUNTIME=server-beta → HTTP client   │
+│   │    • KEEPMIND_RUNTIME=worker     → legacy SQLite  │
+│   │    • KEEPMIND_RUNTIME=server-beta → HTTP client   │
 │   └─ ServerBetaClient.recordEvent(input) → /v1/events   │
 └──────────────────────────────────────────────────────────┘
                        │
@@ -205,7 +205,7 @@ For a developer running claude-mem on one machine, server-beta is invisible. Her
 
 The single-user case is "team_id = local-hook-team, project_id = local-hook-project, you are the only `actor_id`". Everything multi-tenant degrades cleanly to single-tenant with that mapping.
 
-Multi-account on the same machine: set `CLAUDE_MEM_DATA_DIR=$HOME/.claude-mem-work` for the work profile. Every path (DB, settings, pid, port file) derives from it. The UID-derived port plus per-user data dir means two profiles cohabit without conflict.
+Multi-account on the same machine: set `KEEPMIND_DATA_DIR=$HOME/.claude-mem-work` for the work profile. Every path (DB, settings, pid, port file) derives from it. The UID-derived port plus per-user data dir means two profiles cohabit without conflict.
 
 ---
 
@@ -385,7 +385,7 @@ The triad is what turns "the AI remembered X" from a black box into a traceable,
 
 `ProviderObservationGenerator` is provider-agnostic via a small interface. Today's providers: Claude (Anthropic SDK), Gemini (Google Generative AI), OpenRouter (any model behind their gateway). Adding a new provider is implementing one method (`generate(input) → { rawText, modelId, providerLabel }`) and registering it. The XML response format and `processGeneratedResponse` stay the same.
 
-This is the "we don't pick winners" property: a team that prefers Gemini for cost, or wants OpenRouter for failover, just sets `CLAUDE_MEM_SERVER_PROVIDER` and the substrate doesn't care.
+This is the "we don't pick winners" property: a team that prefers Gemini for cost, or wants OpenRouter for failover, just sets `KEEPMIND_SERVER_PROVIDER` and the substrate doesn't care.
 
 ### 9.5 Observability primitives
 
@@ -410,7 +410,7 @@ POSTGRES_USER=… POSTGRES_PASSWORD=… POSTGRES_DB=… docker compose exec clau
     --name alice-laptop
 ```
 
-The output is a JSON blob with the raw key. Each developer pastes it into their `~/.claude-mem/settings.json` `CLAUDE_MEM_SERVER_BETA_API_KEY`. Done. They use Claude Code normally; their hooks now write to the team substrate.
+The output is a JSON blob with the raw key. Each developer pastes it into their `~/.claude-mem/settings.json` `KEEPMIND_SERVER_BETA_API_KEY`. Done. They use Claude Code normally; their hooks now write to the team substrate.
 
 **Day two — operator path**. Something stuck in `processing`?
 
@@ -589,7 +589,7 @@ The substrate is rich, but the surface is incomplete. Things deliberately not bu
 - **Search ranking tuning.** FTS handles exact terms well. A team-scope ranker that weights recency × authorship × topic relevance is open.
 - **Geo-replication.** Single-region today. Multi-region needs conflict resolution on the unique idempotency keys.
 - **Worker autoscaling.** `docker compose --scale` for manual; Kubernetes HPA on queue depth needs a Prom exporter that doesn't exist yet (the metrics surface does — `/api/health`).
-- **Provider failover.** `CLAUDE_MEM_SERVER_PROVIDER` is single-valued. Retry-on-different-provider would be a small wrapper above `ProviderObservationGenerator`.
+- **Provider failover.** `KEEPMIND_SERVER_PROVIDER` is single-valued. Retry-on-different-provider would be a small wrapper above `ProviderObservationGenerator`.
 - **Online schema migrations.** `bootstrapServerBetaPostgresSchema` runs on startup. Live deployments need a proper migration tool.
 - **Pre-existing legacy test failures.** 7 tests in the legacy worker path remain skipped/failing; not introduced by server-beta but deferred for a follow-up.
 

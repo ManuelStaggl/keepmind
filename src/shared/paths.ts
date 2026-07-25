@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync } from 'fs';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { SettingsDefaultsManager } from './SettingsDefaultsManager.js';
+import { envValue, settingValue } from './legacy-env.js';
 import { logger } from '../utils/logger.js';
 
 function getDirname(): string {
@@ -16,8 +17,9 @@ function getDirname(): string {
 const _dirname = getDirname();
 
 export function resolveDataDir(): string {
-  // Canonical KEEPMIND_DATA_DIR, with CLAUDE_MEM_DATA_DIR honored as fallback.
-  const envDataDir = process.env.KEEPMIND_DATA_DIR ?? process.env.CLAUDE_MEM_DATA_DIR;
+  // Canonical KEEPMIND_DATA_DIR, with the pre-rename CLAUDE_MEM_DATA_DIR honored
+  // as a fallback (see legacy-env.ts).
+  const envDataDir = envValue('KEEPMIND_DATA_DIR');
   if (envDataDir) {
     return envDataDir;
   }
@@ -28,7 +30,7 @@ export function resolveDataDir(): string {
     if (existsSync(settingsPath)) {
       const raw = JSON.parse(readFileSync(settingsPath, 'utf-8'));
       const settings = raw.env ?? raw;
-      const settingsDataDir = settings.KEEPMIND_DATA_DIR ?? settings.CLAUDE_MEM_DATA_DIR;
+      const settingsDataDir = settingValue<string>('KEEPMIND_DATA_DIR', settings);
       if (settingsDataDir) {
         return settingsDataDir;
       }

@@ -242,17 +242,17 @@ describe('runOneTimeV12_4_3Cleanup', () => {
     );
   });
 
-  it('honors CLAUDE_MEM_SKIP_CLEANUP_V12_4_3=1 by exiting without writing the marker', () => {
+  it('honors KEEPMIND_SKIP_CLEANUP_V12_4_3=1 by exiting without writing the marker', () => {
     const dbPath = path.join(tmpDataDir, 'claude-mem.db');
     seedDatabase(dbPath, { observerSessions: 1, stuckCount: 10 });
 
-    const original = process.env.CLAUDE_MEM_SKIP_CLEANUP_V12_4_3;
-    process.env.CLAUDE_MEM_SKIP_CLEANUP_V12_4_3 = '1';
+    const original = process.env.KEEPMIND_SKIP_CLEANUP_V12_4_3;
+    process.env.KEEPMIND_SKIP_CLEANUP_V12_4_3 = '1';
     try {
       runOneTimeV12_4_3Cleanup(tmpDataDir);
     } finally {
-      if (original === undefined) delete process.env.CLAUDE_MEM_SKIP_CLEANUP_V12_4_3;
-      else process.env.CLAUDE_MEM_SKIP_CLEANUP_V12_4_3 = original;
+      if (original === undefined) delete process.env.KEEPMIND_SKIP_CLEANUP_V12_4_3;
+      else process.env.KEEPMIND_SKIP_CLEANUP_V12_4_3 = original;
     }
 
     expect(existsSync(path.join(tmpDataDir, '.cleanup-v12.4.3-applied'))).toBe(false);

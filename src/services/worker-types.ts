@@ -46,7 +46,7 @@ export interface ActiveSession {
   /**
    * Compression turns issued into the current resumed Claude SDK conversation
    * since the last fresh session (perf plan L3). When it reaches
-   * CLAUDE_MEM_MAX_CONTEXT_MESSAGES the generator forces a fresh session
+   * KEEPMIND_MAX_CONTEXT_MESSAGES the generator forces a fresh session
    * (forceInit) so the SDK context window / resume payload stays bounded. Reset
    * to 0 whenever a fresh (non-resumed) session starts.
    */

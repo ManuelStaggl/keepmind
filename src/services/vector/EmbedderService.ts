@@ -70,14 +70,14 @@ export class EmbedderService {
     return (this._instance ??= new EmbedderService());
   }
 
-  private readonly modelId = setting('CLAUDE_MEM_EMBED_MODEL', DEFAULT_MODEL_ID);
-  private readonly dtype = setting('CLAUDE_MEM_EMBED_DTYPE', DEFAULT_DTYPE);
+  private readonly modelId = setting('KEEPMIND_EMBED_MODEL', DEFAULT_MODEL_ID);
+  private readonly dtype = setting('KEEPMIND_EMBED_DTYPE', DEFAULT_DTYPE);
   private readonly idleUnloadMs = (() => {
-    const raw = Number(setting('CLAUDE_MEM_EMBED_IDLE_MS', String(DEFAULT_IDLE_UNLOAD_MS)));
+    const raw = Number(setting('KEEPMIND_EMBED_IDLE_MS', String(DEFAULT_IDLE_UNLOAD_MS)));
     return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_IDLE_UNLOAD_MS;
   })();
   private readonly microBatch = (() => {
-    const raw = Number(setting('CLAUDE_MEM_EMBED_BATCH', String(DEFAULT_MICRO_BATCH)));
+    const raw = Number(setting('KEEPMIND_EMBED_BATCH', String(DEFAULT_MICRO_BATCH)));
     return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_MICRO_BATCH;
   })();
 

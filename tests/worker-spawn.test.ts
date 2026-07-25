@@ -59,12 +59,12 @@ describe('Worker Self-Spawn CLI', () => {
     // The spawned CLI must be pointed at the isolated temp dir explicitly so
     // it never reads (or stale-cleans) the real ~/.claude-mem/worker.pid.
     it('should report worker status in expected format', async () => {
-      const output = runWorkerCommand('status', { CLAUDE_MEM_DATA_DIR: TEST_DATA_DIR });
+      const output = runWorkerCommand('status', { KEEPMIND_DATA_DIR: TEST_DATA_DIR });
       expect(output.includes('running')).toBe(true);
     });
 
     it('should include PID and port when running', async () => {
-      const output = runWorkerCommand('status', { CLAUDE_MEM_DATA_DIR: TEST_DATA_DIR });
+      const output = runWorkerCommand('status', { KEEPMIND_DATA_DIR: TEST_DATA_DIR });
       if (output.includes('Worker running')) {
         expect(output).toMatch(/PID: \d+/);
         expect(output).toMatch(/Port: \d+/);
@@ -169,7 +169,7 @@ describe('Windows-specific behavior', () => {
       writable: true,
       configurable: true
     });
-    delete process.env.CLAUDE_MEM_MANAGED;
+    delete process.env.KEEPMIND_MANAGED;
   });
 
   it('should detect Windows managed worker mode correctly', () => {
@@ -178,10 +178,10 @@ describe('Windows-specific behavior', () => {
       writable: true,
       configurable: true
     });
-    process.env.CLAUDE_MEM_MANAGED = 'true';
+    process.env.KEEPMIND_MANAGED = 'true';
 
     const isWindows = process.platform === 'win32';
-    const isManaged = process.env.CLAUDE_MEM_MANAGED === 'true';
+    const isManaged = process.env.KEEPMIND_MANAGED === 'true';
 
     expect(isWindows).toBe(true);
     expect(isManaged).toBe(true);

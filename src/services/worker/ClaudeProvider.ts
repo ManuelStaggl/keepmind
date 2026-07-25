@@ -180,7 +180,7 @@ export function pinModelForSession(
 }
 
 /**
- * L3 — clamp CLAUDE_MEM_MAX_CONTEXT_MESSAGES. 0/negative = unbounded; a finite
+ * L3 — clamp KEEPMIND_MAX_CONTEXT_MESSAGES. 0/negative = unbounded; a finite
  * positive value is floored at 4 so a misconfiguration can't thrash a fresh init
  * on nearly every turn; anything non-finite falls back to the default (40).
  */
@@ -256,7 +256,7 @@ export class ClaudeProvider {
     }
 
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-    const maxConcurrent = parseInt(settings.CLAUDE_MEM_MAX_CONCURRENT_AGENTS, 10) || 2;
+    const maxConcurrent = parseInt(settings.KEEPMIND_MAX_CONCURRENT_AGENTS, 10) || 2;
     await waitForSlot(maxConcurrent, session.abortController.signal);
 
     const isolatedEnv = sanitizeEnv(await buildIsolatedEnvWithFreshOAuth());
@@ -643,7 +643,7 @@ export class ClaudeProvider {
     const settingsPath = paths.settings();
     const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
     // Resolve $TIER:<fast|smart|simple|summary> aliases at request time (#2289).
-    return resolveTierAlias(settings.CLAUDE_MEM_MODEL, settings);
+    return resolveTierAlias(settings.KEEPMIND_MODEL, settings);
   }
 
   /**
@@ -655,7 +655,7 @@ export class ClaudeProvider {
   private getObservationBatchMax(): number {
     try {
       const settings = SettingsDefaultsManager.loadFromFile(paths.settings());
-      const raw = parseInt(settings.CLAUDE_MEM_OBSERVATION_BATCH_MAX, 10);
+      const raw = parseInt(settings.KEEPMIND_OBSERVATION_BATCH_MAX, 10);
       if (Number.isFinite(raw) && raw >= 1) return Math.min(raw, 12);
     } catch {
       // fall through to safe default
@@ -671,7 +671,7 @@ export class ClaudeProvider {
   private getObservationCoalesceMs(): number {
     try {
       const settings = SettingsDefaultsManager.loadFromFile(paths.settings());
-      const raw = parseInt(settings.CLAUDE_MEM_OBSERVATION_COALESCE_MS, 10);
+      const raw = parseInt(settings.KEEPMIND_OBSERVATION_COALESCE_MS, 10);
       if (Number.isFinite(raw) && raw >= 0) return Math.min(raw, 15_000);
     } catch {
       // fall through to safe default
@@ -688,7 +688,7 @@ export class ClaudeProvider {
   private getMaxContextTurns(): number {
     try {
       const settings = SettingsDefaultsManager.loadFromFile(paths.settings());
-      return clampMaxContextTurns(parseInt(settings.CLAUDE_MEM_MAX_CONTEXT_MESSAGES, 10));
+      return clampMaxContextTurns(parseInt(settings.KEEPMIND_MAX_CONTEXT_MESSAGES, 10));
     } catch {
       // fall through to safe default
       return 40;

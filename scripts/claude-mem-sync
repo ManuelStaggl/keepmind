@@ -13,15 +13,15 @@
 #   - claude-mem installed on both machines (~/.claude-mem/claude-mem.db)
 #
 # Environment variables:
-#   CLAUDE_MEM_DB         Local database path (default: ~/.claude-mem/claude-mem.db)
-#   CLAUDE_MEM_REMOTE_DB  Remote database path (default: ~/.claude-mem/claude-mem.db)
+#   KEEPMIND_DB         Local database path (default: ~/.claude-mem/claude-mem.db)
+#   KEEPMIND_REMOTE_DB  Remote database path (default: ~/.claude-mem/claude-mem.db)
 
 set -euo pipefail
 
-LOCAL_DB="${CLAUDE_MEM_DB:-$HOME/.claude-mem/claude-mem.db}"
+LOCAL_DB="${KEEPMIND_DB:-$HOME/.claude-mem/claude-mem.db}"
 COMMAND="${1:?Usage: claude-mem-sync <push|pull|sync|status> <remote-host>}"
 REMOTE_HOST="${2:?Missing remote host. Usage: claude-mem-sync $COMMAND <remote-host>}"
-REMOTE_DB="${CLAUDE_MEM_REMOTE_DB:-\$HOME/.claude-mem/claude-mem.db}"
+REMOTE_DB="${KEEPMIND_REMOTE_DB:-\$HOME/.claude-mem/claude-mem.db}"
 TMPDIR="/tmp/claude-mem-sync-$$"
 
 mkdir -p "$TMPDIR"

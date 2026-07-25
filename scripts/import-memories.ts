@@ -2,7 +2,7 @@
 
 import { existsSync, readFileSync } from 'fs';
 
-const WORKER_PORT = process.env.CLAUDE_MEM_WORKER_PORT || 37777;
+const WORKER_PORT = process.env.KEEPMIND_WORKER_PORT || 37777;
 const WORKER_URL = `http://127.0.0.1:${WORKER_PORT}`;
 
 async function importMemories(inputFile: string) {

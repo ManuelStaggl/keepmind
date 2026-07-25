@@ -16,6 +16,7 @@ import {
   ServerSessionsRepository,
 } from '../../../storage/sqlite/index.js';
 import { requireServerAuth } from '../../middleware/auth.js';
+import { envValue } from '../../../shared/legacy-env.js';
 
 declare const __DEFAULT_PACKAGE_VERSION__: string;
 const BUILT_IN_VERSION = typeof __DEFAULT_PACKAGE_VERSION__ !== 'undefined'
@@ -79,7 +80,7 @@ export class ServerV1Routes implements RouteHandler {
         name: 'keepmind-server',
         version: BUILT_IN_VERSION,
         ...(this.options.runtime ? { runtime: this.options.runtime } : {}),
-        authMode: this.options.authMode ?? process.env.CLAUDE_MEM_AUTH_MODE ?? 'api-key',
+        authMode: this.options.authMode ?? envValue('KEEPMIND_AUTH_MODE') ?? 'api-key',
       });
     });
 

@@ -16,6 +16,7 @@
 
 import { spawn } from 'child_process';
 import { IS_WINDOWS } from '../utils/paths.js';
+import { envValue } from '../../shared/legacy-env.js';
 
 const TIMEOUT_FIRST_RUN_MS = 5 * 60 * 1000;
 const TIMEOUT_SUBSEQUENT_MS = 2 * 60 * 1000;
@@ -28,7 +29,7 @@ export interface NpmResult {
 }
 
 export function resolveInstallTimeoutMs(isFirstRun: boolean): number {
-  const override = process.env.CLAUDE_MEM_INSTALL_TIMEOUT_MS;
+  const override = envValue('KEEPMIND_INSTALL_TIMEOUT_MS');
   if (override && Number.isFinite(Number(override))) return Number(override);
   return isFirstRun ? TIMEOUT_FIRST_RUN_MS : TIMEOUT_SUBSEQUENT_MS;
 }

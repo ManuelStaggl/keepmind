@@ -44,12 +44,12 @@ function makeSession(overrides: Record<string, unknown> = {}) {
 function mockGeminiLimits(maxContextMessages: string) {
   loadFromFileSpy.mockImplementation(() => ({
     ...SettingsDefaultsManager.getAllDefaults(),
-    CLAUDE_MEM_GEMINI_API_KEY: 'test-api-key',
-    CLAUDE_MEM_GEMINI_MODEL: 'gemini-2.5-flash-lite',
-    CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: 'false',
-    CLAUDE_MEM_GEMINI_MAX_CONTEXT_MESSAGES: maxContextMessages,
-    CLAUDE_MEM_GEMINI_MAX_TOKENS: '100000',
-    CLAUDE_MEM_DATA_DIR: '/tmp/claude-mem-test',
+    KEEPMIND_GEMINI_API_KEY: 'test-api-key',
+    KEEPMIND_GEMINI_MODEL: 'gemini-2.5-flash-lite',
+    KEEPMIND_GEMINI_RATE_LIMITING_ENABLED: 'false',
+    KEEPMIND_GEMINI_MAX_CONTEXT_MESSAGES: maxContextMessages,
+    KEEPMIND_GEMINI_MAX_TOKENS: '100000',
+    KEEPMIND_DATA_DIR: '/tmp/claude-mem-test',
   }));
 }
 
@@ -102,17 +102,17 @@ describe('GeminiProvider', () => {
 
     loadFromFileSpy = spyOn(SettingsDefaultsManager, 'loadFromFile').mockImplementation(() => ({
       ...SettingsDefaultsManager.getAllDefaults(),
-      CLAUDE_MEM_GEMINI_API_KEY: 'test-api-key',
-      CLAUDE_MEM_GEMINI_MODEL: 'gemini-2.5-flash-lite',
-      CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: rateLimitingEnabled,
-      CLAUDE_MEM_DATA_DIR: '/tmp/claude-mem-test',
+      KEEPMIND_GEMINI_API_KEY: 'test-api-key',
+      KEEPMIND_GEMINI_MODEL: 'gemini-2.5-flash-lite',
+      KEEPMIND_GEMINI_RATE_LIMITING_ENABLED: rateLimitingEnabled,
+      KEEPMIND_DATA_DIR: '/tmp/claude-mem-test',
     }));
 
     getSpy = spyOn(SettingsDefaultsManager, 'get').mockImplementation((key: string) => {
-      if (key === 'CLAUDE_MEM_GEMINI_API_KEY') return 'test-api-key';
-      if (key === 'CLAUDE_MEM_GEMINI_MODEL') return 'gemini-2.5-flash-lite';
-      if (key === 'CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED') return rateLimitingEnabled;
-      if (key === 'CLAUDE_MEM_DATA_DIR') return '/tmp/claude-mem-test';
+      if (key === 'KEEPMIND_GEMINI_API_KEY') return 'test-api-key';
+      if (key === 'KEEPMIND_GEMINI_MODEL') return 'gemini-2.5-flash-lite';
+      if (key === 'KEEPMIND_GEMINI_RATE_LIMITING_ENABLED') return rateLimitingEnabled;
+      if (key === 'KEEPMIND_DATA_DIR') return '/tmp/claude-mem-test';
       return SettingsDefaultsManager.getAllDefaults()[key as keyof ReturnType<typeof SettingsDefaultsManager.getAllDefaults>] ?? '';
     });
 
@@ -526,12 +526,12 @@ describe('GeminiProvider', () => {
     it('should always keep at least the newest message even if it exceeds token limit', async () => {
       loadFromFileSpy.mockImplementation(() => ({
         ...SettingsDefaultsManager.getAllDefaults(),
-        CLAUDE_MEM_GEMINI_API_KEY: 'test-api-key',
-        CLAUDE_MEM_GEMINI_MODEL: 'gemini-2.5-flash-lite',
-        CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: 'false',
-        CLAUDE_MEM_GEMINI_MAX_CONTEXT_MESSAGES: '20',
-        CLAUDE_MEM_GEMINI_MAX_TOKENS: '1000',  // Very low: ~250 chars
-        CLAUDE_MEM_DATA_DIR: '/tmp/claude-mem-test',
+        KEEPMIND_GEMINI_API_KEY: 'test-api-key',
+        KEEPMIND_GEMINI_MODEL: 'gemini-2.5-flash-lite',
+        KEEPMIND_GEMINI_RATE_LIMITING_ENABLED: 'false',
+        KEEPMIND_GEMINI_MAX_CONTEXT_MESSAGES: '20',
+        KEEPMIND_GEMINI_MAX_TOKENS: '1000',  // Very low: ~250 chars
+        KEEPMIND_DATA_DIR: '/tmp/claude-mem-test',
       }));
 
       const largeContent = 'x'.repeat(8000);  

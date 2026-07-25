@@ -1,3 +1,4 @@
+import { envValue } from '../../shared/legacy-env.js';
 // SPDX-License-Identifier: Apache-2.0
 //
 // Secret-scrubbing on write (Phase 4, Step 1). Pure, dependency-free, never
@@ -181,9 +182,9 @@ export function redactSecretsDeep<T>(value: T, options: RedactOptions = {}): T {
 
 /**
  * Emergency kill-switch read from the environment. Redaction is ON by default;
- * set CLAUDE_MEM_REDACT_SECRETS=0 (or false) to disable.
+ * set KEEPMIND_REDACT_SECRETS=0 (or false) to disable.
  */
 export function redactionEnabled(): boolean {
-  const v = process.env.CLAUDE_MEM_REDACT_SECRETS;
+  const v = envValue('KEEPMIND_REDACT_SECRETS');
   return v !== '0' && v !== 'false';
 }

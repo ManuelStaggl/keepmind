@@ -42,7 +42,7 @@ The LiteLLM integration is intentionally small. There is no custom LiteLLM provi
 At runtime:
 
 1. The installer or user writes gateway settings to `~/.keepmind/.env`.
-2. `~/.keepmind/settings.json` keeps `CLAUDE_MEM_PROVIDER` set to `claude`.
+2. `~/.keepmind/settings.json` keeps `KEEPMIND_PROVIDER` set to `claude`.
 3. The worker starts the Claude Agent SDK with an isolated environment.
 4. The SDK reads `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`.
 5. LiteLLM receives the SDK's Anthropic-format request.
@@ -58,15 +58,15 @@ The code paths involved are:
 | `src/services/worker/ClaudeProvider.ts` | Starts the Claude Agent SDK for observation extraction with the isolated environment |
 | `src/services/worker/knowledge/KnowledgeAgent.ts` | Uses the same isolated SDK path for knowledge corpus Q&A |
 
-### Why `CLAUDE_MEM_PROVIDER` Stays `claude`
+### Why `KEEPMIND_PROVIDER` Stays `claude`
 
 LiteLLM is a gateway for the Claude Agent SDK path, not a fourth claude-mem provider.
 
 ```json
 {
-  "CLAUDE_MEM_PROVIDER": "claude",
-  "CLAUDE_MEM_CLAUDE_AUTH_METHOD": "gateway",
-  "CLAUDE_MEM_MODEL": "claude-haiku-4-5-20251001"
+  "KEEPMIND_PROVIDER": "claude",
+  "KEEPMIND_CLAUDE_AUTH_METHOD": "gateway",
+  "KEEPMIND_MODEL": "claude-haiku-4-5-20251001"
 }
 ```
 
@@ -108,7 +108,7 @@ litellm --config litellm-config.yaml --host 127.0.0.1 --port 4000
 In this example, claude-mem asks the SDK for `claude-haiku-4-5-20251001`, LiteLLM accepts that model alias, and LiteLLM forwards the request to `openai/gpt-4o-mini`.
 
 <Note>
-The alias in `model_name` must match `CLAUDE_MEM_MODEL`, or `CLAUDE_MEM_MODEL` must be changed to match your LiteLLM alias. claude-mem does not translate model names.
+The alias in `model_name` must match `KEEPMIND_MODEL`, or `KEEPMIND_MODEL` must be changed to match your LiteLLM alias. claude-mem does not translate model names.
 </Note>
 
 ## Configure claude-mem
@@ -138,9 +138,9 @@ Edit `~/.keepmind/settings.json`:
 
 ```json
 {
-  "CLAUDE_MEM_PROVIDER": "claude",
-  "CLAUDE_MEM_CLAUDE_AUTH_METHOD": "gateway",
-  "CLAUDE_MEM_MODEL": "claude-haiku-4-5-20251001"
+  "KEEPMIND_PROVIDER": "claude",
+  "KEEPMIND_CLAUDE_AUTH_METHOD": "gateway",
+  "KEEPMIND_MODEL": "claude-haiku-4-5-20251001"
 }
 ```
 
@@ -175,7 +175,7 @@ If `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, or `ANTHROPIC_API_KEY` is prese
 
 ## Model Names
 
-`CLAUDE_MEM_MODEL` is passed through to the Claude Agent SDK. In gateway mode, claude-mem allows any non-empty model string because the valid model list is owned by LiteLLM.
+`KEEPMIND_MODEL` is passed through to the Claude Agent SDK. In gateway mode, claude-mem allows any non-empty model string because the valid model list is owned by LiteLLM.
 
 Recommended pattern:
 
@@ -191,7 +191,7 @@ Then keep:
 
 ```json
 {
-  "CLAUDE_MEM_MODEL": "claude-haiku-4-5-20251001"
+  "KEEPMIND_MODEL": "claude-haiku-4-5-20251001"
 }
 ```
 
@@ -209,7 +209,7 @@ model_list:
 
 ```json
 {
-  "CLAUDE_MEM_MODEL": "memory-compressor"
+  "KEEPMIND_MODEL": "memory-compressor"
 }
 ```
 
@@ -260,8 +260,8 @@ You should see SDK startup logs that report gateway auth, followed by normal obs
 
 Check LiteLLM's logs for a corresponding request to the configured model alias. If LiteLLM never receives traffic, confirm:
 
-- `CLAUDE_MEM_PROVIDER` is `claude`
-- `CLAUDE_MEM_CLAUDE_AUTH_METHOD` is `gateway`
+- `KEEPMIND_PROVIDER` is `claude`
+- `KEEPMIND_CLAUDE_AUTH_METHOD` is `gateway`
 - `ANTHROPIC_BASE_URL` is in `~/.keepmind/.env`
 - The worker was restarted after manual edits
 - The LiteLLM URL does not include an extra `/v1` suffix for the unified Anthropic endpoint
@@ -270,7 +270,7 @@ Check LiteLLM's logs for a corresponding request to the configured model alias. 
 
 ### LiteLLM returns "model not found"
 
-The model name sent by claude-mem does not match a LiteLLM `model_name`. Make `CLAUDE_MEM_MODEL` and the LiteLLM alias match exactly.
+The model name sent by claude-mem does not match a LiteLLM `model_name`. Make `KEEPMIND_MODEL` and the LiteLLM alias match exactly.
 
 ### claude-mem still uses Anthropic directly
 

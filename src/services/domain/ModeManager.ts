@@ -4,6 +4,7 @@ import { join } from 'path';
 import type { ModeConfig, ObservationType } from './types.js';
 import { logger } from '../../utils/logger.js';
 import { getPackageRoot } from '../../shared/paths.js';
+import { envValue } from '../../shared/legacy-env.js';
 
 export class ModeManager {
   private static instance: ModeManager | null = null;
@@ -13,8 +14,9 @@ export class ModeManager {
   private constructor() {
     const packageRoot = getPackageRoot();
     
+    const modesDirOverride = envValue('KEEPMIND_MODES_DIR');
     const possiblePaths = [
-      ...(process.env.CLAUDE_MEM_MODES_DIR ? [process.env.CLAUDE_MEM_MODES_DIR] : []),
+      ...(modesDirOverride ? [modesDirOverride] : []),
       join(packageRoot, 'modes'),           // Production (plugin/modes)
       join(packageRoot, '..', 'plugin', 'modes'), // Development (src/../plugin/modes)
     ];

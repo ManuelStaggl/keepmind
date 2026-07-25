@@ -11,6 +11,7 @@ import { getCurrentWorkerPid, verifyRestartedWorker } from './restart-verify.js'
 import { runShutdownSequence, type WorkerShutdownReason } from './worker-shutdown.js';
 import { DATA_DIR, ensureDir, resolveOpenDbPath } from '../shared/paths.js';
 import { HOOK_TIMEOUTS } from '../shared/hook-constants.js';
+import { envValue } from '../shared/legacy-env.js';
 import { getUptimeSeconds } from '../shared/uptime.js';
 import { SettingsDefaultsManager } from '../shared/SettingsDefaultsManager.js';
 import { getAuthMethodDescription } from '../shared/EnvManager.js';
@@ -155,11 +156,11 @@ const CLEAN_SHUTDOWN_SENTINEL_PATH = path.join(DATA_DIR, '.worker-clean-shutdown
  * Session-refcount lifecycle tuning (requirement B). Env-configurable so the
  * idle grace and stale-sweep windows can be tuned (and shortened in tests)
  * without a settings-schema change.
- *   - CLAUDE_MEM_IDLE_SHUTDOWN_GRACE_MS: idle grace before self-shutdown once
+ *   - KEEPMIND_IDLE_SHUTDOWN_GRACE_MS: idle grace before self-shutdown once
  *     the active-session count hits 0. Default 5 min. <=0 disables auto-shutdown.
- *   - CLAUDE_MEM_SESSION_STALE_MS: a session id whose last acquire is older
+ *   - KEEPMIND_SESSION_STALE_MS: a session id whose last acquire is older
  *     than this is swept (missed-SessionEnd guard). Default 6 h.
- *   - CLAUDE_MEM_SESSION_SWEEP_INTERVAL_MS: sweep cadence. Default 60 s.
+ *   - KEEPMIND_SESSION_SWEEP_INTERVAL_MS: sweep cadence. Default 60 s.
  */
 function readLifecycleConfig(): { idleMs: number; checkIntervalMs: number } {
   const num = (raw: string | undefined, fallback: number): number => {
@@ -168,12 +169,12 @@ function readLifecycleConfig(): { idleMs: number; checkIntervalMs: number } {
     return Number.isFinite(parsed) ? parsed : fallback;
   };
   // Activity-based idle shutdown: no worker request for `idleMs` → shut down
-  // (the worker lazy-respawns on the next hook). CLAUDE_MEM_SESSION_STALE_MS is
+  // (the worker lazy-respawns on the next hook). KEEPMIND_SESSION_STALE_MS is
   // read as a back-compat alias so existing overrides still work; the old
   // per-session-refcount + sweep model was replaced (see SessionRefCounter).
   return {
-    idleMs: num(process.env.CLAUDE_MEM_IDLE_SHUTDOWN_GRACE_MS ?? process.env.CLAUDE_MEM_SESSION_STALE_MS, 5 * 60 * 1000),
-    checkIntervalMs: num(process.env.CLAUDE_MEM_SESSION_SWEEP_INTERVAL_MS, 60 * 1000),
+    idleMs: num(envValue('KEEPMIND_IDLE_SHUTDOWN_GRACE_MS') ?? envValue('KEEPMIND_SESSION_STALE_MS'), 5 * 60 * 1000),
+    checkIntervalMs: num(envValue('KEEPMIND_SESSION_SWEEP_INTERVAL_MS'), 60 * 1000),
   };
 }
 
@@ -443,7 +444,7 @@ export class WorkerService implements WorkerRef {
     this.server.registerRoutes(new DataRoutes(this.paginationHelper, this.dbManager, this.sessionManager, this.sseBroadcaster, this, this.startTime));
     this.server.registerRoutes(new SettingsRoutes(this.settingsManager));
     this.server.registerRoutes(new LogsRoutes());
-    this.server.registerRoutes(new MemoryRoutes(this.dbManager, 'claude-mem'));
+    this.server.registerRoutes(new MemoryRoutes(this.dbManager, 'keepmind'));
     this.server.registerRoutes(new ServerV1Routes({
       getDatabase: () => this.dbManager.getConnection(),
     }));
@@ -610,7 +611,7 @@ export class WorkerService implements WorkerRef {
 
       const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
 
-      const modeId = settings.CLAUDE_MEM_MODE;
+      const modeId = settings.KEEPMIND_MODE;
       ModeManager.getInstance().loadMode(modeId);
       logger.info('SYSTEM', `Mode loaded: ${modeId}`);
 
@@ -630,7 +631,7 @@ export class WorkerService implements WorkerRef {
         logger.info('SYSTEM', 'Dependency preflight passed');
       }
 
-      if (settings.CLAUDE_MEM_MODE === 'local' || !settings.CLAUDE_MEM_MODE) {
+      if (settings.KEEPMIND_MODE === 'local' || !settings.KEEPMIND_MODE) {
         logger.info('WORKER', 'Checking for one-time Chroma migration...');
         runOneTimeChromaMigration();
       }
@@ -657,7 +658,7 @@ export class WorkerService implements WorkerRef {
         logger.error('WORKER', 'Worktree adoption failed (background)', {}, err instanceof Error ? err : new Error(String(err)));
       });
 
-      this.vectorSearchEnabled = settings.CLAUDE_MEM_CHROMA_ENABLED !== 'false';
+      this.vectorSearchEnabled = settings.KEEPMIND_CHROMA_ENABLED !== 'false';
       if (this.vectorSearchEnabled) {
         try {
           SqliteVecManager.instance().load();
@@ -683,7 +684,7 @@ export class WorkerService implements WorkerRef {
         // by the one-time model load/download. Best-effort; never blocks boot.
         EmbedderService.instance().warmup().catch(() => { /* best-effort */ });
       } else {
-        logger.info('SYSTEM', 'Vector search disabled via CLAUDE_MEM_CHROMA_ENABLED=false, using SQLite-only search');
+        logger.info('SYSTEM', 'Vector search disabled via KEEPMIND_CHROMA_ENABLED=false, using SQLite-only search');
       }
 
       logger.info('WORKER', 'Initializing database manager...');
@@ -780,13 +781,13 @@ export class WorkerService implements WorkerRef {
   }
 
   private async startTranscriptWatcher(settings: ReturnType<typeof SettingsDefaultsManager.loadFromFile>): Promise<void> {
-    const transcriptsEnabled = settings.CLAUDE_MEM_TRANSCRIPTS_ENABLED !== 'false';
+    const transcriptsEnabled = settings.KEEPMIND_TRANSCRIPTS_ENABLED !== 'false';
     if (!transcriptsEnabled) {
-      logger.info('TRANSCRIPT', 'Transcript watcher disabled via CLAUDE_MEM_TRANSCRIPTS_ENABLED=false');
+      logger.info('TRANSCRIPT', 'Transcript watcher disabled via KEEPMIND_TRANSCRIPTS_ENABLED=false');
       return;
     }
 
-    const configPath = settings.CLAUDE_MEM_TRANSCRIPTS_CONFIG_PATH || DEFAULT_CONFIG_PATH;
+    const configPath = settings.KEEPMIND_TRANSCRIPTS_CONFIG_PATH || DEFAULT_CONFIG_PATH;
     const resolvedConfigPath = expandHomePath(configPath);
 
     if (!existsSync(resolvedConfigPath)) {
@@ -796,7 +797,7 @@ export class WorkerService implements WorkerRef {
       return;
     }
 
-    const allowCodexTranscriptIngestion = settings.CLAUDE_MEM_CODEX_TRANSCRIPT_INGESTION === 'true';
+    const allowCodexTranscriptIngestion = settings.KEEPMIND_CODEX_TRANSCRIPT_INGESTION === 'true';
     const { config: transcriptConfig, removed } = filterNativeHookBackedCodexWatches(
       loadTranscriptWatchConfig(configPath),
       allowCodexTranscriptIngestion
@@ -806,7 +807,7 @@ export class WorkerService implements WorkerRef {
     if (removed > 0) {
       logger.warn('TRANSCRIPT', 'Skipped Codex transcript watch because native Codex hooks are authoritative', {
         removed,
-        optInSetting: 'CLAUDE_MEM_CODEX_TRANSCRIPT_INGESTION=true',
+        optInSetting: 'KEEPMIND_CODEX_TRANSCRIPT_INGESTION=true',
       });
     }
 
@@ -1155,20 +1156,21 @@ async function main() {
   const { command, args: commandArgs } = parseWorkerServiceCommand(process.argv.slice(2));
 
   // Disabled-plugin gate. Scope: only the HOOK-driven entry points (`start`,
-  // `hook`, and a bare invocation) honor the user's "claude-mem disabled"
+  // `hook`, and a bare invocation) honor the user's "keepmind disabled"
   // toggle — those are the ones Claude Code fires automatically, so a disabled
   // plugin must stay dormant for them. The actual worker process (`--daemon`)
   // and explicit `restart` are NOT gated: once something deliberately asks to
   // run/replace the daemon, silently exiting 0 is exactly the undebuggable
   // "nothing happened" failure that masked the real lifecycle (the launcher
   // spawned the daemon, but the daemon then re-read the global toggle and
-  // killed itself before listen()). `CLAUDE_MEM_FORCE_START=1` bypasses the
+  // killed itself before listen()). `KEEPMIND_FORCE_START=1` bypasses the
   // gate entirely for deliberate manual/CI starts that must not depend on the
   // developer's global plugin toggle. Whichever branch triggers, it is LOGGED
   // (was a silent process.exit(0) — see worker-startup root-cause).
   const gatedCommands = ['start', 'hook'];
-  // Canonical KEEPMIND_FORCE_START, with CLAUDE_MEM_FORCE_START honored as fallback.
-  const forceStartRaw = process.env.KEEPMIND_FORCE_START ?? process.env.CLAUDE_MEM_FORCE_START;
+  // Canonical KEEPMIND_FORCE_START, with the pre-rename CLAUDE_MEM_FORCE_START
+  // honored as a fallback (see legacy-env.ts).
+  const forceStartRaw = envValue('KEEPMIND_FORCE_START');
   const forceStart = forceStartRaw === '1' || forceStartRaw === 'true';
   if (
     (command === undefined || gatedCommands.includes(command)) &&
@@ -1177,7 +1179,7 @@ async function main() {
   ) {
     logger.info(
       'SYSTEM',
-      'keepmind plugin is disabled in Claude settings — skipping worker lifecycle command (set CLAUDE_MEM_FORCE_START=1 to override)',
+      'keepmind plugin is disabled in Claude settings — skipping worker lifecycle command (set KEEPMIND_FORCE_START=1 to override)',
       { command: command ?? '(none)', settingsKey: 'keepmind@keepmind' }
     );
     process.exit(0);
@@ -1187,7 +1189,7 @@ async function main() {
 
   function exitWithStatus(status: 'ready' | 'error', message?: string): never {
     const output = buildStatusOutput(status, message, {
-      includeSuppressOutput: process.env.CLAUDE_MEM_CODEX_HOOK !== '1',
+      includeSuppressOutput: envValue('KEEPMIND_CODEX_HOOK') !== '1',
     });
     console.log(JSON.stringify(output));
     // Hardened exit: tear down the global fetch (undici) dispatcher first.
@@ -1419,7 +1421,7 @@ async function main() {
       const platform = process.argv[3];
       const event = process.argv[4];
       if (!platform || !event) {
-        console.error('Usage: claude-mem hook <platform> <event>');
+        console.error('Usage: keepmind hook <platform> <event>');
         console.error('Platforms: claude-code, codex, cursor, gemini-cli, raw');
         console.error('Events: context, session-init, observation, summarize, user-message');
         process.exit(1);
@@ -1638,7 +1640,7 @@ async function fetchWorkerHealth(port: number, timeoutMs: number): Promise<Worke
 // ReferenceError. The typeof guard keeps this expression evaluable in both.
 const __filenameSafe: string | undefined = typeof __filename !== 'undefined' ? __filename : undefined;
 const isMainModule = typeof require !== 'undefined' && typeof module !== 'undefined'
-  ? require.main === module || !module.parent || process.env.CLAUDE_MEM_MANAGED === 'true'
+  ? require.main === module || !module.parent || envValue('KEEPMIND_MANAGED') === 'true'
   : import.meta.url === `file://${process.argv[1]}`
     || process.argv[1]?.endsWith('worker-service')
     || process.argv[1]?.endsWith('worker-service.cjs')

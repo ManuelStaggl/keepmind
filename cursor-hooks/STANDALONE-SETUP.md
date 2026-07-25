@@ -59,10 +59,10 @@ mkdir -p ~/.claude-mem
 # Create settings file
 cat > ~/.claude-mem/settings.json << 'EOF'
 {
-  "CLAUDE_MEM_PROVIDER": "gemini",
-  "CLAUDE_MEM_GEMINI_API_KEY": "YOUR_GEMINI_API_KEY",
-  "CLAUDE_MEM_GEMINI_MODEL": "gemini-2.5-flash-lite",
-  "CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED": true
+  "KEEPMIND_PROVIDER": "gemini",
+  "KEEPMIND_GEMINI_API_KEY": "YOUR_GEMINI_API_KEY",
+  "KEEPMIND_GEMINI_MODEL": "gemini-2.5-flash-lite",
+  "KEEPMIND_GEMINI_RATE_LIMITING_ENABLED": true
 }
 EOF
 ```
@@ -77,8 +77,8 @@ OpenRouter provides access to many models, including free options.
 mkdir -p ~/.claude-mem
 cat > ~/.claude-mem/settings.json << 'EOF'
 {
-  "CLAUDE_MEM_PROVIDER": "openrouter",
-  "CLAUDE_MEM_OPENROUTER_API_KEY": "YOUR_OPENROUTER_API_KEY"
+  "KEEPMIND_PROVIDER": "openrouter",
+  "KEEPMIND_OPENROUTER_API_KEY": "YOUR_OPENROUTER_API_KEY"
 }
 EOF
 ```
@@ -97,7 +97,7 @@ If you have Anthropic API credits but not a Claude Code subscription:
 mkdir -p ~/.claude-mem
 cat > ~/.claude-mem/settings.json << 'EOF'
 {
-  "CLAUDE_MEM_PROVIDER": "claude",
+  "KEEPMIND_PROVIDER": "claude",
   "ANTHROPIC_API_KEY": "YOUR_ANTHROPIC_API_KEY"
 }
 EOF
@@ -232,8 +232,8 @@ New-Item -ItemType Directory -Force -Path $settingsDir
 
 @"
 {
-  "CLAUDE_MEM_PROVIDER": "gemini",
-  "CLAUDE_MEM_GEMINI_API_KEY": "YOUR_GEMINI_API_KEY"
+  "KEEPMIND_PROVIDER": "gemini",
+  "KEEPMIND_GEMINI_API_KEY": "YOUR_GEMINI_API_KEY"
 }
 "@ | Out-File -FilePath "$settingsDir\settings.json" -Encoding UTF8
 

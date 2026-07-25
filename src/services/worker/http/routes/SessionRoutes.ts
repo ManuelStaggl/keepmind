@@ -55,7 +55,7 @@ export class SessionRoutes extends BaseRouteHandler {
         logger.debug('SESSION', 'Using OpenRouter agent');
         return this.openRouterAgent;
       } else {
-        throw new Error('OpenRouter provider selected but no API key configured. Set CLAUDE_MEM_OPENROUTER_API_KEY in settings or OPENROUTER_API_KEY environment variable.');
+        throw new Error('OpenRouter provider selected but no API key configured. Set KEEPMIND_OPENROUTER_API_KEY in settings or OPENROUTER_API_KEY environment variable.');
       }
     }
     if (isGeminiSelected()) {
@@ -63,7 +63,7 @@ export class SessionRoutes extends BaseRouteHandler {
         logger.debug('SESSION', 'Using Gemini agent');
         return this.geminiAgent;
       } else {
-        throw new Error('Gemini provider selected but no API key configured. Set CLAUDE_MEM_GEMINI_API_KEY in settings or GEMINI_API_KEY environment variable.');
+        throw new Error('Gemini provider selected but no API key configured. Set KEEPMIND_GEMINI_API_KEY in settings or GEMINI_API_KEY environment variable.');
       }
     }
     return this.sdkAgent;
@@ -589,7 +589,7 @@ export class SessionRoutes extends BaseRouteHandler {
 
   private async applyTierRouting(session: NonNullable<ReturnType<typeof this.sessionManager.getSession>>): Promise<void> {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-    if (settings.CLAUDE_MEM_TIER_ROUTING_ENABLED === 'false') {
+    if (settings.KEEPMIND_TIER_ROUTING_ENABLED === 'false') {
       session.modelOverride = undefined;
       return;
     }
@@ -609,7 +609,7 @@ export class SessionRoutes extends BaseRouteHandler {
     );
 
     if (hasSummarize) {
-      const summaryModel = settings.CLAUDE_MEM_TIER_SUMMARY_MODEL;
+      const summaryModel = settings.KEEPMIND_TIER_SUMMARY_MODEL;
       if (summaryModel) {
         session.modelOverride = summaryModel;
         logger.debug('SESSION', `Tier routing: summary model`, {
@@ -617,7 +617,7 @@ export class SessionRoutes extends BaseRouteHandler {
         });
       }
     } else if (allSimple) {
-      const simpleModel = settings.CLAUDE_MEM_TIER_SIMPLE_MODEL;
+      const simpleModel = settings.KEEPMIND_TIER_SIMPLE_MODEL;
       if (simpleModel) {
         session.modelOverride = simpleModel;
         logger.debug('SESSION', `Tier routing: simple model`, {

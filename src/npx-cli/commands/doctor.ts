@@ -165,7 +165,7 @@ function resolveWorkerPidInfo(): { port: string; pidAlive: boolean; pidPort: num
     // fall through to configured port
   }
   return {
-    port: SettingsDefaultsManager.get('CLAUDE_MEM_WORKER_PORT'),
+    port: SettingsDefaultsManager.get('KEEPMIND_WORKER_PORT'),
     pidAlive: false,
     pidPort: null,
   };
@@ -243,7 +243,7 @@ export function checkProviderReadiness(ctx: ProviderContext): CheckResult {
     return {
       name,
       status: 'fail',
-      detail: `CLAUDE_MEM_PROVIDER='${ctx.provider}' is invalid — must be one of ${VALID_PROVIDERS.join(', ')}`,
+      detail: `KEEPMIND_PROVIDER='${ctx.provider}' is invalid — must be one of ${VALID_PROVIDERS.join(', ')}`,
       required: true,
     };
   }
@@ -256,7 +256,7 @@ export function checkProviderReadiness(ctx: ProviderContext): CheckResult {
           name,
           status: 'fail',
           detail:
-            'gemini selected but no API key — set CLAUDE_MEM_GEMINI_API_KEY in settings.json or GEMINI_API_KEY in ~/.keepmind/.env',
+            'gemini selected but no API key — set KEEPMIND_GEMINI_API_KEY in settings.json or GEMINI_API_KEY in ~/.keepmind/.env',
           required: true,
         };
   }
@@ -269,7 +269,7 @@ export function checkProviderReadiness(ctx: ProviderContext): CheckResult {
           name,
           status: 'fail',
           detail:
-            'openrouter selected but no API key — set CLAUDE_MEM_OPENROUTER_API_KEY in settings.json or OPENROUTER_API_KEY in ~/.keepmind/.env',
+            'openrouter selected but no API key — set KEEPMIND_OPENROUTER_API_KEY in settings.json or OPENROUTER_API_KEY in ~/.keepmind/.env',
           required: true,
         };
   }
@@ -459,10 +459,10 @@ function buildProviderGroup(probe: WorkerProbe): CheckGroup {
 
   checks.push(
     checkProviderReadiness({
-      provider: SettingsDefaultsManager.get('CLAUDE_MEM_PROVIDER'),
-      claudeAuthMethod: SettingsDefaultsManager.get('CLAUDE_MEM_CLAUDE_AUTH_METHOD'),
-      geminiKey: SettingsDefaultsManager.get('CLAUDE_MEM_GEMINI_API_KEY'),
-      openrouterKey: SettingsDefaultsManager.get('CLAUDE_MEM_OPENROUTER_API_KEY'),
+      provider: SettingsDefaultsManager.get('KEEPMIND_PROVIDER'),
+      claudeAuthMethod: SettingsDefaultsManager.get('KEEPMIND_CLAUDE_AUTH_METHOD'),
+      geminiKey: SettingsDefaultsManager.get('KEEPMIND_GEMINI_API_KEY'),
+      openrouterKey: SettingsDefaultsManager.get('KEEPMIND_OPENROUTER_API_KEY'),
       envKeys,
       staleMarker,
     }),
@@ -595,24 +595,24 @@ function buildMemoryGroup(probe: WorkerProbe): CheckGroup {
   }
 
   // Vector search — live deep probe when possible, else settings + file presence.
-  const vectorEnabled = SettingsDefaultsManager.get('CLAUDE_MEM_CHROMA_ENABLED') !== 'false';
+  const vectorEnabled = SettingsDefaultsManager.get('KEEPMIND_CHROMA_ENABLED') !== 'false';
   if (!vectorEnabled) {
     checks.push({
       name: 'Vector search',
       status: 'warn',
-      detail: 'disabled via CLAUDE_MEM_CHROMA_ENABLED=false — semantic search falls back to SQLite/BM25',
+      detail: 'disabled via KEEPMIND_CHROMA_ENABLED=false — semantic search falls back to SQLite/BM25',
       required: false,
     });
   } else if (probe.reachable && probe.chroma) {
     const c = probe.chroma;
     if (c.status === 'disabled') {
       // Settings say enabled, but the live worker was started with vector search
-      // off — a stale CLAUDE_MEM_CHROMA_ENABLED=false in the worker's environment.
+      // off — a stale KEEPMIND_CHROMA_ENABLED=false in the worker's environment.
       checks.push({
         name: 'Vector search',
         status: 'warn',
         detail:
-          'worker has vector search OFF (started with CLAUDE_MEM_CHROMA_ENABLED=false in its env) — restart without that flag to enable',
+          'worker has vector search OFF (started with KEEPMIND_CHROMA_ENABLED=false in its env) — restart without that flag to enable',
         required: false,
       });
     } else if (c.probe) {

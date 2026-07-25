@@ -17,7 +17,7 @@ export class ChromaRoutes extends BaseRouteHandler {
 
   private handleGetStatus = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-    const vectorEnabled = settings.CLAUDE_MEM_CHROMA_ENABLED !== 'false';
+    const vectorEnabled = settings.KEEPMIND_CHROMA_ENABLED !== 'false';
 
     const deepRaw = req.query.deep;
     const deepEnabled = deepRaw !== undefined && deepRaw !== 'false' && deepRaw !== '0';
@@ -27,7 +27,7 @@ export class ChromaRoutes extends BaseRouteHandler {
         status: 'disabled',
         connected: false,
         timestamp: new Date().toISOString(),
-        details: 'Vector search is disabled via CLAUDE_MEM_CHROMA_ENABLED=false',
+        details: 'Vector search is disabled via KEEPMIND_CHROMA_ENABLED=false',
         deep: deepEnabled,
       });
       return;

@@ -66,8 +66,8 @@ mkdir -p ~/.keepmind
 # Create settings file with Gemini configuration
 cat > ~/.keepmind/settings.json << 'EOF'
 {
-  "CLAUDE_MEM_PROVIDER": "gemini",
-  "CLAUDE_MEM_GEMINI_API_KEY": "YOUR_GEMINI_API_KEY"
+  "KEEPMIND_PROVIDER": "gemini",
+  "KEEPMIND_GEMINI_API_KEY": "YOUR_GEMINI_API_KEY"
 }
 EOF
 ```
@@ -109,9 +109,9 @@ To change the model, update your settings:
 
 ```json
 {
-  "CLAUDE_MEM_PROVIDER": "gemini",
-  "CLAUDE_MEM_GEMINI_API_KEY": "your-key",
-  "CLAUDE_MEM_GEMINI_MODEL": "gemini-2.5-flash"
+  "KEEPMIND_PROVIDER": "gemini",
+  "KEEPMIND_GEMINI_API_KEY": "your-key",
+  "KEEPMIND_GEMINI_MODEL": "gemini-2.5-flash"
 }
 ```
 
@@ -127,7 +127,7 @@ Claude-mem automatically handles rate limiting for free tier usage:
 
 ```json
 {
-  "CLAUDE_MEM_GEMINI_BILLING_ENABLED": true
+  "KEEPMIND_GEMINI_BILLING_ENABLED": true
 }
 ```
 
@@ -146,8 +146,8 @@ cat ~/.keepmind/settings.json
 Should output something like:
 ```json
 {
-  "CLAUDE_MEM_PROVIDER": "gemini",
-  "CLAUDE_MEM_GEMINI_API_KEY": "AIza..."
+  "KEEPMIND_PROVIDER": "gemini",
+  "KEEPMIND_GEMINI_API_KEY": "AIza..."
 }
 ```
 
@@ -180,7 +180,7 @@ You can switch between Gemini, OpenRouter, and Claude SDK at any time by updatin
 
 ```json
 {
-  "CLAUDE_MEM_PROVIDER": "openrouter"
+  "KEEPMIND_PROVIDER": "openrouter"
 }
 ```
 

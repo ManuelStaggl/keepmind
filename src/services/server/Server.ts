@@ -15,6 +15,7 @@ import { flushResponseThen } from './flushResponseThen.js';
 import { getUptimeSeconds } from '../../shared/uptime.js';
 import { snapshotDependencyHealth, type DependencyHealthSnapshot } from '../../shared/dependency-health.js';
 import { globalRateLimitStore } from '../worker/RateLimitStore.js';
+import { envValue } from '../../shared/legacy-env.js';
 
 // Local-only fork: the cloud observation-queue (BullMQ/Valkey) was removed.
 // The local SQLite worker never sets `getQueueHealth`, so this shape only
@@ -270,7 +271,7 @@ export class Server {
         version: BUILT_IN_VERSION,
         workerPath: this.options.workerPath,
         uptime: getUptimeSeconds(this.startTime),
-        managed: process.env.CLAUDE_MEM_MANAGED === 'true',
+        managed: envValue('KEEPMIND_MANAGED') === 'true',
         hasIpc: typeof process.send === 'function',
         platform: process.platform,
         pid: process.pid,
@@ -332,7 +333,7 @@ export class Server {
 
     this.app.post('/api/admin/restart', requireLocalhost, async (_req: Request, res: Response) => {
       const isWindowsManaged = process.platform === 'win32' &&
-        process.env.CLAUDE_MEM_MANAGED === 'true' &&
+        envValue('KEEPMIND_MANAGED') === 'true' &&
         process.send;
 
       if (isWindowsManaged) {
@@ -350,7 +351,7 @@ export class Server {
       // anything else stays 'stop'.
       const shutdownReason: 'stop' | 'restart' = req.query.reason === 'restart' ? 'restart' : 'stop';
       const isWindowsManaged = process.platform === 'win32' &&
-        process.env.CLAUDE_MEM_MANAGED === 'true' &&
+        envValue('KEEPMIND_MANAGED') === 'true' &&
         process.send;
 
       if (isWindowsManaged) {

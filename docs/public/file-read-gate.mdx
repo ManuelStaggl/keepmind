@@ -140,11 +140,11 @@ Files smaller than **1,500 bytes** always pass through the gate without intercep
 
 ### Project Exclusions
 
-Projects matching patterns in `CLAUDE_MEM_EXCLUDED_PROJECTS` skip the gate entirely. Configure this in `~/.keepmind/settings.json`:
+Projects matching patterns in `KEEPMIND_EXCLUDED_PROJECTS` skip the gate entirely. Configure this in `~/.keepmind/settings.json`:
 
 ```json
 {
-  "CLAUDE_MEM_EXCLUDED_PROJECTS": "/tmp/*,/scratch/*"
+  "KEEPMIND_EXCLUDED_PROJECTS": "/tmp/*,/scratch/*"
 }
 ```
 

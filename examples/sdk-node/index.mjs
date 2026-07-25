@@ -7,7 +7,7 @@
 //   capture -> generate -> search, in-process, with NO worker process running.
 //
 // Run with:
-//   CLAUDE_MEM_SERVER_DATABASE_URL=postgres://user:pass@host:5432/db \
+//   KEEPMIND_SERVER_DATABASE_URL=postgres://user:pass@host:5432/db \
 //   ANTHROPIC_API_KEY=sk-ant-... \
 //     node index.mjs
 //
@@ -16,7 +16,7 @@
 //   - `uvx` on PATH (the SDK starts a `uvx chroma-mcp` subprocess for
 //     semantic search — Chroma is required, not optional).
 //   - One generation provider API key (Anthropic by default; see the
-//     CLAUDE_MEM_SERVER_PROVIDER / GEMINI_API_KEY / OPENROUTER_API_KEY
+//     KEEPMIND_SERVER_PROVIDER / GEMINI_API_KEY / OPENROUTER_API_KEY
 //     env vars to switch).
 
 import { createCmemClient } from 'claude-mem/sdk';
@@ -34,10 +34,10 @@ function requireEnv(name) {
 }
 
 async function main() {
-  requireEnv('CLAUDE_MEM_SERVER_DATABASE_URL');
+  requireEnv('KEEPMIND_SERVER_DATABASE_URL');
   // Default provider is Claude; require an Anthropic key unless the
   // operator switched providers explicitly.
-  const providerKind = (process.env.CLAUDE_MEM_SERVER_PROVIDER || 'claude').toLowerCase();
+  const providerKind = (process.env.KEEPMIND_SERVER_PROVIDER || 'claude').toLowerCase();
   if (providerKind === 'claude' || providerKind === 'anthropic') {
     requireEnv('ANTHROPIC_API_KEY');
   } else if (providerKind === 'gemini') {
@@ -48,7 +48,7 @@ async function main() {
 
   console.log('[sdk-node-example] creating client (no worker required)...');
   const client = await createCmemClient({
-    databaseUrl: process.env.CLAUDE_MEM_SERVER_DATABASE_URL,
+    databaseUrl: process.env.KEEPMIND_SERVER_DATABASE_URL,
   });
   console.log(
     `[sdk-node-example] client ready (teamId=${client.teamId}, projectId=${client.projectId})`

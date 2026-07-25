@@ -36,12 +36,12 @@ If you don't have Claude Code, configure a provider for AI summarization:
 
 ```bash
 # Option A: Gemini (free tier available - recommended)
-claude-mem settings set CLAUDE_MEM_PROVIDER gemini
-claude-mem settings set CLAUDE_MEM_GEMINI_API_KEY your-api-key
+claude-mem settings set KEEPMIND_PROVIDER gemini
+claude-mem settings set KEEPMIND_GEMINI_API_KEY your-api-key
 
 # Option B: OpenRouter (free models available)
-claude-mem settings set CLAUDE_MEM_PROVIDER openrouter
-claude-mem settings set CLAUDE_MEM_OPENROUTER_API_KEY your-api-key
+claude-mem settings set KEEPMIND_PROVIDER openrouter
+claude-mem settings set KEEPMIND_OPENROUTER_API_KEY your-api-key
 ```
 
 **Get free API keys**:

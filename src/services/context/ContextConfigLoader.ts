@@ -13,17 +13,17 @@ export function loadContextConfig(): ContextConfig {
   const observationConcepts = new Set(mode.observation_concepts.map(c => c.id));
 
   return {
-    totalObservationCount: parseInt(settings.CLAUDE_MEM_CONTEXT_OBSERVATIONS, 10),
-    fullObservationCount: parseInt(settings.CLAUDE_MEM_CONTEXT_FULL_COUNT, 10),
-    sessionCount: parseInt(settings.CLAUDE_MEM_CONTEXT_SESSION_COUNT, 10),
-    showReadTokens: settings.CLAUDE_MEM_CONTEXT_SHOW_READ_TOKENS === 'true',
-    showWorkTokens: settings.CLAUDE_MEM_CONTEXT_SHOW_WORK_TOKENS === 'true',
-    showSavingsAmount: settings.CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_AMOUNT === 'true',
-    showSavingsPercent: settings.CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_PERCENT === 'true',
+    totalObservationCount: parseInt(settings.KEEPMIND_CONTEXT_OBSERVATIONS, 10),
+    fullObservationCount: parseInt(settings.KEEPMIND_CONTEXT_FULL_COUNT, 10),
+    sessionCount: parseInt(settings.KEEPMIND_CONTEXT_SESSION_COUNT, 10),
+    showReadTokens: settings.KEEPMIND_CONTEXT_SHOW_READ_TOKENS === 'true',
+    showWorkTokens: settings.KEEPMIND_CONTEXT_SHOW_WORK_TOKENS === 'true',
+    showSavingsAmount: settings.KEEPMIND_CONTEXT_SHOW_SAVINGS_AMOUNT === 'true',
+    showSavingsPercent: settings.KEEPMIND_CONTEXT_SHOW_SAVINGS_PERCENT === 'true',
     observationTypes,
     observationConcepts,
-    fullObservationField: settings.CLAUDE_MEM_CONTEXT_FULL_FIELD as 'narrative' | 'facts',
-    showLastSummary: settings.CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY === 'true',
-    showLastMessage: settings.CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE === 'true',
+    fullObservationField: settings.KEEPMIND_CONTEXT_FULL_FIELD as 'narrative' | 'facts',
+    showLastSummary: settings.KEEPMIND_CONTEXT_SHOW_LAST_SUMMARY === 'true',
+    showLastMessage: settings.KEEPMIND_CONTEXT_SHOW_LAST_MESSAGE === 'true',
   };
 }

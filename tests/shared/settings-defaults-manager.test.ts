@@ -15,20 +15,20 @@ describe('SettingsDefaultsManager', () => {
     mkdirSync(tempDir, { recursive: true });
     settingsPath = join(tempDir, 'settings.json');
 
-    // The preload tripwire (tests/preload.ts) pins CLAUDE_MEM_DATA_DIR for
+    // The preload tripwire (tests/preload.ts) pins KEEPMIND_DATA_DIR for
     // the whole run, and loadFromFile applies env overrides on top of file
     // values — which would make every loadFromFile result diverge from
     // getAllDefaults()'s hardcoded ~/.claude-mem default. These tests are
     // about file > defaults behavior on an EXPLICIT settingsPath (no real
     // data-dir I/O happens here), so drop the env override for their
     // duration and restore it after.
-    prevDataDirEnv = process.env.CLAUDE_MEM_DATA_DIR;
-    delete process.env.CLAUDE_MEM_DATA_DIR;
+    prevDataDirEnv = process.env.KEEPMIND_DATA_DIR;
+    delete process.env.KEEPMIND_DATA_DIR;
   });
 
   afterEach(() => {
-    if (prevDataDirEnv === undefined) delete process.env.CLAUDE_MEM_DATA_DIR;
-    else process.env.CLAUDE_MEM_DATA_DIR = prevDataDirEnv;
+    if (prevDataDirEnv === undefined) delete process.env.KEEPMIND_DATA_DIR;
+    else process.env.KEEPMIND_DATA_DIR = prevDataDirEnv;
     try {
       rmSync(tempDir, { recursive: true, force: true });
     } catch {
@@ -59,7 +59,7 @@ describe('SettingsDefaultsManager', () => {
 
         const content = readFileSync(settingsPath, 'utf-8');
         expect(content).toContain('\n');
-        expect(content).toContain('  "CLAUDE_MEM_MODEL"');
+        expect(content).toContain('  "KEEPMIND_MODEL"');
       });
 
       it('should write all default keys to the file', () => {
@@ -100,35 +100,35 @@ describe('SettingsDefaultsManager', () => {
     describe('file exists with valid content', () => {
       it('should return parsed content when file has valid JSON', () => {
         const customSettings = {
-          CLAUDE_MEM_MODEL: 'custom-model',
-          CLAUDE_MEM_WORKER_PORT: '12345',
+          KEEPMIND_MODEL: 'custom-model',
+          KEEPMIND_WORKER_PORT: '12345',
         };
         writeFileSync(settingsPath, JSON.stringify(customSettings));
 
         const result = SettingsDefaultsManager.loadFromFile(settingsPath);
 
-        expect(result.CLAUDE_MEM_MODEL).toBe('custom-model');
-        expect(result.CLAUDE_MEM_WORKER_PORT).toBe('12345');
+        expect(result.KEEPMIND_MODEL).toBe('custom-model');
+        expect(result.KEEPMIND_WORKER_PORT).toBe('12345');
       });
 
       it('should merge file settings with defaults for missing keys', () => {
         const partialSettings = {
-          CLAUDE_MEM_MODEL: 'partial-model',
+          KEEPMIND_MODEL: 'partial-model',
         };
         writeFileSync(settingsPath, JSON.stringify(partialSettings));
 
         const result = SettingsDefaultsManager.loadFromFile(settingsPath);
         const defaults = SettingsDefaultsManager.getAllDefaults();
 
-        expect(result.CLAUDE_MEM_MODEL).toBe('partial-model');
-        expect(result.CLAUDE_MEM_WORKER_PORT).toBe(defaults.CLAUDE_MEM_WORKER_PORT);
-        expect(result.CLAUDE_MEM_WORKER_HOST).toBe(defaults.CLAUDE_MEM_WORKER_HOST);
-        expect(result.CLAUDE_MEM_LOG_LEVEL).toBe(defaults.CLAUDE_MEM_LOG_LEVEL);
+        expect(result.KEEPMIND_MODEL).toBe('partial-model');
+        expect(result.KEEPMIND_WORKER_PORT).toBe(defaults.KEEPMIND_WORKER_PORT);
+        expect(result.KEEPMIND_WORKER_HOST).toBe(defaults.KEEPMIND_WORKER_HOST);
+        expect(result.KEEPMIND_LOG_LEVEL).toBe(defaults.KEEPMIND_LOG_LEVEL);
       });
 
       it('should not modify existing file when loading', () => {
         const customSettings = {
-          CLAUDE_MEM_MODEL: 'do-not-change',
+          KEEPMIND_MODEL: 'do-not-change',
           CUSTOM_KEY: 'should-persist', // Extra key not in defaults
         };
         writeFileSync(settingsPath, JSON.stringify(customSettings, null, 2));
@@ -142,14 +142,14 @@ describe('SettingsDefaultsManager', () => {
 
       it('should handle all settings keys correctly', () => {
         const fullSettings = SettingsDefaultsManager.getAllDefaults();
-        fullSettings.CLAUDE_MEM_MODEL = 'all-keys-model';
-        fullSettings.CLAUDE_MEM_PROVIDER = 'gemini';
+        fullSettings.KEEPMIND_MODEL = 'all-keys-model';
+        fullSettings.KEEPMIND_PROVIDER = 'gemini';
         writeFileSync(settingsPath, JSON.stringify(fullSettings));
 
         const result = SettingsDefaultsManager.loadFromFile(settingsPath);
 
-        expect(result.CLAUDE_MEM_MODEL).toBe('all-keys-model');
-        expect(result.CLAUDE_MEM_PROVIDER).toBe('gemini');
+        expect(result.KEEPMIND_MODEL).toBe('all-keys-model');
+        expect(result.KEEPMIND_PROVIDER).toBe('gemini');
       });
     });
 
@@ -207,22 +207,22 @@ describe('SettingsDefaultsManager', () => {
       it('should migrate old nested { env: {...} } schema to flat schema', () => {
         const nestedSettings = {
           env: {
-            CLAUDE_MEM_MODEL: 'nested-model',
-            CLAUDE_MEM_WORKER_PORT: '54321',
+            KEEPMIND_MODEL: 'nested-model',
+            KEEPMIND_WORKER_PORT: '54321',
           },
         };
         writeFileSync(settingsPath, JSON.stringify(nestedSettings));
 
         const result = SettingsDefaultsManager.loadFromFile(settingsPath);
 
-        expect(result.CLAUDE_MEM_MODEL).toBe('nested-model');
-        expect(result.CLAUDE_MEM_WORKER_PORT).toBe('54321');
+        expect(result.KEEPMIND_MODEL).toBe('nested-model');
+        expect(result.KEEPMIND_WORKER_PORT).toBe('54321');
       });
 
       it('should auto-migrate file from nested to flat schema', () => {
         const nestedSettings = {
           env: {
-            CLAUDE_MEM_MODEL: 'migrated-model',
+            KEEPMIND_MODEL: 'migrated-model',
           },
         };
         writeFileSync(settingsPath, JSON.stringify(nestedSettings));
@@ -232,7 +232,7 @@ describe('SettingsDefaultsManager', () => {
         const content = readFileSync(settingsPath, 'utf-8');
         const parsed = JSON.parse(content);
         expect(parsed.env).toBeUndefined();
-        expect(parsed.CLAUDE_MEM_MODEL).toBe('migrated-model');
+        expect(parsed.KEEPMIND_MODEL).toBe('migrated-model');
       });
     });
 
@@ -247,7 +247,7 @@ describe('SettingsDefaultsManager', () => {
 
       it('should ignore unknown keys in file', () => {
         const settingsWithUnknown = {
-          CLAUDE_MEM_MODEL: 'known-model',
+          KEEPMIND_MODEL: 'known-model',
           UNKNOWN_KEY: 'should-be-ignored',
           ANOTHER_UNKNOWN: 12345,
         };
@@ -255,13 +255,13 @@ describe('SettingsDefaultsManager', () => {
 
         const result = SettingsDefaultsManager.loadFromFile(settingsPath);
 
-        expect(result.CLAUDE_MEM_MODEL).toBe('known-model');
+        expect(result.KEEPMIND_MODEL).toBe('known-model');
         expect((result as Record<string, unknown>).UNKNOWN_KEY).toBeUndefined();
       });
 
       it('should handle file with BOM', () => {
         const bom = '\uFEFF';
-        const settings = { CLAUDE_MEM_MODEL: 'bom-model' };
+        const settings = { KEEPMIND_MODEL: 'bom-model' };
         writeFileSync(settingsPath, bom + JSON.stringify(settings));
 
         const result = SettingsDefaultsManager.loadFromFile(settingsPath);
@@ -292,7 +292,7 @@ describe('SettingsDefaultsManager', () => {
     });
 
     it('should not write to stdout when migrating a nested-schema file', () => {
-      writeFileSync(settingsPath, JSON.stringify({ env: { CLAUDE_MEM_MODEL: 'nested-model' } }));
+      writeFileSync(settingsPath, JSON.stringify({ env: { KEEPMIND_MODEL: 'nested-model' } }));
       const stdoutCalls: unknown[][] = [];
       const originalLog = console.log;
       console.log = (...args: unknown[]) => { stdoutCalls.push(args); };
@@ -317,42 +317,42 @@ describe('SettingsDefaultsManager', () => {
     it('should include all expected keys', () => {
       const defaults = SettingsDefaultsManager.getAllDefaults();
 
-      expect(defaults.CLAUDE_MEM_MODEL).toBeDefined();
-      expect(defaults.CLAUDE_MEM_WORKER_PORT).toBeDefined();
-      expect(defaults.CLAUDE_MEM_WORKER_HOST).toBeDefined();
+      expect(defaults.KEEPMIND_MODEL).toBeDefined();
+      expect(defaults.KEEPMIND_WORKER_PORT).toBeDefined();
+      expect(defaults.KEEPMIND_WORKER_HOST).toBeDefined();
 
-      expect(defaults.CLAUDE_MEM_PROVIDER).toBeDefined();
-      expect(defaults.CLAUDE_MEM_GEMINI_API_KEY).toBeDefined();
-      expect(defaults.CLAUDE_MEM_OPENROUTER_API_KEY).toBeDefined();
+      expect(defaults.KEEPMIND_PROVIDER).toBeDefined();
+      expect(defaults.KEEPMIND_GEMINI_API_KEY).toBeDefined();
+      expect(defaults.KEEPMIND_OPENROUTER_API_KEY).toBeDefined();
 
-      expect(defaults.CLAUDE_MEM_DATA_DIR).toBeDefined();
-      expect(defaults.CLAUDE_MEM_LOG_LEVEL).toBeDefined();
+      expect(defaults.KEEPMIND_DATA_DIR).toBeDefined();
+      expect(defaults.KEEPMIND_LOG_LEVEL).toBeDefined();
     });
   });
 
   describe('get', () => {
     it('should return default value for key', () => {
-      expect(SettingsDefaultsManager.get('CLAUDE_MEM_MODEL')).toBe('claude-haiku-4-5-20251001');
+      expect(SettingsDefaultsManager.get('KEEPMIND_MODEL')).toBe('claude-haiku-4-5-20251001');
       const expectedPort = String(37700 + ((process.getuid?.() ?? 77) % 100));
-      expect(SettingsDefaultsManager.get('CLAUDE_MEM_WORKER_PORT')).toBe(expectedPort);
+      expect(SettingsDefaultsManager.get('KEEPMIND_WORKER_PORT')).toBe(expectedPort);
     });
   });
 
   describe('getInt', () => {
     it('should return integer value for numeric string', () => {
       const expectedPort = 37700 + ((process.getuid?.() ?? 77) % 100);
-      expect(SettingsDefaultsManager.getInt('CLAUDE_MEM_WORKER_PORT')).toBe(expectedPort);
-      expect(SettingsDefaultsManager.getInt('CLAUDE_MEM_CONTEXT_OBSERVATIONS')).toBe(50);
+      expect(SettingsDefaultsManager.getInt('KEEPMIND_WORKER_PORT')).toBe(expectedPort);
+      expect(SettingsDefaultsManager.getInt('KEEPMIND_CONTEXT_OBSERVATIONS')).toBe(50);
     });
   });
 
   describe('getBool', () => {
     it('should return true for "true" string', () => {
-      expect(SettingsDefaultsManager.getBool('CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_PERCENT')).toBe(true);
+      expect(SettingsDefaultsManager.getBool('KEEPMIND_CONTEXT_SHOW_SAVINGS_PERCENT')).toBe(true);
     });
 
     it('should return false for non-"true" string', () => {
-      expect(SettingsDefaultsManager.getBool('CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE')).toBe(false);
+      expect(SettingsDefaultsManager.getBool('KEEPMIND_CONTEXT_SHOW_LAST_MESSAGE')).toBe(false);
     });
   });
 
@@ -360,103 +360,103 @@ describe('SettingsDefaultsManager', () => {
     const originalEnv: Record<string, string | undefined> = {};
 
     beforeEach(() => {
-      originalEnv.CLAUDE_MEM_WORKER_PORT = process.env.CLAUDE_MEM_WORKER_PORT;
-      originalEnv.CLAUDE_MEM_MODEL = process.env.CLAUDE_MEM_MODEL;
-      originalEnv.CLAUDE_MEM_LOG_LEVEL = process.env.CLAUDE_MEM_LOG_LEVEL;
+      originalEnv.KEEPMIND_WORKER_PORT = process.env.KEEPMIND_WORKER_PORT;
+      originalEnv.KEEPMIND_MODEL = process.env.KEEPMIND_MODEL;
+      originalEnv.KEEPMIND_LOG_LEVEL = process.env.KEEPMIND_LOG_LEVEL;
     });
 
     afterEach(() => {
-      if (originalEnv.CLAUDE_MEM_WORKER_PORT === undefined) {
-        delete process.env.CLAUDE_MEM_WORKER_PORT;
+      if (originalEnv.KEEPMIND_WORKER_PORT === undefined) {
+        delete process.env.KEEPMIND_WORKER_PORT;
       } else {
-        process.env.CLAUDE_MEM_WORKER_PORT = originalEnv.CLAUDE_MEM_WORKER_PORT;
+        process.env.KEEPMIND_WORKER_PORT = originalEnv.KEEPMIND_WORKER_PORT;
       }
-      if (originalEnv.CLAUDE_MEM_MODEL === undefined) {
-        delete process.env.CLAUDE_MEM_MODEL;
+      if (originalEnv.KEEPMIND_MODEL === undefined) {
+        delete process.env.KEEPMIND_MODEL;
       } else {
-        process.env.CLAUDE_MEM_MODEL = originalEnv.CLAUDE_MEM_MODEL;
+        process.env.KEEPMIND_MODEL = originalEnv.KEEPMIND_MODEL;
       }
-      if (originalEnv.CLAUDE_MEM_LOG_LEVEL === undefined) {
-        delete process.env.CLAUDE_MEM_LOG_LEVEL;
+      if (originalEnv.KEEPMIND_LOG_LEVEL === undefined) {
+        delete process.env.KEEPMIND_LOG_LEVEL;
       } else {
-        process.env.CLAUDE_MEM_LOG_LEVEL = originalEnv.CLAUDE_MEM_LOG_LEVEL;
+        process.env.KEEPMIND_LOG_LEVEL = originalEnv.KEEPMIND_LOG_LEVEL;
       }
     });
 
     it('should prioritize env var over file setting', () => {
       const fileSettings = {
-        CLAUDE_MEM_WORKER_PORT: '12345',
+        KEEPMIND_WORKER_PORT: '12345',
       };
       writeFileSync(settingsPath, JSON.stringify(fileSettings));
-      process.env.CLAUDE_MEM_WORKER_PORT = '54321';
+      process.env.KEEPMIND_WORKER_PORT = '54321';
 
       const result = SettingsDefaultsManager.loadFromFile(settingsPath);
 
-      expect(result.CLAUDE_MEM_WORKER_PORT).toBe('54321');
+      expect(result.KEEPMIND_WORKER_PORT).toBe('54321');
     });
 
     it('should prioritize env var over default', () => {
-      process.env.CLAUDE_MEM_WORKER_PORT = '99999';
+      process.env.KEEPMIND_WORKER_PORT = '99999';
 
       const result = SettingsDefaultsManager.loadFromFile(settingsPath);
 
-      expect(result.CLAUDE_MEM_WORKER_PORT).toBe('99999');
+      expect(result.KEEPMIND_WORKER_PORT).toBe('99999');
     });
 
     it('should use file setting when env var is not set', () => {
       const fileSettings = {
-        CLAUDE_MEM_WORKER_PORT: '11111',
+        KEEPMIND_WORKER_PORT: '11111',
       };
       writeFileSync(settingsPath, JSON.stringify(fileSettings));
-      delete process.env.CLAUDE_MEM_WORKER_PORT;
+      delete process.env.KEEPMIND_WORKER_PORT;
 
       const result = SettingsDefaultsManager.loadFromFile(settingsPath);
 
-      expect(result.CLAUDE_MEM_WORKER_PORT).toBe('11111');
+      expect(result.KEEPMIND_WORKER_PORT).toBe('11111');
     });
 
     it('should apply env var override even on file parse error', () => {
       writeFileSync(settingsPath, 'invalid json {{{');
-      process.env.CLAUDE_MEM_WORKER_PORT = '88888';
+      process.env.KEEPMIND_WORKER_PORT = '88888';
 
       const result = SettingsDefaultsManager.loadFromFile(settingsPath);
 
-      expect(result.CLAUDE_MEM_WORKER_PORT).toBe('88888');
+      expect(result.KEEPMIND_WORKER_PORT).toBe('88888');
     });
 
     it('should apply multiple env var overrides', () => {
       const fileSettings = {
-        CLAUDE_MEM_WORKER_PORT: '12345',
-        CLAUDE_MEM_MODEL: 'file-model',
-        CLAUDE_MEM_LOG_LEVEL: 'DEBUG',
+        KEEPMIND_WORKER_PORT: '12345',
+        KEEPMIND_MODEL: 'file-model',
+        KEEPMIND_LOG_LEVEL: 'DEBUG',
       };
       writeFileSync(settingsPath, JSON.stringify(fileSettings));
 
-      process.env.CLAUDE_MEM_WORKER_PORT = '54321';
-      process.env.CLAUDE_MEM_MODEL = 'env-model';
+      process.env.KEEPMIND_WORKER_PORT = '54321';
+      process.env.KEEPMIND_MODEL = 'env-model';
 
       const result = SettingsDefaultsManager.loadFromFile(settingsPath);
 
-      expect(result.CLAUDE_MEM_WORKER_PORT).toBe('54321');
-      expect(result.CLAUDE_MEM_MODEL).toBe('env-model');
-      expect(result.CLAUDE_MEM_LOG_LEVEL).toBe('DEBUG'); 
+      expect(result.KEEPMIND_WORKER_PORT).toBe('54321');
+      expect(result.KEEPMIND_MODEL).toBe('env-model');
+      expect(result.KEEPMIND_LOG_LEVEL).toBe('DEBUG'); 
     });
 
     it('should document priority: env > file > defaults', () => {
       const defaults = SettingsDefaultsManager.getAllDefaults();
 
       const fileSettings = {
-        CLAUDE_MEM_WORKER_PORT: '22222', // Different from default 37777
+        KEEPMIND_WORKER_PORT: '22222', // Different from default 37777
       };
       writeFileSync(settingsPath, JSON.stringify(fileSettings));
 
-      process.env.CLAUDE_MEM_WORKER_PORT = '33333';
+      process.env.KEEPMIND_WORKER_PORT = '33333';
 
       const result = SettingsDefaultsManager.loadFromFile(settingsPath);
 
       const expectedDefault = String(37700 + ((process.getuid?.() ?? 77) % 100));
-      expect(defaults.CLAUDE_MEM_WORKER_PORT).toBe(expectedDefault); 
-      expect(result.CLAUDE_MEM_WORKER_PORT).toBe('33333'); 
+      expect(defaults.KEEPMIND_WORKER_PORT).toBe(expectedDefault); 
+      expect(result.KEEPMIND_WORKER_PORT).toBe('33333'); 
     });
   });
 });

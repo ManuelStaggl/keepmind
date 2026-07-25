@@ -38,7 +38,7 @@ export interface ShellTemplateOptions {
    * so mcp callers may omit it.
    */
   trailingCommand?: string[];
-  /** Extra env exports prepended to the trailing command (e.g. CLAUDE_MEM_CODEX_HOOK=1). */
+  /** Extra env exports prepended to the trailing command (e.g. KEEPMIND_CODEX_HOOK=1). */
   extraEnv?: Record<string, string>;
   /** Optional trailing JSON echoed after the command (e.g. SessionStart continue marker). */
   trailingJson?: object;

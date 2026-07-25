@@ -4,8 +4,8 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 const originalFetch = globalThis.fetch;
-const originalDataDir = process.env.CLAUDE_MEM_DATA_DIR;
-const originalNoMain = process.env.CLAUDE_MEM_EXPORT_MEMORIES_NO_MAIN;
+const originalDataDir = process.env.KEEPMIND_DATA_DIR;
+const originalNoMain = process.env.KEEPMIND_EXPORT_MEMORIES_NO_MAIN;
 
 describe('export-memories script', () => {
   let tempDir: string | undefined;
@@ -15,15 +15,15 @@ describe('export-memories script', () => {
     globalThis.fetch = originalFetch;
 
     if (originalDataDir === undefined) {
-      delete process.env.CLAUDE_MEM_DATA_DIR;
+      delete process.env.KEEPMIND_DATA_DIR;
     } else {
-      process.env.CLAUDE_MEM_DATA_DIR = originalDataDir;
+      process.env.KEEPMIND_DATA_DIR = originalDataDir;
     }
 
     if (originalNoMain === undefined) {
-      delete process.env.CLAUDE_MEM_EXPORT_MEMORIES_NO_MAIN;
+      delete process.env.KEEPMIND_EXPORT_MEMORIES_NO_MAIN;
     } else {
-      process.env.CLAUDE_MEM_EXPORT_MEMORIES_NO_MAIN = originalNoMain;
+      process.env.KEEPMIND_EXPORT_MEMORIES_NO_MAIN = originalNoMain;
     }
 
     consoleSpies.splice(0).forEach(spy => spy.mockRestore());
@@ -36,12 +36,12 @@ describe('export-memories script', () => {
     mock.restore();
   });
 
-  it('loads settings from CLAUDE_MEM_DATA_DIR and sends canonical memorySessionIds', async () => {
+  it('loads settings from KEEPMIND_DATA_DIR and sends canonical memorySessionIds', async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'claude-mem-export-'));
-    process.env.CLAUDE_MEM_DATA_DIR = tempDir;
-    process.env.CLAUDE_MEM_EXPORT_MEMORIES_NO_MAIN = '1';
+    process.env.KEEPMIND_DATA_DIR = tempDir;
+    process.env.KEEPMIND_EXPORT_MEMORIES_NO_MAIN = '1';
     writeFileSync(join(tempDir, 'settings.json'), JSON.stringify({
-      CLAUDE_MEM_WORKER_PORT: '45678',
+      KEEPMIND_WORKER_PORT: '45678',
     }));
 
     consoleSpies.push(
@@ -101,10 +101,10 @@ describe('export-memories script', () => {
 
   it('rejects an invalid worker port before fetching', async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'claude-mem-export-'));
-    process.env.CLAUDE_MEM_DATA_DIR = tempDir;
-    process.env.CLAUDE_MEM_EXPORT_MEMORIES_NO_MAIN = '1';
+    process.env.KEEPMIND_DATA_DIR = tempDir;
+    process.env.KEEPMIND_EXPORT_MEMORIES_NO_MAIN = '1';
     writeFileSync(join(tempDir, 'settings.json'), JSON.stringify({
-      CLAUDE_MEM_WORKER_PORT: '45678abc',
+      KEEPMIND_WORKER_PORT: '45678abc',
     }));
 
     const fetchMock = mock(async () => new Response('{}', { status: 200 }));
@@ -113,17 +113,17 @@ describe('export-memories script', () => {
     const { exportMemories } = await import('../../scripts/export-memories.ts');
 
     await expect(exportMemories('needle', join(tempDir, 'export.json'))).rejects.toThrow(
-      'Invalid CLAUDE_MEM_WORKER_PORT',
+      'Invalid KEEPMIND_WORKER_PORT',
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('rejects an empty worker port with a clear configuration error', async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'claude-mem-export-'));
-    process.env.CLAUDE_MEM_DATA_DIR = tempDir;
-    process.env.CLAUDE_MEM_EXPORT_MEMORIES_NO_MAIN = '1';
+    process.env.KEEPMIND_DATA_DIR = tempDir;
+    process.env.KEEPMIND_EXPORT_MEMORIES_NO_MAIN = '1';
     writeFileSync(join(tempDir, 'settings.json'), JSON.stringify({
-      CLAUDE_MEM_WORKER_PORT: '',
+      KEEPMIND_WORKER_PORT: '',
     }));
 
     const fetchMock = mock(async () => new Response('{}', { status: 200 }));
@@ -132,17 +132,17 @@ describe('export-memories script', () => {
     const { exportMemories } = await import('../../scripts/export-memories.ts');
 
     await expect(exportMemories('needle', join(tempDir, 'export.json'))).rejects.toThrow(
-      'Invalid CLAUDE_MEM_WORKER_PORT in settings.json: missing',
+      'Invalid KEEPMIND_WORKER_PORT in settings.json: missing',
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('rejects a non-string worker port with a clear configuration error', async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'claude-mem-export-'));
-    process.env.CLAUDE_MEM_DATA_DIR = tempDir;
-    process.env.CLAUDE_MEM_EXPORT_MEMORIES_NO_MAIN = '1';
+    process.env.KEEPMIND_DATA_DIR = tempDir;
+    process.env.KEEPMIND_EXPORT_MEMORIES_NO_MAIN = '1';
     writeFileSync(join(tempDir, 'settings.json'), JSON.stringify({
-      CLAUDE_MEM_WORKER_PORT: 45678,
+      KEEPMIND_WORKER_PORT: 45678,
     }));
 
     const fetchMock = mock(async () => new Response('{}', { status: 200 }));
@@ -151,17 +151,17 @@ describe('export-memories script', () => {
     const { exportMemories } = await import('../../scripts/export-memories.ts');
 
     await expect(exportMemories('needle', join(tempDir, 'export.json'))).rejects.toThrow(
-      'Invalid CLAUDE_MEM_WORKER_PORT in settings.json: missing',
+      'Invalid KEEPMIND_WORKER_PORT in settings.json: missing',
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('fails the export when SDK session metadata cannot be fetched', async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'claude-mem-export-'));
-    process.env.CLAUDE_MEM_DATA_DIR = tempDir;
-    process.env.CLAUDE_MEM_EXPORT_MEMORIES_NO_MAIN = '1';
+    process.env.KEEPMIND_DATA_DIR = tempDir;
+    process.env.KEEPMIND_EXPORT_MEMORIES_NO_MAIN = '1';
     writeFileSync(join(tempDir, 'settings.json'), JSON.stringify({
-      CLAUDE_MEM_WORKER_PORT: '45678',
+      KEEPMIND_WORKER_PORT: '45678',
     }));
 
     consoleSpies.push(
@@ -202,10 +202,10 @@ describe('export-memories script', () => {
 
   it('fails deterministically when a worker request times out', async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'claude-mem-export-'));
-    process.env.CLAUDE_MEM_DATA_DIR = tempDir;
-    process.env.CLAUDE_MEM_EXPORT_MEMORIES_NO_MAIN = '1';
+    process.env.KEEPMIND_DATA_DIR = tempDir;
+    process.env.KEEPMIND_EXPORT_MEMORIES_NO_MAIN = '1';
     writeFileSync(join(tempDir, 'settings.json'), JSON.stringify({
-      CLAUDE_MEM_WORKER_PORT: '45678',
+      KEEPMIND_WORKER_PORT: '45678',
     }));
 
     consoleSpies.push(

@@ -362,11 +362,11 @@ export function formatDiagnostics(diagnostics: SystemDiagnostics): string {
   if (diagnostics.config.settings) {
     output += "- **Key Settings**:\n";
     const keySettings = [
-      "CLAUDE_MEM_MODEL",
-      "CLAUDE_MEM_WORKER_PORT",
-      "CLAUDE_MEM_WORKER_HOST",
-      "CLAUDE_MEM_LOG_LEVEL",
-      "CLAUDE_MEM_CONTEXT_OBSERVATIONS",
+      "KEEPMIND_MODEL",
+      "KEEPMIND_WORKER_PORT",
+      "KEEPMIND_WORKER_HOST",
+      "KEEPMIND_LOG_LEVEL",
+      "KEEPMIND_CONTEXT_OBSERVATIONS",
     ];
     for (const key of keySettings) {
       if (diagnostics.config.settings[key]) {

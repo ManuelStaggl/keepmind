@@ -41,7 +41,7 @@ import { findClaudeMemProcesses, killProcesses } from './claude-mem-processes.js
 const execFileAsync = promisify(execFile);
 
 /** Matches a plugin key/name that belongs to claude-mem (`claude-mem@<market>`). */
-const CLAUDE_MEM_RE = /(^|[@/])claude-mem\b/;
+const KEEPMIND_RE = /(^|[@/])claude-mem\b/;
 
 export function claudeMemDir(): string {
   return join(homedir(), '.claude-mem');
@@ -79,7 +79,7 @@ export function detectClaudeMem(): ClaudeMemPresence {
   // installed_plugins.json: { plugins: { "claude-mem@<market>": {...} } }
   const installed = readJsonSafe<Record<string, any>>(installedPluginsPath(), {});
   for (const key of Object.keys(installed?.plugins ?? {})) {
-    if (CLAUDE_MEM_RE.test(key)) {
+    if (KEEPMIND_RE.test(key)) {
       pluginKeys.add(key);
       const market = key.split('@')[1];
       if (market) marketplaceKeys.add(market);
@@ -89,7 +89,7 @@ export function detectClaudeMem(): ClaudeMemPresence {
   // ~/.claude/settings.json enabledPlugins: { "claude-mem@<market>": true }
   const settings = readJsonSafe<Record<string, any>>(claudeSettingsPath(), {});
   for (const key of Object.keys(settings?.enabledPlugins ?? {})) {
-    if (CLAUDE_MEM_RE.test(key)) {
+    if (KEEPMIND_RE.test(key)) {
       pluginKeys.add(key);
       const market = key.split('@')[1];
       if (market) marketplaceKeys.add(market);
@@ -101,7 +101,7 @@ export function detectClaudeMem(): ClaudeMemPresence {
   const known = readJsonSafe<Record<string, any>>(knownMarketplacesPath(), {});
   for (const market of Object.keys(known)) {
     if (marketplaceKeys.has(market)) continue;
-    if (CLAUDE_MEM_RE.test(market)) {
+    if (KEEPMIND_RE.test(market)) {
       marketplaceKeys.add(market);
       continue;
     }
@@ -111,7 +111,7 @@ export function detectClaudeMem(): ClaudeMemPresence {
       {},
     );
     const plugins: any[] = Array.isArray(manifest?.plugins) ? manifest.plugins : [];
-    if (plugins.some((pl) => typeof pl?.name === 'string' && CLAUDE_MEM_RE.test(pl.name))) {
+    if (plugins.some((pl) => typeof pl?.name === 'string' && KEEPMIND_RE.test(pl.name))) {
       marketplaceKeys.add(market);
     }
   }
@@ -315,7 +315,7 @@ async function archiveDirectory(dataDir: string, timestamp: string): Promise<str
 
   // Archive the ACTUAL data dir passed in — not a hardcoded `$HOME/.claude-mem`.
   // The old form ignored `dataDir` and tarred `~/.claude-mem`, which fails
-  // whenever the data dir is elsewhere (a CLAUDE_MEM_DATA_DIR override, the
+  // whenever the data dir is elsewhere (a KEEPMIND_DATA_DIR override, the
   // renamed `~/.keepmind`, or a test temp dir) — `tar` errors on the missing
   // path, backupOk stays false, and the data dir is then kept. Use the dir's
   // parent as `-C` and its basename as the archive member so any path works.
@@ -460,7 +460,7 @@ function cleanClaudeJsonUsage(report: PurgeReport): void {
     const obj = parsed[bucket];
     if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
       for (const key of Object.keys(obj)) {
-        if (CLAUDE_MEM_RE.test(key)) {
+        if (KEEPMIND_RE.test(key)) {
           delete obj[key];
           dirty = true;
         }

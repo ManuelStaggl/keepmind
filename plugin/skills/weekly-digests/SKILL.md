@@ -31,7 +31,7 @@ If the user wants a single sweeping report, use `timeline-report` instead. This 
 **Resolve the worker port** (do this once, reuse `$WORKER_PORT`):
 
 ```bash
-WORKER_PORT="${CLAUDE_MEM_WORKER_PORT:-$(node -e "const fs=require('fs'),p=require('path'),os=require('os');const uid=(typeof process.getuid==='function'?process.getuid():77);const fallback=String(37700+(uid%100));try{const s=JSON.parse(fs.readFileSync(p.join(os.homedir(),'.claude-mem','settings.json'),'utf-8'));process.stdout.write(String(s.CLAUDE_MEM_WORKER_PORT||fallback));}catch{process.stdout.write(fallback);}" 2>/dev/null)}"
+WORKER_PORT="${KEEPMIND_WORKER_PORT:-$(node -e "const fs=require('fs'),p=require('path'),os=require('os');const uid=(typeof process.getuid==='function'?process.getuid():77);const fallback=String(37700+(uid%100));try{const s=JSON.parse(fs.readFileSync(p.join(os.homedir(),'.claude-mem','settings.json'),'utf-8'));process.stdout.write(String(s.KEEPMIND_WORKER_PORT||fallback));}catch{process.stdout.write(fallback);}" 2>/dev/null)}"
 ```
 
 ## Workflow

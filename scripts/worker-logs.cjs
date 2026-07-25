@@ -26,7 +26,7 @@ function parseArgs(argv) {
 }
 
 function dataDir() {
-  return process.env.KEEPMIND_DATA_DIR || process.env.CLAUDE_MEM_DATA_DIR || path.join(os.homedir(), '.keepmind');
+  return process.env.KEEPMIND_DATA_DIR || process.env.KEEPMIND_DATA_DIR || path.join(os.homedir(), '.keepmind');
 }
 
 function todaysLog() {

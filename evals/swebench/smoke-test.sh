@@ -86,8 +86,8 @@ CONTAINER_NAME="claude-mem-smoke-$INSTANCE_ID-$$"
 set +e
 "${TIMEOUT_CMD[@]}" docker run --rm \
   --name "$CONTAINER_NAME" \
-  -e CLAUDE_MEM_OUTPUT_DIR=/scratch \
-  -e CLAUDE_MEM_CREDENTIALS_FILE=/auth/.credentials.json \
+  -e KEEPMIND_OUTPUT_DIR=/scratch \
+  -e KEEPMIND_CREDENTIALS_FILE=/auth/.credentials.json \
   -v "$SCRATCH:/scratch" \
   -v "$CREDS_FILE:/auth/.credentials.json:ro" \
   "$IMAGE" \
