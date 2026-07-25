@@ -115,10 +115,10 @@ describe('Worker API Endpoints Integration', () => {
 
       it('includes dependency health and stays HTTP 200 for dependency-only degradation', async () => {
         recordDependencyStatus(
-          'uvx',
-          'vector_search_unavailable',
-          'uvx executable not found on effective PATH for vector search',
-          'Install uv and restart claude-mem',
+          'claude_cli',
+          'setup_required',
+          'Claude executable not found on effective PATH',
+          'Install Claude Code CLI and restart keepmind',
         );
 
         server = new Server(mockOptions);
@@ -133,10 +133,10 @@ describe('Worker API Endpoints Integration', () => {
           degraded: true,
           statuses: [
             {
-              dependency: 'uvx',
-              kind: 'vector_search_unavailable',
-              message: 'uvx executable not found on effective PATH for vector search',
-              remediation: 'Install uv and restart claude-mem',
+              dependency: 'claude_cli',
+              kind: 'setup_required',
+              message: 'Claude executable not found on effective PATH',
+              remediation: 'Install Claude Code CLI and restart keepmind',
             },
           ],
         });

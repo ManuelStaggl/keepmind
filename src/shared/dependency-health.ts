@@ -1,9 +1,8 @@
 export type DependencyStatusKind =
   | 'ok'
-  | 'setup_required'
-  | 'vector_search_unavailable';
+  | 'setup_required';
 
-export type DependencyName = 'claude_cli' | 'uvx';
+export type DependencyName = 'claude_cli';
 
 export interface DependencyStatus {
   dependency: DependencyName;
@@ -18,10 +17,6 @@ export const CLAUDE_CLI_SETUP_RECHECK_COOLDOWN_MS = 30_000;
 export const CLAUDE_CLI_SETUP_REMEDIATION =
   'Install or update Claude Code CLI, then restart keepmind. Try `claude update`, ' +
   '`npm install -g @anthropic-ai/claude-code@latest`, or set CLAUDE_CODE_PATH in ~/.keepmind/settings.json.';
-
-export const UVX_VECTOR_SEARCH_REMEDIATION =
-  'Install uv/uvx and make uvx visible to the worker PATH, then restart keepmind. ' +
-  'Try `curl -LsSf https://astral.sh/uv/install.sh | sh` or `brew install uv`.';
 
 const statuses = new Map<DependencyName, DependencyStatus>();
 
@@ -49,10 +44,6 @@ export function recordDependencyStatus(
 
 export function recordClaudeCliSetupRequired(message: string): DependencyStatus {
   return recordDependencyStatus('claude_cli', 'setup_required', message, CLAUDE_CLI_SETUP_REMEDIATION);
-}
-
-export function recordUvxVectorSearchUnavailable(message: string): DependencyStatus {
-  return recordDependencyStatus('uvx', 'vector_search_unavailable', message, UVX_VECTOR_SEARCH_REMEDIATION);
 }
 
 export function clearDependencyStatus(dependency: DependencyName): void {

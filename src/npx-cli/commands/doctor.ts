@@ -411,18 +411,6 @@ function buildRuntimeGroup(dataDir: string): CheckGroup {
     required: installed,
   });
 
-  // uv is legacy: vector search moved in-process (sqlite-vec) in Phase 2, so uv
-  // is no longer required. Report presence informationally, never as a failure.
-  const uvVersion = probeVersion('uv');
-  checks.push({
-    name: 'uv (optional)',
-    status: 'ok',
-    detail: uvVersion
-      ? `${uvVersion} — present (no longer required; vector search is in-process)`
-      : 'not installed — optional; vector search runs in-process, uv is not needed',
-    required: false,
-  });
-
   // Surface a recorded install error and its remediation, if any.
   const lastErrorPath = join(dataDir, 'last-install-error.json');
   if (existsSync(lastErrorPath)) {

@@ -10,7 +10,6 @@ import { loadKeepmindEnv, saveKeepmindEnv } from '../../shared/EnvManager.js';
 import { ensureWorkerStarted, type WorkerStartResult } from '../../services/worker-spawner.js';
 import {
   ensureBun,
-  ensureUv,
   installPluginDependencies,
   writeInstallMarker,
   isInstallCurrent,
@@ -1194,7 +1193,6 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   // Captured by the runtime-setup task below; reported on install_completed
   // so funnel dropoff can be sliced by toolchain versions.
   let installedBunVersion: string | undefined;
-  let installedUvVersion: string | undefined;
 
   if (isInteractive) {
     await playBanner();
@@ -1341,10 +1339,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
         task: async (message) => {
           message('Checking Bun…');
           const { version: bunVersion } = await ensureBun(summary);
-          message('Checking uv…');
-          const { version: uvVersion } = await ensureUv(summary);
           installedBunVersion = bunVersion;
-          installedUvVersion = uvVersion;
           const cacheDir = pluginCacheDirectory(version);
           if (!isInstallCurrent(cacheDir, version)) {
             const { bunPath } = await ensureBun();
@@ -1354,9 +1349,9 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
             } finally {
               stopHeartbeat();
             }
-            writeInstallMarker(cacheDir, version, bunVersion, uvVersion);
+            writeInstallMarker(cacheDir, version, bunVersion);
           }
-          return `Runtime ready (Bun ${bunVersion}, uv ${uvVersion}) ${pc.green('OK')}`;
+          return `Runtime ready (Bun ${bunVersion}) ${pc.green('OK')}`;
         },
       },
     ];
@@ -1640,8 +1635,6 @@ export async function runRepairCommand(): Promise<void> {
       task: async (message) => {
         message('Checking Bun…');
         const { version: bunVersion } = await ensureBun();
-        message('Checking uv…');
-        const { version: uvVersion } = await ensureUv();
         // Repair must regenerate the cache if it was wiped (e.g. user ran
         // `rm -rf ~/.claude/plugins/cache`). Without this, bun install would
         // fail immediately with no package.json to install against.
@@ -1652,8 +1645,8 @@ export async function runRepairCommand(): Promise<void> {
         message('Reinstalling plugin dependencies…');
         const { bunPath } = await ensureBun();
         await installPluginDependencies(cacheDir, bunPath);
-        writeInstallMarker(cacheDir, version, bunVersion, uvVersion);
-        return `Runtime ready (Bun ${bunVersion}, uv ${uvVersion}) ${pc.green('OK')}`;
+        writeInstallMarker(cacheDir, version, bunVersion);
+        return `Runtime ready (Bun ${bunVersion}) ${pc.green('OK')}`;
       },
     },
     {

@@ -20,31 +20,25 @@ describe('worker dependency preflight', () => {
     resetDependencyStatusesForTesting();
   });
 
-  it('does not check Claude for a non-Claude provider and treats uvx as satisfied (in-process vector search)', () => {
+  it('does not check Claude for a non-Claude provider and reports no degradation', () => {
     let claudeChecked = false;
 
     const snapshot = runWorkerDependencyPreflight({
       settings: {
         KEEPMIND_PROVIDER: 'gemini',
-        KEEPMIND_CHROMA_ENABLED: 'true',
       },
       classifyClaudeError: classifier,
       findClaudeExecutable: () => {
         claudeChecked = true;
         throw new Error('Claude should not be checked for Gemini');
       },
-      env: { PATH: '/tmp/no-uvx' },
-      platform: 'linux',
-      homedir: () => '/tmp/home',
-      pathExists: () => false,
-      isFile: () => false,
     });
 
     expect(claudeChecked).toBe(false);
-    // Vector search moved in-process (sqlite-vec + transformers.js), so a missing
-    // uvx no longer degrades the worker — the 'uvx' dependency is always cleared.
+    // Vector search is in-process (sqlite-vec + transformers.js), so the Claude
+    // CLI is the only dependency preflight can flag at all.
     expect(snapshot.degraded).toBe(false);
-    expect(getDependencyStatus('uvx')).toBeNull();
+    expect(snapshot.statuses).toEqual([]);
   });
 
   it('clears stale Claude CLI setup status when a non-Claude provider is selected', () => {

@@ -36,8 +36,7 @@ Compilation is Node + esbuild (`build:cli-binary` bundles `--platform=node --ext
 
 - **Node.js >= 22.5.0** — the runtime floor, set by the built-in `node:sqlite` module.
 - **Bun** — required to *install* and to *build*, never to run. `npx keepmind install` treats it as mandatory (`ensureBun` in `src/npx-cli/install/setup-runtime.ts`, installed automatically if missing) and uses `bun install --frozen-lockfile` for a deterministic plugin dependency closure.
-- **uv** — still installed by `npx keepmind install` (`ensureUv`), but the runtime no longer uses it: the uvx/Python toolchain went away with Chroma, and `dependency-preflight.ts` explicitly clears the `uvx` dependency status. Vestigial; removing it from the installer is a pending cleanup.
-- No Chroma, no Python at runtime.
+- No uv, no Chroma, no Python — the uvx/Python toolchain went away with Chroma, and the installer no longer probes or installs uv. Do not reintroduce it.
 
 ## Documentation
 

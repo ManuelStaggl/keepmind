@@ -187,17 +187,29 @@ describe('worker-json-status', () => {
               message: 'Claude executable not found',
               recordedAtMs: 123,
             },
+          ],
+        },
+      });
+
+      expect(hint).toBe('  Dependencies: degraded (Claude CLI setup required). Run npx keepmind doctor or open Settings for remediation.');
+    });
+
+    it('falls back to "<dependency>: <kind>" for a status it has no label for', () => {
+      const hint = formatDependencyHealthHint({
+        dependencies: {
+          degraded: true,
+          statuses: [
             {
-              dependency: 'uvx',
-              kind: 'vector_search_unavailable',
-              message: 'uvx executable not found',
-              recordedAtMs: 124,
+              dependency: 'claude_cli',
+              kind: 'ok',
+              message: 'unlabelled kind',
+              recordedAtMs: 123,
             },
           ],
         },
       });
 
-      expect(hint).toBe('  Dependencies: degraded (Claude CLI setup required, uvx unavailable for vector search). Run npx keepmind doctor or open Settings for remediation.');
+      expect(hint).toBe('  Dependencies: degraded (claude_cli: ok). Run npx keepmind doctor or open Settings for remediation.');
     });
 
     it('returns null when dependencies are healthy or absent', () => {
