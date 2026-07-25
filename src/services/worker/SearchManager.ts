@@ -344,14 +344,21 @@ export class SearchManager {
       normalized.type = normalized.type.split(',').map((s: string) => s.trim()).filter(Boolean);
     }
 
-    if (normalized.dateStart || normalized.dateEnd) {
-      normalized.dateRange = {
-        start: normalized.dateStart,
-        end: normalized.dateEnd
-      };
-      delete normalized.dateStart;
-      delete normalized.dateEnd;
+    // Callers spell the date window three ways (camelCase from the HTTP layer,
+    // snake_case from MCP, date_from/date_to in the documented tool schema).
+    // Only camelCase was read, so a snake_case window was silently dropped and
+    // the search returned unfiltered results (upstream 309125bd).
+    const dateStart = normalized.dateStart ?? normalized.date_start ?? normalized.date_from;
+    const dateEnd = normalized.dateEnd ?? normalized.date_end ?? normalized.date_to;
+    if (dateStart || dateEnd) {
+      normalized.dateRange = { start: dateStart, end: dateEnd };
     }
+    delete normalized.dateStart;
+    delete normalized.dateEnd;
+    delete normalized.date_start;
+    delete normalized.date_end;
+    delete normalized.date_from;
+    delete normalized.date_to;
 
     if (normalized.isFolder === 'true') {
       normalized.isFolder = true;
