@@ -31,7 +31,11 @@ export const MEMORY_QUALITY_DEFAULTS: MemoryQualityConfig = {
   redactSecrets: { enabled: true, entropyThreshold: 4.0, entropySweep: true },
   scoping: { enabled: true, includeGlobal: true, defaultSearchScope: 'project' },
   importance: { enabled: true, halfLifeDays: 14, llmRefine: false },
-  injection: { tokenBudget: 4000, candidateMultiplier: 3 },
+  // tokenBudget is charged against the RENDERED headline size (see budget.ts), not
+  // the full stored record. 4000 was set when it was charged against stored size,
+  // where it admitted only ~11 rows; against rendered size ~1500 comfortably fits
+  // the 50-row cap (CLAUDE_MEM_CONTEXT_OBSERVATIONS) and is a real ceiling again.
+  injection: { tokenBudget: 1500, candidateMultiplier: 3 },
   reconcile: {
     enabled: false, noopThreshold: 0.92, updateBand: 0.75,
     llmAdjudicate: false, allowHardDelete: false,

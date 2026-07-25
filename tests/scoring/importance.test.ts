@@ -38,15 +38,23 @@ describe('scoreObservation', () => {
 });
 
 describe('selectWithinBudget', () => {
-  const mk = (id: number, narrative: string): Observation => ({
-    id, memory_session_id: 'm', type: 'decision', title: 't', subtitle: null,
+  const mk = (id: number, title: string, narrative = ''): Observation => ({
+    id, memory_session_id: 'm', type: 'decision', title, subtitle: null,
     narrative, facts: '[]', concepts: '[]', files_read: '[]', files_modified: '[]',
     discovery_tokens: 0, created_at: '', created_at_epoch: id,
   });
   it('respects the cap and drops rows that overflow', () => {
-    const big = mk(1, 'x'.repeat(4000));   // ~1000 tokens
-    const small = mk(2, 'y'.repeat(40));   // ~10 tokens
-    const out = selectWithinBudget([big, small], 100);
-    expect(out.map(o => o.id)).toEqual([2]); // big skipped, small fits
+    const longTitle = mk(1, 'x'.repeat(400));  // ~105 rendered tokens
+    const shortTitle = mk(2, 'y'.repeat(40));  // ~15 rendered tokens
+    const out = selectWithinBudget([longTitle, shortTitle], 20);
+    expect(out.map(o => o.id)).toEqual([2]); // long headline skipped, short fits
+  });
+
+  it('charges the rendered headline, not the stored record', () => {
+    // A verbose narrative is NOT injected — only the headline is — so it must not
+    // consume the injection budget. Charging stored size admitted ~11 of 439 rows.
+    const verbose = mk(1, 'short title', 'n'.repeat(20_000));
+    const out = selectWithinBudget([verbose], 50);
+    expect(out.map(o => o.id)).toEqual([1]);
   });
 });

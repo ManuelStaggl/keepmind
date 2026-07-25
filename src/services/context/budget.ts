@@ -5,6 +5,7 @@
 // smaller, lower-ranked rows can still slot in after a large one is skipped).
 
 import type { Observation } from './types.js';
+import { CHARS_PER_TOKEN_ESTIMATE } from './types.js';
 import { calculateObservationTokens } from './TokenCalculator.js';
 import { scoreObservation } from '../scoring/importance.js';
 
@@ -16,8 +17,32 @@ export interface RankBudgetOptions {
   now?: number;
 }
 
-/** Estimate the injected token cost of one observation. */
+/**
+ * Estimate the injected token cost of one observation.
+ *
+ * This must model what is actually INJECTED, not what is stored. The agent
+ * context renders one headline per observation (`ID TIME ICON TITLE`) and leaves
+ * narrative/facts to be fetched on demand — but this used to charge the budget
+ * for the whole record (title + subtitle + narrative + all facts, ~350 tokens
+ * each). Measured effect: a 4000-token budget admitted 11 of 439 candidates
+ * while the rendered block came to ~900 tokens. Charging the rendered line
+ * instead fits 40-50 headlines into the same real footprint, so a session sees
+ * far more of its own timeline for the same money.
+ */
 export function estimateTokens(obs: Observation): number {
+  return estimateRenderedTokens(obs);
+}
+
+/** Fixed per-line overhead of the rendered headline: id, time, icon, separators. */
+const RENDERED_LINE_OVERHEAD_CHARS = 20;
+
+function estimateRenderedTokens(obs: Observation): number {
+  const titleChars = (obs.title?.length ?? 'Untitled'.length) + RENDERED_LINE_OVERHEAD_CHARS;
+  return Math.max(1, Math.ceil(titleChars / CHARS_PER_TOKEN_ESTIMATE));
+}
+
+/** Full stored size of an observation — what a `get_observations` fetch would cost. */
+export function estimateStoredTokens(obs: Observation): number {
   return calculateObservationTokens(obs);
 }
 
