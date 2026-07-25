@@ -32,7 +32,6 @@ export interface SettingsDefaults {
   KEEPMIND_OPENROUTER_MAX_TOKENS: string;
   KEEPMIND_DATA_DIR: string;
   KEEPMIND_LOG_LEVEL: string;
-  KEEPMIND_PYTHON_VERSION: string;
   CLAUDE_CODE_PATH: string;
   KEEPMIND_MODE: string;
   KEEPMIND_CONTEXT_SHOW_READ_TOKENS: string;
@@ -129,7 +128,6 @@ export class SettingsDefaultsManager {
     KEEPMIND_OPENROUTER_MAX_TOKENS: '100000',  // Max estimated tokens (~100k safety limit)
     KEEPMIND_DATA_DIR: join(homedir(), '.keepmind'),
     KEEPMIND_LOG_LEVEL: 'INFO',
-    KEEPMIND_PYTHON_VERSION: '3.13',
     CLAUDE_CODE_PATH: '', // Empty means auto-detect via 'which claude'
     KEEPMIND_MODE: 'code', // Default mode profile
     KEEPMIND_CONTEXT_SHOW_READ_TOKENS: 'false',

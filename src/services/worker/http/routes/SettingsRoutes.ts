@@ -103,7 +103,6 @@ export class SettingsRoutes extends BaseRouteHandler {
       'KEEPMIND_OPENROUTER_MAX_TOKENS',
       'KEEPMIND_DATA_DIR',
       'KEEPMIND_LOG_LEVEL',
-      'KEEPMIND_PYTHON_VERSION',
       'CLAUDE_CODE_PATH',
       'KEEPMIND_CONTEXT_SHOW_READ_TOKENS',
       'KEEPMIND_CONTEXT_SHOW_WORK_TOKENS',
@@ -251,13 +250,6 @@ export class SettingsRoutes extends BaseRouteHandler {
       const validLevels = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'SILENT'];
       if (!validLevels.includes(settings.KEEPMIND_LOG_LEVEL.toUpperCase())) {
         return { valid: false, error: 'KEEPMIND_LOG_LEVEL must be one of: DEBUG, INFO, WARN, ERROR, SILENT' };
-      }
-    }
-
-    if (settings.KEEPMIND_PYTHON_VERSION) {
-      const pythonVersionRegex = /^3\.\d{1,2}$/;
-      if (!pythonVersionRegex.test(settings.KEEPMIND_PYTHON_VERSION)) {
-        return { valid: false, error: 'KEEPMIND_PYTHON_VERSION must be in format "3.X" or "3.XX" (e.g., "3.13")' };
       }
     }
 
