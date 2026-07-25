@@ -8,6 +8,7 @@ import { workerHttpRequest } from '../shared/worker-utils.js';
 import { paths } from '../shared/paths.js';
 import { matchesAnyGlob } from './project-filter.js';
 import { toBmpSafe } from './bmp-safe.js';
+import { upsertContextBlock } from '../shared/context-markers.js';
 
 const SETTINGS_PATH = paths.settings();
 
@@ -17,7 +18,7 @@ const CLAUDE_LOCAL_MD_FILENAME = 'CLAUDE.local.md';
 
 export function getTargetFilename(settings?: ReturnType<typeof SettingsDefaultsManager.loadFromFile>): string {
   const s = settings ?? SettingsDefaultsManager.loadFromFile(SETTINGS_PATH);
-  return s.CLAUDE_MEM_FOLDER_USE_LOCAL_MD === 'true' ? CLAUDE_LOCAL_MD_FILENAME : CLAUDE_MD_FILENAME;
+  return s.KEEPMIND_FOLDER_USE_LOCAL_MD === 'true' ? CLAUDE_LOCAL_MD_FILENAME : CLAUDE_MD_FILENAME;
 }
 
 function hasConsecutiveDuplicateSegments(resolvedPath: string): boolean {
@@ -55,23 +56,9 @@ function isValidPathForClaudeMd(filePath: string, projectRoot?: string): boolean
 }
 
 export function replaceTaggedContent(existingContent: string, newContent: string): string {
-  const startTag = '<claude-mem-context>';
-  const endTag = '</claude-mem-context>';
-
-  if (!existingContent) {
-    return `${startTag}\n${newContent}\n${endTag}`;
-  }
-
-  const startIdx = existingContent.indexOf(startTag);
-  const endIdx = existingContent.indexOf(endTag);
-
-  if (startIdx !== -1 && endIdx !== -1) {
-    return existingContent.substring(0, startIdx) +
-      `${startTag}\n${newContent}\n${endTag}` +
-      existingContent.substring(endIdx + endTag.length);
-  }
-
-  return existingContent + `\n\n${startTag}\n${newContent}\n${endTag}`;
+  // Emits canonical <keepmind-context> tags and replaces a pre-rename block in
+  // place, so a file from an older install is converted on its next write.
+  return upsertContextBlock(existingContent, newContent);
 }
 
 export function writeClaudeMdToFolder(folderPath: string, newContent: string, targetFilename?: string): void {
@@ -231,31 +218,31 @@ export async function updateFolderClaudeMdFiles(
   projectRoot?: string
 ): Promise<void> {
   const settings = SettingsDefaultsManager.loadFromFile(SETTINGS_PATH);
-  const limit = parseInt(settings.CLAUDE_MEM_CONTEXT_OBSERVATIONS, 10) || 50;
+  const limit = parseInt(settings.KEEPMIND_CONTEXT_OBSERVATIONS, 10) || 50;
   const targetFilename = getTargetFilename(settings);
 
   let folderMdExcludePaths: string[] = [];
   try {
-    const parsed = JSON.parse(settings.CLAUDE_MEM_FOLDER_MD_EXCLUDE || '[]');
+    const parsed = JSON.parse(settings.KEEPMIND_FOLDER_MD_EXCLUDE || '[]');
     if (Array.isArray(parsed)) {
       folderMdExcludePaths = parsed.filter((p): p is string => typeof p === 'string');
     }
   } catch {
-    logger.warn('FOLDER_INDEX', 'Failed to parse CLAUDE_MEM_FOLDER_MD_EXCLUDE setting');
+    logger.warn('FOLDER_INDEX', 'Failed to parse KEEPMIND_FOLDER_MD_EXCLUDE setting');
   }
 
   // #2400 — deny-list of glob patterns where an empty/skeleton CLAUDE.md must
-  // NOT be injected. Unlike CLAUDE_MEM_FOLDER_MD_EXCLUDE (which excludes the
+  // NOT be injected. Unlike KEEPMIND_FOLDER_MD_EXCLUDE (which excludes the
   // folder entirely), this only suppresses injection when the generated content
   // is empty/skeleton; folders with real activity still get a CLAUDE.md.
   let skeletonDenylistPatterns: string[] = [];
   try {
-    const parsed = JSON.parse(settings.CLAUDE_MEM_FOLDER_MD_SKELETON_DENYLIST || '[]');
+    const parsed = JSON.parse(settings.KEEPMIND_FOLDER_MD_SKELETON_DENYLIST || '[]');
     if (Array.isArray(parsed)) {
       skeletonDenylistPatterns = parsed.filter((p): p is string => typeof p === 'string');
     }
   } catch {
-    logger.warn('FOLDER_INDEX', 'Failed to parse CLAUDE_MEM_FOLDER_MD_SKELETON_DENYLIST setting');
+    logger.warn('FOLDER_INDEX', 'Failed to parse KEEPMIND_FOLDER_MD_SKELETON_DENYLIST setting');
   }
 
   const foldersWithActiveClaudeMd = new Set<string>();

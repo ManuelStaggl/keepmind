@@ -84,6 +84,24 @@ describe('Plugin Distribution - Codex Marketplace', () => {
     expect(marketplace.plugins[0].source.path).toBe('./plugin');
   });
 
+  it('registers the plugin id this package actually ships', () => {
+    // The installer enabled `claude-mem@claude-mem-local` for a while, which
+    // matched neither the marketplace nor the plugin in marketplace.json — so
+    // Codex was told to enable something that does not exist. Derive the
+    // expected id from the shipped manifest rather than restating it.
+    const marketplace = readJson('.agents/plugins/marketplace.json');
+    const expectedId = `${marketplace.plugins[0].name}@${marketplace.name}`;
+
+    const installerSource = readFileSync(
+      path.join(projectRoot, 'src/services/integrations/CodexCliInstaller.ts'),
+      'utf-8'
+    );
+    const marketplaceName = installerSource.match(/const MARKETPLACE_NAME = '([^']+)'/)?.[1];
+    const pluginPrefix = installerSource.match(/const CODEX_PLUGIN_ID = `([^@]+)@/)?.[1];
+
+    expect(`${pluginPrefix}@${marketplaceName}`).toBe(expectedId);
+  });
+
   it('ships Codex hooks with only Codex-supported root keys', () => {
     const codexHooks = readJson('plugin/hooks/codex-hooks.json');
     expect(Object.keys(codexHooks).sort()).toEqual(['hooks']);
@@ -91,7 +109,7 @@ describe('Plugin Distribution - Codex Marketplace', () => {
 
   it('sets the Codex hook marker on every Codex command', () => {
     for (const command of commandHooksFrom('plugin/hooks/codex-hooks.json')) {
-      expect(command).toContain('CLAUDE_MEM_CODEX_HOOK=1');
+      expect(command).toContain('KEEPMIND_CODEX_HOOK=1');
     }
   });
 
@@ -260,14 +278,14 @@ const claudeHook = (tail: string[], extra: Record<string, unknown> = {}) => buil
 const codexHook = (tail: string[]) => buildShellCommand({
   host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
   trailingCommand: ccTrailing(...tail), notFoundMessage: 'keepmind: plugin scripts not found',
-  extraEnv: { CLAUDE_MEM_CODEX_HOOK: '1' },
+  extraEnv: { KEEPMIND_CODEX_HOOK: '1' },
 });
 const codexStartupHook = () => buildShellCommand({
   host: 'codex-cli', requireFile: 'bun-runner.js', requireFileSecondary: 'worker-service.cjs',
   trailingCommand: [
-    '_V=$(CLAUDE_MEM_CODEX_HOOK=1 node "$_P/scripts/version-check.js" || true);',
+    '_V=$(KEEPMIND_CODEX_HOOK=1 node "$_P/scripts/version-check.js" || true);',
     'if [ -n "$_V" ]; then printf \'%s\\n\' "$_V"; else',
-    'CLAUDE_MEM_CODEX_HOOK=1', ...ccTrailing('hook', 'codex', 'context'),
+    'KEEPMIND_CODEX_HOOK=1', ...ccTrailing('hook', 'codex', 'context'),
     '; fi',
   ],
   notFoundMessage: 'keepmind: plugin scripts not found',

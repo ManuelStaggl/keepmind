@@ -170,13 +170,15 @@ describe('Install Non-TTY Support', () => {
       expect(registerRegion).toContain("['plugin', 'marketplace', 'add', marketplaceRoot]");
     });
 
-    it('enables Codex hooks and claude-mem plugin config during install', () => {
+    it('enables Codex hooks and keepmind plugin config during install', () => {
       const installRegion = codexInstallerSource.slice(
         codexInstallerSource.indexOf('export async function installCodexCli'),
         codexInstallerSource.indexOf('export function uninstallCodexCli'),
       );
       expect(codexInstallerSource).toContain("setTomlFeatureEnabled(next, 'hooks', true)");
-      expect(codexInstallerSource).toContain("const CODEX_PLUGIN_ID = `claude-mem@${MARKETPLACE_NAME}`");
+      // Must match the plugin name in .agents/plugins/marketplace.json — the
+      // installer previously enabled an id that this package never ships.
+      expect(codexInstallerSource).toContain("const CODEX_PLUGIN_ID = `keepmind@${MARKETPLACE_NAME}`");
       expect(installRegion).toContain('enableCodexPluginConfig()');
       expect(installRegion).not.toContain('plugin_hooks');
     });
@@ -282,9 +284,9 @@ describe('Install Non-TTY Support', () => {
     // The interactive "Server (beta)" runtime picker was removed in this
     // local-only fork (the cloud server runtime layer is gone). The installer
     // now always provisions the local worker runtime; assert that the
-    // CLAUDE_MEM_RUNTIME setting is still written as 'worker'.
+    // KEEPMIND_RUNTIME setting is still written as 'worker'.
     it('provisions the local worker runtime', () => {
-      expect(installSource).toContain("CLAUDE_MEM_RUNTIME: 'worker'");
+      expect(installSource).toContain("KEEPMIND_RUNTIME: 'worker'");
     });
   });
 

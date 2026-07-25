@@ -7,11 +7,11 @@ import { getMcpServerAbsolutePath, getNodeAbsolutePath } from './install-paths.j
 import { readJsonSafe } from '../../utils/json-utils.js';
 import { injectContextIntoMarkdownFile } from '../../utils/context-injection.js';
 
-const PLACEHOLDER_CONTEXT = `# claude-mem: Cross-Session Memory
+const PLACEHOLDER_CONTEXT = `# keepmind: Cross-Session Memory
 
 *No context yet. Complete your first session and context will appear here.*
 
-Use claude-mem's MCP search tools for manual memory queries.`;
+Use keepmind's MCP search tools for manual memory queries.`;
 
 function buildMcpServerEntry(mcpServerPath: string): { command: string; args: string[] } {
   return {
@@ -34,7 +34,10 @@ function writeMcpJsonConfig(
     existingConfig[serversKeyName] = {};
   }
 
-  existingConfig[serversKeyName]['claude-mem'] = buildMcpServerEntry(mcpServerPath);
+  // Drop the pre-rename key first: these configs key servers by name, so
+  // keeping it would register the same MCP server twice under two names.
+  delete existingConfig[serversKeyName]['claude-mem'];
+  existingConfig[serversKeyName]['keepmind'] = buildMcpServerEntry(mcpServerPath);
 
   writeFileSync(configFilePath, JSON.stringify(existingConfig, null, 2) + '\n');
 }
@@ -52,7 +55,7 @@ interface McpInstallerConfig {
 
 function installMcpIntegration(config: McpInstallerConfig): () => Promise<number> {
   return async (): Promise<number> => {
-    console.log(`\nInstalling Claude-Mem MCP integration for ${config.ideLabel}...\n`);
+    console.log(`\nInstalling keepmind MCP integration for ${config.ideLabel}...\n`);
 
     const mcpServerPath = getMcpServerAbsolutePath();
     if (!mcpServerPath) {
@@ -136,7 +139,7 @@ const ANTIGRAVITY_CONFIG: McpInstallerConfig = {
   configPath: path.join(homedir(), '.gemini', 'antigravity', 'mcp_config.json'),
   configKey: 'mcpServers',
   contextFile: {
-    path: path.join(process.cwd(), '.agents', 'rules', 'claude-mem-context.md'),
+    path: path.join(process.cwd(), '.agents', 'rules', 'keepmind-context.md'),
     isWorkspaceRelative: true,
   },
 };
@@ -147,7 +150,7 @@ const ROO_CODE_CONFIG: McpInstallerConfig = {
   configPath: path.join(process.cwd(), '.roo', 'mcp.json'),
   configKey: 'mcpServers',
   contextFile: {
-    path: path.join(process.cwd(), '.roo', 'rules', 'claude-mem-context.md'),
+    path: path.join(process.cwd(), '.roo', 'rules', 'keepmind-context.md'),
     isWorkspaceRelative: true,
   },
 };
@@ -167,15 +170,19 @@ function getGooseConfigPath(): string {
   return path.join(homedir(), '.config', 'goose', 'config.yaml');
 }
 
-function gooseConfigHasClaudeMemEntry(yamlContent: string): boolean {
-  return yamlContent.includes('claude-mem:') &&
+// Matches an entry under either spelling: a config written before the rename
+// must be UPDATED, not duplicated with a second block under the new name.
+const GOOSE_ENTRY_PATTERN = /( {2}(?:keepmind|claude-mem):\n(?:.*\n)*?(?= {2}\S|\n\n|^\S|$))/m;
+
+function gooseConfigHasOurEntry(yamlContent: string): boolean {
+  return (yamlContent.includes('keepmind:') || yamlContent.includes('claude-mem:')) &&
     yamlContent.includes('mcpServers:');
 }
 
-function buildGooseClaudeMemEntryYaml(mcpServerPath: string, withHeader = false): string {
+function buildGooseEntryYaml(mcpServerPath: string, withHeader = false): string {
   return [
     ...(withHeader ? ['mcpServers:'] : []),
-    '  claude-mem:',
+    '  keepmind:',
     `    command: ${getNodeAbsolutePath()}`,
     '    args:',
     `      - ${mcpServerPath}`,
@@ -183,7 +190,7 @@ function buildGooseClaudeMemEntryYaml(mcpServerPath: string, withHeader = false)
 }
 
 export async function installGooseMcpIntegration(): Promise<number> {
-  console.log('\nInstalling Claude-Mem MCP integration for Goose...\n');
+  console.log('\nInstalling keepmind MCP integration for Goose...\n');
 
   const mcpServerPath = getMcpServerAbsolutePath();
   if (!mcpServerPath) {
@@ -210,20 +217,19 @@ function mergeGooseYamlConfig(configPath: string, mcpServerPath: string): void {
   if (existsSync(configPath)) {
     let yamlContent = readFileSync(configPath, 'utf-8');
 
-    if (gooseConfigHasClaudeMemEntry(yamlContent)) {
-      const claudeMemPattern = /( {2}claude-mem:\n(?:.*\n)*?(?= {2}\S|\n\n|^\S|$))/m;
-      const newEntry = buildGooseClaudeMemEntryYaml(mcpServerPath) + '\n';
+    if (gooseConfigHasOurEntry(yamlContent)) {
+      const newEntry = buildGooseEntryYaml(mcpServerPath) + '\n';
 
-      if (!claudeMemPattern.test(yamlContent)) {
-        throw new Error('Found mcpServers/claude-mem markers but could not locate a replaceable claude-mem block');
+      if (!GOOSE_ENTRY_PATTERN.test(yamlContent)) {
+        throw new Error('Found mcpServers markers but could not locate a replaceable keepmind block');
       }
-      yamlContent = yamlContent.replace(claudeMemPattern, newEntry);
+      yamlContent = yamlContent.replace(GOOSE_ENTRY_PATTERN, newEntry);
       writeFileSync(configPath, yamlContent);
-      console.log(`  Updated existing claude-mem entry in: ${configPath}`);
+      console.log(`  Updated existing keepmind entry in: ${configPath}`);
     } else if (yamlContent.includes('mcpServers:')) {
       const mcpServersIndex = yamlContent.indexOf('mcpServers:');
       const insertionPoint = mcpServersIndex + 'mcpServers:'.length;
-      const newEntry = '\n' + buildGooseClaudeMemEntryYaml(mcpServerPath);
+      const newEntry = '\n' + buildGooseEntryYaml(mcpServerPath);
 
       yamlContent =
         yamlContent.slice(0, insertionPoint) +
@@ -231,15 +237,15 @@ function mergeGooseYamlConfig(configPath: string, mcpServerPath: string): void {
         yamlContent.slice(insertionPoint);
 
       writeFileSync(configPath, yamlContent);
-      console.log(`  Added claude-mem to existing mcpServers in: ${configPath}`);
+      console.log(`  Added keepmind to existing mcpServers in: ${configPath}`);
     } else {
-      const mcpBlock = '\n' + buildGooseClaudeMemEntryYaml(mcpServerPath, true) + '\n';
+      const mcpBlock = '\n' + buildGooseEntryYaml(mcpServerPath, true) + '\n';
       yamlContent = yamlContent.trimEnd() + '\n' + mcpBlock;
       writeFileSync(configPath, yamlContent);
       console.log(`  Appended mcpServers section to: ${configPath}`);
     }
   } else {
-    const templateContent = buildGooseClaudeMemEntryYaml(mcpServerPath, true) + '\n';
+    const templateContent = buildGooseEntryYaml(mcpServerPath, true) + '\n';
     writeFileSync(configPath, templateContent);
     console.log(`  Created config with MCP server: ${configPath}`);
   }

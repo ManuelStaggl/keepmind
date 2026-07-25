@@ -26,8 +26,8 @@ describe('Context Injection', () => {
 
   describe('tag constants', () => {
     it('exports correct open and close tags', () => {
-      expect(CONTEXT_TAG_OPEN).toBe('<claude-mem-context>');
-      expect(CONTEXT_TAG_CLOSE).toBe('</claude-mem-context>');
+      expect(CONTEXT_TAG_OPEN).toBe('<keepmind-context>');
+      expect(CONTEXT_TAG_CLOSE).toBe('</keepmind-context>');
     });
   });
 
@@ -67,7 +67,7 @@ describe('Context Injection', () => {
   describe('headerLine support', () => {
     it('prepends headerLine when creating a new file', () => {
       const filePath = join(tempDir, 'AGENTS.md');
-      const headerLine = '# Claude-Mem Memory Context';
+      const headerLine = '# keepmind Memory Context';
 
       injectContextIntoMarkdownFile(filePath, 'context data', headerLine);
 

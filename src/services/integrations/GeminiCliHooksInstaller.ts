@@ -4,6 +4,8 @@ import { homedir } from 'os';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { logger } from '../../utils/logger.js';
 import { getWorkerServiceAbsolutePath as findWorkerServicePath, getBunAbsolutePath as findBunPath } from './install-paths.js';
+import { CONTEXT_TAG_OPEN, CONTEXT_TAG_CLOSE } from '../../utils/context-injection.js';
+import { hasContextBlock } from '../../shared/context-markers.js';
 
 interface GeminiHookEntry {
   name: string;
@@ -30,7 +32,14 @@ const GEMINI_CONFIG_DIR = path.join(homedir(), '.gemini');
 const GEMINI_SETTINGS_PATH = path.join(GEMINI_CONFIG_DIR, 'settings.json');
 const GEMINI_MD_PATH = path.join(GEMINI_CONFIG_DIR, 'GEMINI.md');
 
-const HOOK_NAME = 'claude-mem';
+const HOOK_NAME = 'keepmind';
+// Hooks written into Gemini's settings.json before the rename carry the old
+// name. Match on both when finding/replacing/removing ours, or an upgrade
+// leaves a duplicate hook behind and `uninstall` cannot clean it up.
+const LEGACY_HOOK_NAMES = ['claude-mem'];
+function isOurHook(name: unknown): boolean {
+  return name === HOOK_NAME || (typeof name === 'string' && LEGACY_HOOK_NAMES.includes(name));
+}
 const HOOK_TIMEOUT_MS = 10000;
 
 const GEMINI_EVENT_TO_INTERNAL_EVENT: Record<string, string> = {
@@ -108,12 +117,12 @@ function mergeHooksIntoSettings(
 
     for (const newGroup of newGroups) {
       const existingGroupIndex = existingGroups.findIndex((group: GeminiHookGroup) =>
-        group.hooks.some((hook: GeminiHookEntry) => hook.name === HOOK_NAME)
+        group.hooks.some((hook: GeminiHookEntry) => isOurHook(hook.name))
       );
 
       if (existingGroupIndex >= 0) {
         const existingGroup: GeminiHookGroup = existingGroups[existingGroupIndex];
-        const hookIndex = existingGroup.hooks.findIndex((hook: GeminiHookEntry) => hook.name === HOOK_NAME);
+        const hookIndex = existingGroup.hooks.findIndex((hook: GeminiHookEntry) => isOurHook(hook.name));
         if (hookIndex >= 0) {
           existingGroup.hooks[hookIndex] = newGroup.hooks[0];
         } else {
@@ -131,8 +140,8 @@ function mergeHooksIntoSettings(
 }
 
 function setupGeminiMdContextSection(): void {
-  const contextTag = '<claude-mem-context>';
-  const contextEndTag = '</claude-mem-context>';
+  const contextTag = CONTEXT_TAG_OPEN;
+  const contextEndTag = CONTEXT_TAG_CLOSE;
   const placeholder = `${contextTag}
 # Memory Context from Past Sessions
 
@@ -156,7 +165,7 @@ ${contextEndTag}`;
 }
 
 export async function installGeminiCliHooks(): Promise<number> {
-  console.log('\nInstalling Claude-Mem Gemini CLI hooks...\n');
+  console.log('\nInstalling keepmind Gemini CLI hooks...\n');
 
   const workerServicePath = findWorkerServicePath();
   if (!workerServicePath) {
@@ -220,7 +229,7 @@ Context Injection:
 }
 
 export function uninstallGeminiCliHooks(): number {
-  console.log('\nUninstalling Claude-Mem Gemini CLI hooks...\n');
+  console.log('\nUninstalling keepmind Gemini CLI hooks...\n');
 
   if (!existsSync(GEMINI_SETTINGS_PATH)) {
     console.log('  No Gemini CLI settings found — nothing to uninstall.');
@@ -239,7 +248,7 @@ export function uninstallGeminiCliHooks(): number {
     for (const [eventName, groups] of Object.entries(settings.hooks)) {
       const filteredGroups = groups
         .map(group => {
-          const remainingHooks = group.hooks.filter(hook => hook.name !== HOOK_NAME);
+          const remainingHooks = group.hooks.filter(hook => !isOurHook(hook.name));
           removedCount += group.hooks.length - remainingHooks.length;
           return { ...group, hooks: remainingHooks };
         })
@@ -270,11 +279,11 @@ function writeSettingsAndCleanupGeminiContext(
   removedCount: number,
 ): void {
   writeGeminiSettings(settings);
-  console.log(`  Removed ${removedCount} claude-mem hook(s) from ${GEMINI_SETTINGS_PATH}`);
+  console.log(`  Removed ${removedCount} keepmind hook(s) from ${GEMINI_SETTINGS_PATH}`);
 
   if (existsSync(GEMINI_MD_PATH)) {
     let mdContent = readFileSync(GEMINI_MD_PATH, 'utf-8');
-    const contextRegex = /\n?<claude-mem-context>[\s\S]*?<\/claude-mem-context>\n?/;
+    const contextRegex = /\n?<(keepmind|claude-mem)-context>[\s\S]*?<\/\1-context>\n?/;
     if (contextRegex.test(mdContent)) {
       mdContent = mdContent.replace(contextRegex, '');
       writeFileSync(GEMINI_MD_PATH, mdContent);
@@ -287,12 +296,12 @@ function writeSettingsAndCleanupGeminiContext(
 }
 
 export function checkGeminiCliHooksStatus(): number {
-  console.log('\nClaude-Mem Gemini CLI Hooks Status\n');
+  console.log('\nkeepmind Gemini CLI Hooks Status\n');
 
   if (!existsSync(GEMINI_SETTINGS_PATH)) {
     console.log('Gemini CLI settings: Not found');
     console.log(`  Expected at: ${GEMINI_SETTINGS_PATH}\n`);
-    console.log('No hooks installed. Run: claude-mem install --ide gemini-cli\n');
+    console.log('No hooks installed. Run: keepmind install --ide gemini-cli\n');
     return 0;
   }
 
@@ -312,14 +321,14 @@ export function checkGeminiCliHooksStatus(): number {
 
   if (!settings.hooks) {
     console.log('Gemini CLI settings: Found, but no hooks configured\n');
-    console.log('No hooks installed. Run: claude-mem install --ide gemini-cli\n');
+    console.log('No hooks installed. Run: keepmind install --ide gemini-cli\n');
     return 0;
   }
 
   const installedEvents: string[] = [];
   for (const [eventName, groups] of Object.entries(settings.hooks)) {
     const hasClaudeMem = groups.some(group =>
-      group.hooks.some(hook => hook.name === HOOK_NAME)
+      group.hooks.some(hook => isOurHook(hook.name))
     );
     if (hasClaudeMem) {
       installedEvents.push(eventName);
@@ -327,8 +336,8 @@ export function checkGeminiCliHooksStatus(): number {
   }
 
   if (installedEvents.length === 0) {
-    console.log('Gemini CLI settings: Found, but no claude-mem hooks\n');
-    console.log('Run: claude-mem install --ide gemini-cli\n');
+    console.log('Gemini CLI settings: Found, but no keepmind hooks\n');
+    console.log('Run: keepmind install --ide gemini-cli\n');
     return 0;
   }
 
@@ -342,10 +351,10 @@ export function checkGeminiCliHooksStatus(): number {
 
   if (existsSync(GEMINI_MD_PATH)) {
     const mdContent = readFileSync(GEMINI_MD_PATH, 'utf-8');
-    if (mdContent.includes('<claude-mem-context>')) {
+    if (hasContextBlock(mdContent)) {
       console.log(`Context: Active (${GEMINI_MD_PATH})`);
     } else {
-      console.log('Context: GEMINI.md exists but missing claude-mem section');
+      console.log('Context: GEMINI.md exists but missing keepmind section');
     }
   } else {
     console.log('Context: No GEMINI.md found');
@@ -368,21 +377,21 @@ export async function handleGeminiCliCommand(subcommand: string, _args: string[]
 
     default:
       console.log(`
-Claude-Mem Gemini CLI Integration
+keepmind Gemini CLI Integration
 
-Usage: claude-mem gemini-cli <command>
+Usage: keepmind gemini-cli <command>
 
 Commands:
   install             Install hooks into ~/.gemini/settings.json
-  uninstall           Remove claude-mem hooks (preserves other hooks)
+  uninstall           Remove keepmind hooks (preserves other hooks)
   status              Check installation status
 
 Examples:
-  claude-mem gemini-cli install     # Install hooks
-  claude-mem gemini-cli status      # Check if installed
-  claude-mem gemini-cli uninstall   # Remove hooks
+  keepmind gemini-cli install     # Install hooks
+  keepmind gemini-cli status      # Check if installed
+  keepmind gemini-cli uninstall   # Remove hooks
 
-For more info: https://docs.claude-mem.ai/usage/gemini-provider
+For more info: https://github.com/ManuelStaggl/keepmind
       `);
       return 0;
   }

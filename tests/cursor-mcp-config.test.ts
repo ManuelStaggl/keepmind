@@ -39,18 +39,18 @@ describe('Cursor MCP Configuration', () => {
       expect(existsSync(join(tempDir, '.cursor'))).toBe(true);
     });
 
-    it('adds claude-mem server with correct structure', () => {
+    it('adds keepmind server with correct structure', () => {
       configureCursorMcp(mcpJsonPath, mcpServerPath);
 
       const config: CursorMcpConfig = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
 
       expect(config.mcpServers).toBeDefined();
-      expect(config.mcpServers['claude-mem']).toBeDefined();
-      expect(config.mcpServers['claude-mem'].command).toBe('node');
-      expect(config.mcpServers['claude-mem'].args).toEqual([mcpServerPath]);
+      expect(config.mcpServers['keepmind']).toBeDefined();
+      expect(config.mcpServers['keepmind'].command).toBe('node');
+      expect(config.mcpServers['keepmind'].args).toEqual([mcpServerPath]);
     });
 
-    it('preserves existing MCP servers when adding claude-mem', () => {
+    it('preserves existing MCP servers when adding keepmind', () => {
       mkdirSync(join(tempDir, '.cursor'), { recursive: true });
       const existingConfig = {
         mcpServers: {
@@ -68,10 +68,10 @@ describe('Cursor MCP Configuration', () => {
 
       expect(config.mcpServers['other-server']).toBeDefined();
       expect(config.mcpServers['other-server'].command).toBe('python');
-      expect(config.mcpServers['claude-mem']).toBeDefined();
+      expect(config.mcpServers['keepmind']).toBeDefined();
     });
 
-    it('updates existing claude-mem server path', () => {
+    it('updates existing keepmind server path', () => {
       configureCursorMcp(mcpJsonPath, '/old/path.cjs');
 
       const newPath = '/new/path.cjs';
@@ -79,7 +79,7 @@ describe('Cursor MCP Configuration', () => {
 
       const config: CursorMcpConfig = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
 
-      expect(config.mcpServers['claude-mem'].args).toEqual([newPath]);
+      expect(config.mcpServers['keepmind'].args).toEqual([newPath]);
     });
 
     it('recovers from corrupt mcp.json', () => {
@@ -89,7 +89,7 @@ describe('Cursor MCP Configuration', () => {
       configureCursorMcp(mcpJsonPath, mcpServerPath);
 
       const config: CursorMcpConfig = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
-      expect(config.mcpServers['claude-mem']).toBeDefined();
+      expect(config.mcpServers['keepmind']).toBeDefined();
     });
 
     it('handles mcp.json with missing mcpServers key', () => {
@@ -99,7 +99,7 @@ describe('Cursor MCP Configuration', () => {
       configureCursorMcp(mcpJsonPath, mcpServerPath);
 
       const config: CursorMcpConfig = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
-      expect(config.mcpServers['claude-mem']).toBeDefined();
+      expect(config.mcpServers['keepmind']).toBeDefined();
     });
   });
 
@@ -149,7 +149,7 @@ describe('Cursor MCP Configuration', () => {
       configureCursorMcp(mcpJsonPath, pathWithSpaces);
 
       const config: CursorMcpConfig = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
-      expect(config.mcpServers['claude-mem'].args).toEqual([pathWithSpaces]);
+      expect(config.mcpServers['keepmind'].args).toEqual([pathWithSpaces]);
     });
 
     it('handles Windows-style path', () => {
@@ -157,7 +157,7 @@ describe('Cursor MCP Configuration', () => {
       configureCursorMcp(mcpJsonPath, windowsPath);
 
       const config: CursorMcpConfig = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
-      expect(config.mcpServers['claude-mem'].args).toEqual([windowsPath]);
+      expect(config.mcpServers['keepmind'].args).toEqual([windowsPath]);
     });
 
     it('handles path with special characters', () => {
@@ -165,10 +165,10 @@ describe('Cursor MCP Configuration', () => {
       configureCursorMcp(mcpJsonPath, specialPath);
 
       const config: CursorMcpConfig = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
-      expect(config.mcpServers['claude-mem'].args).toEqual([specialPath]);
+      expect(config.mcpServers['keepmind'].args).toEqual([specialPath]);
 
       const reread: CursorMcpConfig = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
-      expect(reread.mcpServers['claude-mem'].args![0]).toBe(specialPath);
+      expect(reread.mcpServers['keepmind'].args![0]).toBe(specialPath);
     });
   });
 });

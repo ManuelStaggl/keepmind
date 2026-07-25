@@ -10,14 +10,17 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { logger } from '../../utils/logger.js';
 import { paths } from '../../shared/paths.js';
+import { hasContextBlock, stripContextBlock } from '../../shared/context-markers.js';
 
 const CODEX_DIR = path.join(homedir(), '.codex');
 const CODEX_AGENTS_MD_PATH = path.join(CODEX_DIR, 'AGENTS.md');
 const CODEX_TRANSCRIPT_WATCH_CONFIG_PATH = paths.transcriptsConfig();
 const CODEX_CONFIG_PATH = path.join(CODEX_DIR, 'config.toml');
-const MARKETPLACE_NAME = 'claude-mem-local';
-const CODEX_PLUGIN_ID = `claude-mem@${MARKETPLACE_NAME}`;
-const LEGACY_CODEX_PLUGIN_IDS = ['claude-mem@thedotmack'];
+const MARKETPLACE_NAME = 'keepmind-local';
+const CODEX_PLUGIN_ID = `keepmind@${MARKETPLACE_NAME}`;
+// Disabled on every write so a machine that ran an older installer does not
+// keep a stale entry enabled alongside the current one.
+const LEGACY_CODEX_PLUGIN_IDS = ['claude-mem@thedotmack', 'claude-mem@claude-mem-local'];
 const MIN_CODEX_MARKETPLACE_VERSION = '0.128.0';
 const REQUIRED_MARKETPLACE_FILES = [
   path.join('.agents', 'plugins', 'marketplace.json'),
@@ -271,8 +274,11 @@ function isLegacyMcpSearchChildHeader(normalizedHeader: string | null): boolean 
   return typeof normalizedHeader === 'string' && normalizedHeader.startsWith('mcp_servers.mcp-search.');
 }
 
-function isClaudeMemMcpSearchBlock(block: string): boolean {
-  return /claude-mem/.test(block);
+// A hand-rolled mcp-search block left behind by either spelling of this
+// plugin — matching only the legacy name meant a stale keepmind-owned block
+// was never cleaned up.
+function isManagedMcpSearchBlock(block: string): boolean {
+  return /keepmind|claude-mem/.test(block);
 }
 
 export function removeLegacyCodexMcpSearchConfig(content: string): string {
@@ -294,14 +300,14 @@ export function removeLegacyCodexMcpSearchConfig(content: string): string {
   blocks.push({ header: currentHeader, text: currentLines.join('\n') });
 
   const removeLegacyMcpSearch = blocks.some(
-    (block) => isLegacyMcpSearchHeader(block.header) && isClaudeMemMcpSearchBlock(block.text),
+    (block) => isLegacyMcpSearchHeader(block.header) && isManagedMcpSearchBlock(block.text),
   );
   if (!removeLegacyMcpSearch) return content;
 
   const kept = blocks.filter((block) =>
     !isLegacyMcpSearchHeader(block.header) && !isLegacyMcpSearchChildHeader(block.header)
   );
-  // The stale claude-mem-owned server can have tool child tables; remove the
+  // The stale plugin-owned server can have tool child tables; remove the
   // whole subtree so Codex falls back to the plugin-managed MCP declaration.
   return kept.map((block) => block.text).join('\n').replace(/^\n+/, '').replace(/\n{3,}/g, '\n\n');
 }
@@ -366,11 +372,8 @@ function assertCodexMarketplaceSupported(): void {
 function removeCodexAgentsMdContext(): boolean {
   if (!existsSync(CODEX_AGENTS_MD_PATH)) return true;
 
-  const startTag = '<claude-mem-context>';
-  const endTag = '</claude-mem-context>';
-
   try {
-    readAndStripContextTags(startTag, endTag);
+    readAndStripContextTags();
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -379,17 +382,13 @@ function removeCodexAgentsMdContext(): boolean {
   }
 }
 
-function readAndStripContextTags(startTag: string, endTag: string): void {
+function readAndStripContextTags(): void {
   const content = readFileSync(CODEX_AGENTS_MD_PATH, 'utf-8');
 
-  const startIdx = content.indexOf(startTag);
-  const endIdx = content.indexOf(endTag);
-
-  if (startIdx === -1 || endIdx === -1) return;
-
-  const before = content.substring(0, startIdx).replace(/\n+$/, '');
-  const after = content.substring(endIdx + endTag.length).replace(/^\n+/, '');
-  const finalContent = (before + (after ? '\n\n' + after : '')).trim();
+  // Accepts both tag spellings — an AGENTS.md written before the rename must
+  // still get cleaned up, or its block is orphaned forever.
+  if (!hasContextBlock(content)) return;
+  const finalContent = stripContextBlock(content);
 
   if (finalContent) {
     writeFileSync(CODEX_AGENTS_MD_PATH, finalContent + '\n');
@@ -463,7 +462,7 @@ function disableCodexTranscriptAgentsContext(): boolean {
 const cleanupLegacyCodexTranscriptAgentsContext = disableCodexTranscriptAgentsContext;
 
 export async function installCodexCli(marketplaceRootOverride?: string): Promise<number> {
-  console.log('\nInstalling Claude-Mem for Codex CLI (native hooks)...\n');
+  console.log('\nInstalling keepmind for Codex CLI (native hooks)...\n');
 
   if (!commandExists('codex')) {
     console.error('Codex CLI was not found on PATH.');
@@ -481,7 +480,7 @@ export async function installCodexCli(marketplaceRootOverride?: string): Promise
     runCodexBestEffort(
       ['plugin', 'marketplace', 'upgrade', MARKETPLACE_NAME],
       'Refreshed Codex marketplace and installed plugin cache.',
-      'Could not refresh Codex marketplace cache; reinstall or upgrade claude-mem from /plugins if Codex still uses old MCP config',
+      'Could not refresh Codex marketplace cache; reinstall or upgrade keepmind from /plugins if Codex still uses old MCP config',
     );
     if (!cleanupLegacyCodexAgentsMdContext()) {
       console.warn(`  Native Codex hooks registered, but failed to remove legacy AGENTS.md context from ${CODEX_AGENTS_MD_PATH}.`);
@@ -512,7 +511,7 @@ For a fresh setup, the supported entry point is:
 }
 
 export function uninstallCodexCli(): number {
-  console.log('\nUninstalling Claude-Mem Codex CLI integration...\n');
+  console.log('\nUninstalling keepmind Codex CLI integration...\n');
 
   let failed = false;
 

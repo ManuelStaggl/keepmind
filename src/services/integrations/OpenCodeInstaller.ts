@@ -7,7 +7,15 @@ import { logger } from '../../utils/logger.js';
 import { CONTEXT_TAG_OPEN, CONTEXT_TAG_CLOSE, injectContextIntoMarkdownFile } from '../../utils/context-injection.js';
 import { getWorkerPort } from '../../shared/worker-utils.js';
 
-const OPENCODE_PLUGIN_CONFIG_PATH = './plugins/claude-mem.js';
+const OPENCODE_PLUGIN_CONFIG_PATH = './plugins/keepmind.js';
+// The pre-rename plugin file and its config entry. Both are removed on
+// install: OpenCode would otherwise load two copies of the same plugin, the
+// stale one still pointing at the previous bundle.
+const LEGACY_PLUGIN_FILENAME = 'claude-mem.js';
+const LEGACY_PLUGIN_CONFIG_PATH = './plugins/claude-mem.js';
+
+const AGENTS_MD_HEADER = '# keepmind Memory Context';
+const LEGACY_AGENTS_MD_HEADER = '# Claude-Mem Memory Context';
 
 type OpenCodeConfig = {
   $schema?: string;
@@ -35,7 +43,7 @@ export function getOpenCodeAgentsMdPath(): string {
 }
 
 export function getInstalledPluginPath(): string {
-  return path.join(getOpenCodePluginsDirectory(), 'claude-mem.js');
+  return path.join(getOpenCodePluginsDirectory(), 'keepmind.js');
 }
 
 function getOpenCodePluginEntries(config: OpenCodeConfig): unknown[] {
@@ -46,9 +54,14 @@ function getOpenCodePluginEntries(config: OpenCodeConfig): unknown[] {
 }
 
 export function addOpenCodePluginReference(config: OpenCodeConfig): OpenCodeConfig {
-  const existingPlugins = getOpenCodePluginEntries(config);
+  // Always drop the pre-rename entry, even when the canonical one is already
+  // present: OpenCode loads every listed plugin, so leaving it would run two
+  // copies, the stale one against a bundle that no longer gets updated.
+  const existingPlugins = getOpenCodePluginEntries(config)
+    .filter((plugin) => plugin !== LEGACY_PLUGIN_CONFIG_PATH);
+
   if (existingPlugins.includes(OPENCODE_PLUGIN_CONFIG_PATH)) {
-    return config;
+    return { ...config, plugin: existingPlugins };
   }
 
   return {
@@ -61,7 +74,7 @@ export function removeOpenCodePluginReference(config: OpenCodeConfig): OpenCodeC
   return {
     ...config,
     plugin: getOpenCodePluginEntries(config).filter(
-      (plugin) => plugin !== OPENCODE_PLUGIN_CONFIG_PATH,
+      (plugin) => plugin !== OPENCODE_PLUGIN_CONFIG_PATH && plugin !== LEGACY_PLUGIN_CONFIG_PATH,
     ),
   };
 }
@@ -148,6 +161,21 @@ export function installOpenCodePlugin(): number {
 
     copyFileSync(builtPluginPath, destinationPath);
 
+    // Remove the pre-rename plugin file so the directory does not keep serving
+    // a second, frozen copy alongside the one we just wrote.
+    const legacyPluginPath = path.join(pluginsDirectory, LEGACY_PLUGIN_FILENAME);
+    if (existsSync(legacyPluginPath)) {
+      try {
+        unlinkSync(legacyPluginPath);
+        console.log(`  Removed pre-rename plugin file: ${legacyPluginPath}`);
+      } catch (error) {
+        logger.warn('OPENCODE', 'Could not remove pre-rename plugin file', {
+          path: legacyPluginPath,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
     console.log(`  Plugin installed to: ${destinationPath}`);
     logger.info('OPENCODE', 'Plugin installed', { destination: destinationPath });
 
@@ -168,7 +196,7 @@ export function injectContextIntoAgentsMd(contextContent: string): number {
   const agentsMdPath = getOpenCodeAgentsMdPath();
 
   try {
-    injectContextIntoMarkdownFile(agentsMdPath, contextContent, '# Claude-Mem Memory Context');
+    injectContextIntoMarkdownFile(agentsMdPath, contextContent, AGENTS_MD_HEADER);
     logger.info('OPENCODE', 'Context injected into AGENTS.md', { path: agentsMdPath });
     return 0;
   } catch (error) {
@@ -195,7 +223,10 @@ async function fetchRealContextFromWorker(): Promise<string | null> {
 function writeOrRemoveCleanedAgentsMd(agentsMdPath: string, trimmedContent: string): void {
   if (
     trimmedContent.length === 0 ||
-    trimmedContent === '# Claude-Mem Memory Context'
+    trimmedContent === AGENTS_MD_HEADER ||
+    // A file written before the rename carries the old header and would
+    // otherwise be left behind as a one-line orphan.
+    trimmedContent === LEGACY_AGENTS_MD_HEADER
   ) {
     unlinkSync(agentsMdPath);
     console.log(`  Removed empty AGENTS.md`);
@@ -260,7 +291,7 @@ export function uninstallOpenCodePlugin(): number {
 }
 
 export function checkOpenCodeStatus(): number {
-  console.log('\nClaude-Mem OpenCode Integration Status\n');
+  console.log('\nkeepmind OpenCode Integration Status\n');
 
   const configDirectory = getOpenCodeConfigDirectory();
   const pluginPath = getInstalledPluginPath();
@@ -279,7 +310,7 @@ export function checkOpenCodeStatus(): number {
     const content = readFileSync(agentsMdPath, 'utf-8');
     const hasContextTags = content.includes(CONTEXT_TAG_OPEN);
     console.log(`  Exists: yes`);
-    console.log(`  Has claude-mem context: ${hasContextTags ? 'yes' : 'no'}`);
+    console.log(`  Has keepmind context: ${hasContextTags ? 'yes' : 'no'}`);
   } else {
     console.log(`  Exists: no`);
   }
@@ -289,7 +320,7 @@ export function checkOpenCodeStatus(): number {
 }
 
 export async function installOpenCodeIntegration(): Promise<number> {
-  console.log('\nInstalling Claude-Mem for OpenCode...\n');
+  console.log('\nInstalling keepmind for OpenCode...\n');
 
   const pluginResult = installOpenCodePlugin();
   if (pluginResult !== 0) {
@@ -300,7 +331,7 @@ export async function installOpenCodeIntegration(): Promise<number> {
 
 *No context yet. Complete your first session and context will appear here.*
 
-Use claude-mem search tools for manual memory queries.`;
+Use keepmind search tools for manual memory queries.`;
 
   let contextToInject = placeholderContext;
   let contextSource = 'placeholder';

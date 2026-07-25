@@ -3,6 +3,9 @@ import { logger } from './logger.js';
 
 const TAG_NAMES = [
   'private',
+  'keepmind-context',
+  // Pre-rename spelling: still arrives from CLAUDE.md / rules files written by
+  // an older install, and must not be stored back as if it were user content.
   'claude-mem-context',
   'system_instruction',
   'system-instruction',
