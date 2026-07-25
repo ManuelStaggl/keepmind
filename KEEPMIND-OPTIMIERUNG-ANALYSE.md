@@ -80,7 +80,23 @@ Bewusst **nicht** übernommen: alles zu `sync-hub`/`cloud-sync` (in P3 entfernt)
 (hier eigenständig gelöst), Chroma-spezifische Fixes (kein Chroma mehr).
 
 ## 5. Abnahme
-1. Turns pro Sitzung und Skip-Quote vorher/nachher (neue Zähler).
-2. Startblock-Tokens **und** Anzahl gelisteter Einträge — Ziel: mehr Einträge, gleiche Größe.
-3. Gegentest Wiederfindbarkeit: eine datierte Suche („Recherche vom 24.07.") muss weiter treffen.
-4. `vectors.db` + WAL in MB nach 24 h Laufzeit.
+
+**Gemessen gegen eine Kopie der Live-DB (isolierter Test-Worker, Live-Worker unberührt):**
+
+| Prüfung | Vorher | Nachher |
+|---|---|---|
+| Startblock, gelistete Einträge (3 größte Projekte) | 11 | 38–40 |
+| Startblock, echte Größe | ~900 Tokens | ~1.300–1.580 Tokens |
+| Datierte Suche (`date_from`/`date_to`) | Filter ignoriert, Treffer aus Mai–Juli | korrekt auf 18.–19.07. begrenzt |
+| `relevance_count` / `last_used_at` | 0 / NULL für **alle** Zeilen | wird bei Injektion und `get_observations` geschrieben (verifiziert) |
+| Relative Altersangabe | fehlte | `### Jul 19, 2026 (6 days ago)` |
+| Startblock-JSON-Fehler beim Sitzungsstart | zwei JSON-Objekte | genau eines |
+
+Ergebnis Startblock: **3,5× mehr Zeitachse für ~45 % mehr Tokens.** Wer es kleiner will, dreht
+`memoryQuality.injection.tokenBudget` in `~/.keepmind/settings.json` herunter.
+
+**Noch offen (nur im Live-Betrieb messbar, braucht Deploy):**
+1. Turns pro Sitzung und Skip-Quote — die neuen Zähler loggen das bei Generator-Ende als
+   „Compression economics" (`compressionTurns` / `skippedBatches` / `skipRatio`). Vorher: ≥65 %.
+2. `vectors.db` + WAL in MB nach 24 h — erwartet: WAL fällt von ~136 MB auf ≤4 MB.
+3. Gegentest Wiederfindbarkeit über den echten MCP-Pfad.
