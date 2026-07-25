@@ -222,6 +222,54 @@ export class SessionMessageBuffer {
     return claimed;
   }
 
+  /** Unclaimed observations currently waiting, i.e. what a batch could still absorb. */
+  getUnclaimedObservationCount(sessionDbId: number): number {
+    const list = this.buffers.get(sessionDbId);
+    if (!list) return 0;
+    let count = 0;
+    for (const m of list) {
+      if (m.claimed) continue;
+      if (m.message.type !== 'observation') break; // mirrors claimAdditionalObservations
+      count += 1;
+    }
+    return count;
+  }
+
+  /**
+   * Wait briefly for sibling observations to arrive before compressing.
+   *
+   * Batching (`claimAdditionalObservations`) can only coalesce what is ALREADY
+   * buffered. Tool uses arrive one at a time — the model thinks between them —
+   * and a compression turn is fast, so the buffer was almost always empty when
+   * the batch was assembled: batching never engaged and every tool use paid its
+   * own turn (measured: ~4.8k turns for ~3.4k tool uses in one day, ≥65% of them
+   * returning "nothing worth recording" while still paying the full conversation
+   * prefix). A short linger turns the same work into a handful of batched turns.
+   *
+   * Returns as soon as `target` unclaimed observations are waiting, or when the
+   * window elapses / the generator aborts — whichever comes first.
+   */
+  async waitForCoalesceWindow(options: {
+    sessionDbId: number;
+    target: number;
+    windowMs: number;
+    signal: AbortSignal;
+  }): Promise<number> {
+    const { sessionDbId, target, windowMs, signal } = options;
+    const deadline = Date.now() + windowMs;
+    let waiting = this.getUnclaimedObservationCount(sessionDbId);
+
+    while (waiting < target && !signal.aborted) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      // Event-driven: resolves on the next enqueue rather than polling.
+      await this.waitForMessage(sessionDbId, signal, remaining);
+      waiting = this.getUnclaimedObservationCount(sessionDbId);
+    }
+
+    return waiting;
+  }
+
   private waitForMessage(sessionDbId: number, signal: AbortSignal, timeoutMs: number): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
       const events = this.getEvents(sessionDbId);

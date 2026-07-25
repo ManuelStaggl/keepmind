@@ -479,6 +479,10 @@ export class ClaudeProvider {
     // Perf plan L1: coalesce up to N buffered observations into one compression
     // turn. Read once per generator pass; 1 = unchanged one-turn-per-tool-use.
     const observationBatchMax = this.getObservationBatchMax();
+    // Perf plan L1b: batching can only coalesce what is already buffered, and the
+    // buffer is normally empty (tool uses arrive one at a time). Linger briefly so
+    // siblings can land in the same turn — this is what makes L1 actually engage.
+    const observationCoalesceMs = this.getObservationCoalesceMs();
     // Perf plan L3: after this many compression turns in one resumed conversation
     // force a fresh SDK session so the context window / resume payload stays
     // bounded (else quadratic cost + eventual "prompt is too long"). 0 = off.
@@ -531,6 +535,20 @@ export class ClaudeProvider {
         // claims nothing extra → single-observation prompt identical to before.
         const batch = [message];
         if (observationBatchMax > 1) {
+          if (observationCoalesceMs > 0) {
+            const waited = await this.sessionManager.getMessageBuffer().waitForCoalesceWindow({
+              sessionDbId: session.sessionDbId,
+              target: observationBatchMax - 1,
+              windowMs: observationCoalesceMs,
+              signal: session.abortController.signal,
+            });
+            logger.debug('SESSION', 'Coalesce window closed', {
+              sessionId: session.sessionDbId,
+              siblingsWaiting: waited,
+              batchMax: observationBatchMax,
+              windowMs: observationCoalesceMs,
+            });
+          }
           const extra = this.sessionManager.drainAdditionalObservations(
             session.sessionDbId,
             observationBatchMax - 1
@@ -574,6 +592,9 @@ export class ClaudeProvider {
         // fresh session (which resets contextTurnCount via startSession). Keeping
         // conversationHistory trimmed bounds the in-memory array too.
         session.contextTurnCount = (session.contextTurnCount ?? 0) + 1;
+        // Lifetime turn counter (see worker-types.ts): paired with skippedBatches
+        // it gives the skip ratio that justifies the batching settings.
+        session.compressionTurns = (session.compressionTurns ?? 0) + 1;
         if (shouldForceFreshSession(session.contextTurnCount, maxContextTurns)) {
           session.forceInit = true;
           if (session.conversationHistory.length > 2) {
@@ -635,6 +656,22 @@ export class ClaudeProvider {
       // fall through to safe default
     }
     return 1;
+  }
+
+  /**
+   * How long to wait for sibling observations before compressing (perf plan L1b).
+   * Clamped to [0, 15000]; 0 disables the window (batch only what already
+   * happens to be buffered, i.e. the pre-L1b behavior).
+   */
+  private getObservationCoalesceMs(): number {
+    try {
+      const settings = SettingsDefaultsManager.loadFromFile(paths.settings());
+      const raw = parseInt(settings.CLAUDE_MEM_OBSERVATION_COALESCE_MS, 10);
+      if (Number.isFinite(raw) && raw >= 0) return Math.min(raw, 15_000);
+    } catch {
+      // fall through to safe default
+    }
+    return 0;
   }
 
   /**
