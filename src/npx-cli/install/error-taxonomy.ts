@@ -24,7 +24,7 @@ export enum ErrorSeverity {
 
 export interface RemediationContext {
   platform: NodeJS.Platform;
-  /** Resolved data dir (honors CLAUDE_MEM_DATA_DIR). */
+  /** Resolved data dir (honors KEEPMIND_DATA_DIR). */
   dataDir: string;
 }
 
@@ -111,7 +111,7 @@ export const ERROR_CATEGORIES: ErrorCategory[] = [
     severity: ErrorSeverity.ABORT,
     match: (cause) => /\b(EACCES|EPERM)\b/.test(causeMessage(cause)),
     remediation: (ctx) =>
-      `Cannot write to the claude-mem data/marketplace directory under ${ctx.dataDir}. Check filesystem permissions or set CLAUDE_MEM_DATA_DIR to a writable path, then re-run.`,
+      `Cannot write to the keepmind data/marketplace directory under ${ctx.dataDir}. Check filesystem permissions or set KEEPMIND_DATA_DIR to a writable path, then re-run.`,
   },
   {
     id: 'plugin-json-corrupt',
@@ -162,7 +162,7 @@ export const ERROR_CATEGORIES: ErrorCategory[] = [
     severity: ErrorSeverity.ABORT,
     match: (cause) => /timed out|ETIMEDOUT|SIGTERM|did not finish/i.test(causeMessage(cause)),
     remediation: () =>
-      'An install command did not finish in time. Check network connectivity. On a slow host, raise the budget with CLAUDE_MEM_INSTALL_TIMEOUT_MS and re-run.',
+      'An install command did not finish in time. Check network connectivity. On a slow host, raise the budget with KEEPMIND_INSTALL_TIMEOUT_MS and re-run.',
   },
   {
     id: 'unknown-install-error',

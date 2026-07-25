@@ -34,19 +34,19 @@ function readTimeoutEnv(
 }
 
 const HEALTH_CHECK_TIMEOUT_MS = readTimeoutEnv(
-  'CLAUDE_MEM_HEALTH_TIMEOUT_MS',
+  'KEEPMIND_HEALTH_TIMEOUT_MS',
   getTimeout(HOOK_TIMEOUTS.HEALTH_CHECK),
   { min: 500, max: 300000 }
 );
 
 const API_REQUEST_TIMEOUT_MS = readTimeoutEnv(
-  'CLAUDE_MEM_API_TIMEOUT_MS',
+  'KEEPMIND_API_TIMEOUT_MS',
   getTimeout(HOOK_TIMEOUTS.API_REQUEST),
   { min: 500, max: 300000 }
 );
 
 const HOOK_READINESS_TIMEOUT_MS = readTimeoutEnv(
-  'CLAUDE_MEM_HOOK_READINESS_TIMEOUT_MS',
+  'KEEPMIND_HOOK_READINESS_TIMEOUT_MS',
   getTimeout(HOOK_TIMEOUTS.HOOK_READINESS_WAIT),
   { min: 0, max: 300000 }
 );
@@ -75,7 +75,7 @@ let cachedSettings: SettingsDefaults | null = null;
 let cachedApiRequestTimeoutMs: number | null = null;
 
 function getWorkerSettingsPath(): string {
-  return path.join(SettingsDefaultsManager.get('CLAUDE_MEM_DATA_DIR'), 'settings.json');
+  return path.join(SettingsDefaultsManager.get('KEEPMIND_DATA_DIR'), 'settings.json');
 }
 
 function isPidAliveLocal(pid: number): boolean {
@@ -169,7 +169,7 @@ export function getConfiguredWorkerPort(): number {
   }
 
   const settings = getWorkerSettings();
-  cachedPort = parseInt(settings.CLAUDE_MEM_WORKER_PORT, 10);
+  cachedPort = parseInt(settings.KEEPMIND_WORKER_PORT, 10);
   return cachedPort;
 }
 
@@ -191,7 +191,7 @@ export function getWorkerHost(): string {
   }
 
   const settings = getWorkerSettings();
-  cachedHost = settings.CLAUDE_MEM_WORKER_HOST;
+  cachedHost = settings.KEEPMIND_WORKER_HOST;
   return cachedHost;
 }
 
@@ -201,7 +201,7 @@ export function getWorkerApiRequestTimeoutMs(): number {
   }
 
   cachedApiRequestTimeoutMs = readSettingsBackedTimeout(
-    'CLAUDE_MEM_API_TIMEOUT_MS',
+    'KEEPMIND_API_TIMEOUT_MS',
     getTimeout(HOOK_TIMEOUTS.API_REQUEST),
     API_REQUEST_TIMEOUT_BOUNDS
   );
@@ -589,7 +589,7 @@ function writeHookFailureStateAtomic(state: HookFailureState): void {
 function getFailLoudThreshold(): number {
   try {
     const settings = loadFromFileOnce();
-    const raw = settings.CLAUDE_MEM_HOOK_FAIL_LOUD_THRESHOLD;
+    const raw = settings.KEEPMIND_HOOK_FAIL_LOUD_THRESHOLD;
     const parsed = parseInt(raw, 10);
     if (Number.isFinite(parsed) && parsed >= 1) return parsed;
   } catch {
@@ -655,7 +655,7 @@ function resetWorkerFailureCounter(): void {
   writeHookFailureStateAtomic({ consecutiveFailures: 0, lastFailureAt: 0 });
 }
 
-const WORKER_FALLBACK_BRAND: unique symbol = Symbol.for('claude-mem/worker-fallback');
+const WORKER_FALLBACK_BRAND: unique symbol = Symbol.for('keepmind/worker-fallback');
 
 export type WorkerFallback =
   | { continue: true; [WORKER_FALLBACK_BRAND]: true }

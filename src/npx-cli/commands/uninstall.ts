@@ -97,9 +97,9 @@ export function removeFromClaudeSettings(): void {
   // CLI's default behavior by removing that key. The value-equality guard
   // (=== '1') ensures we only strip the specific token the installer wrote
   // — if a user had pre-set this key to something else (e.g. '0' to force
-  // auto-memory on), or to '1' themselves before installing claude-mem,
+  // auto-memory on), or to '1' themselves before installing keepmind,
   // their intent is preserved. The installer's own no-op-when-already-'1'
-  // path means the worst case is leaving behind a value claude-mem would
+  // path means the worst case is leaving behind a value keepmind would
   // have written anyway. Any other env entries the user added themselves
   // (ANTHROPIC_AUTH_TOKEN, AWS_REGION, etc.) are preserved. If the env
   // block becomes empty as a result, the block itself is dropped to keep
@@ -164,7 +164,10 @@ function removeStrayClaudeMemPaths(): number {
         continue;
       }
       for (const entry of logEntries) {
-        if (!entry.startsWith('mcp-logs-plugin-claude-mem-')) continue;
+        // Both prefixes: keepmind's own MCP log dirs, plus any left over from a
+        // claude-mem install this machine was migrated from. Only the legacy
+        // prefix was matched before, so keepmind never cleaned up after itself.
+        if (!entry.startsWith('mcp-logs-plugin-keepmind-') && !entry.startsWith('mcp-logs-plugin-claude-mem-')) continue;
         const logPath = join(projectPath, entry);
         try {
           rmSync(logPath, { recursive: true, force: true });
@@ -190,10 +193,10 @@ function removeStrayClaudeMemPaths(): number {
 }
 
 export async function runUninstallCommand(): Promise<void> {
-  p.intro(pc.bgRed(pc.white(' claude-mem uninstall ')));
+  p.intro(pc.bgRed(pc.white(' keepmind uninstall ')));
 
   if (!isPluginInstalled()) {
-    p.log.warn('claude-mem does not appear to be installed.');
+    p.log.warn('keepmind does not appear to be installed.');
 
     if (process.stdin.isTTY) {
       const shouldCleanup = await p.confirm({
@@ -211,7 +214,7 @@ export async function runUninstallCommand(): Promise<void> {
     }
   } else if (process.stdin.isTTY) {
     const shouldContinue = await p.confirm({
-      message: 'Are you sure you want to uninstall claude-mem?',
+      message: 'Are you sure you want to uninstall keepmind?',
       initialValue: false,
     });
 
@@ -221,7 +224,7 @@ export async function runUninstallCommand(): Promise<void> {
     }
   }
 
-  const workerPort = SettingsDefaultsManager.get('CLAUDE_MEM_WORKER_PORT');
+  const workerPort = SettingsDefaultsManager.get('KEEPMIND_WORKER_PORT');
   try {
     const result = await shutdownWorkerAndWait(workerPort, 10000);
     if (result.workerWasRunning) {
@@ -279,7 +282,7 @@ export async function runUninstallCommand(): Promise<void> {
       },
     },
     {
-      title: 'Removing stray claude-mem caches and logs',
+      title: 'Removing stray caches and logs',
       task: async () => {
         const removed = removeStrayClaudeMemPaths();
         return removed > 0
@@ -327,5 +330,5 @@ export async function runUninstallCommand(): Promise<void> {
     'Note',
   );
 
-  p.outro(pc.green('claude-mem has been uninstalled.'));
+  p.outro(pc.green('keepmind has been uninstalled.'));
 }

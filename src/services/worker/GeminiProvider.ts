@@ -234,7 +234,7 @@ export class GeminiProvider extends OpenAICompatibleProvider<GeminiConfig> {
   }
 
   protected missingApiKeyError(): Error {
-    return new Error('Gemini API key not configured. Set CLAUDE_MEM_GEMINI_API_KEY in settings or GEMINI_API_KEY environment variable.');
+    return new Error('Gemini API key not configured. Set KEEPMIND_GEMINI_API_KEY in settings or GEMINI_API_KEY environment variable.');
   }
 
   protected estimateTokens(text: string): number {
@@ -251,8 +251,8 @@ export class GeminiProvider extends OpenAICompatibleProvider<GeminiConfig> {
 
   protected truncateHistoryForGemini(history: ConversationMessage[]): ConversationMessage[] {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-    const MAX_CONTEXT_MESSAGES = parseInt(settings.CLAUDE_MEM_GEMINI_MAX_CONTEXT_MESSAGES) || DEFAULT_MAX_CONTEXT_MESSAGES;
-    const MAX_ESTIMATED_TOKENS = parseInt(settings.CLAUDE_MEM_GEMINI_MAX_TOKENS) || DEFAULT_MAX_ESTIMATED_TOKENS;
+    const MAX_CONTEXT_MESSAGES = parseInt(settings.KEEPMIND_GEMINI_MAX_CONTEXT_MESSAGES) || DEFAULT_MAX_CONTEXT_MESSAGES;
+    const MAX_ESTIMATED_TOKENS = parseInt(settings.KEEPMIND_GEMINI_MAX_TOKENS) || DEFAULT_MAX_ESTIMATED_TOKENS;
     return this.truncateHistory(history, MAX_CONTEXT_MESSAGES, MAX_ESTIMATED_TOKENS);
   }
 
@@ -333,7 +333,7 @@ export class GeminiProvider extends OpenAICompatibleProvider<GeminiConfig> {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(priorRequestId ? { 'x-claude-mem-prior-request-id': priorRequestId } : {}),
+            ...(priorRequestId ? { 'x-keepmind-prior-request-id': priorRequestId } : {}),
           },
           body: JSON.stringify({
             contents,
@@ -392,10 +392,10 @@ export class GeminiProvider extends OpenAICompatibleProvider<GeminiConfig> {
     const settingsPath = paths.settings();
     const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
 
-    const apiKey = settings.CLAUDE_MEM_GEMINI_API_KEY || getCredential('GEMINI_API_KEY') || '';
+    const apiKey = settings.KEEPMIND_GEMINI_API_KEY || getCredential('GEMINI_API_KEY') || '';
 
     const defaultModel: GeminiModel = 'gemini-2.5-flash';
-    const configuredModel = settings.CLAUDE_MEM_GEMINI_MODEL || defaultModel;
+    const configuredModel = settings.KEEPMIND_GEMINI_MODEL || defaultModel;
     const validModels: GeminiModel[] = [
       'gemini-2.5-flash-lite',
       'gemini-2.5-flash',
@@ -417,7 +417,7 @@ export class GeminiProvider extends OpenAICompatibleProvider<GeminiConfig> {
       model = defaultModel;
     }
 
-    const rateLimitingEnabled = settings.CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED !== 'false';
+    const rateLimitingEnabled = settings.KEEPMIND_GEMINI_RATE_LIMITING_ENABLED !== 'false';
 
     return { apiKey, model, rateLimitingEnabled };
   }
@@ -426,11 +426,11 @@ export class GeminiProvider extends OpenAICompatibleProvider<GeminiConfig> {
 export function isGeminiAvailable(): boolean {
   const settingsPath = paths.settings();
   const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
-  return !!(settings.CLAUDE_MEM_GEMINI_API_KEY || getCredential('GEMINI_API_KEY'));
+  return !!(settings.KEEPMIND_GEMINI_API_KEY || getCredential('GEMINI_API_KEY'));
 }
 
 export function isGeminiSelected(): boolean {
   const settingsPath = paths.settings();
   const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
-  return settings.CLAUDE_MEM_PROVIDER === 'gemini';
+  return settings.KEEPMIND_PROVIDER === 'gemini';
 }

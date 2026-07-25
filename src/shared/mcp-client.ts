@@ -6,8 +6,9 @@ import path from 'path';
 import { logger } from '../utils/logger.js';
 import { MARKETPLACE_ROOT } from './paths.js';
 import { sanitizeEnv } from '../supervisor/env-sanitizer.js';
+import { envValue } from './legacy-env.js';
 
-const MCP_CLIENT_NAME = 'claude-mem-hook';
+const MCP_CLIENT_NAME = 'keepmind-hook';
 const MCP_CLIENT_VERSION = '1.0.0';
 const MCP_CALL_TIMEOUT_MS = 30_000;
 
@@ -46,7 +47,7 @@ export function resolveNodeCommand(): string {
     return process.execPath;
   }
 
-  const envNode = process.env.CLAUDE_MEM_NODE_PATH;
+  const envNode = envValue('KEEPMIND_NODE_PATH');
   if (envNode && executableName(envNode) === 'node' && existsSync(envNode)) {
     return envNode;
   }

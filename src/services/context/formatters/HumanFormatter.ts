@@ -179,7 +179,9 @@ export function renderHumanFooter(totalDiscoveryTokens: number, totalReadTokens:
   const workTokensK = Math.round(totalDiscoveryTokens / 1000);
   return [
     '',
-    `${colors.dim}Access ${workTokensK}k tokens of past research & decisions for just ${totalReadTokens.toLocaleString()}t. Use the claude-mem skill to access memories by ID.${colors.reset}`
+    // Names the skill that actually exists — there has never been a skill called
+    // "claude-mem", so the old wording pointed nowhere as well as being off-brand.
+    `${colors.dim}Access ${workTokensK}k tokens of past research & decisions for just ${totalReadTokens.toLocaleString()}t. Use get_observations([IDs]) or the mem-search skill.${colors.reset}`
   ];
 }
 

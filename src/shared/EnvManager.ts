@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'f
 import { parseEnv } from 'util';
 import { logger } from '../utils/logger.js';
 import { paths } from './paths.js';
+import { envValue } from './legacy-env.js';
 import {
   readClaudeOAuthToken,
   writeStaleMarker,
@@ -11,11 +12,11 @@ import {
 } from './oauth-token.js';
 
 // Resolved lazily so tests (and any rare runtime path-overrides) can target a
-// temp file via CLAUDE_MEM_ENV_FILE without depending on module-load order.
+// temp file via KEEPMIND_ENV_FILE without depending on module-load order.
 // Production callers see the canonical ~/.keepmind/.env path through
 // paths.envFile() unchanged.
 export function envFilePath(): string {
-  return process.env.CLAUDE_MEM_ENV_FILE ?? paths.envFile();
+  return envValue('KEEPMIND_ENV_FILE') ?? paths.envFile();
 }
 
 const BLOCKED_ENV_VARS = [
@@ -45,7 +46,7 @@ const BLOCKED_ENV_VARS = [
   'CLAUDE_CODE_ALWAYS_ENABLE_EFFORT',
 ];
 
-export interface ClaudeMemEnv {
+export interface KeepmindEnv {
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_BASE_URL?: string;
   ANTHROPIC_AUTH_TOKEN?: string;
@@ -71,7 +72,7 @@ const CREDENTIAL_KEYS = [
 // Node's stdlib .env parser (util.parseEnv, Node ≥20.12 / stable in 24):
 // handles `#` comments, blank lines, KEY=VALUE, and quote-stripping. The
 // downstream CREDENTIAL_KEYS whitelist still filters the result — arbitrary
-// keys in the file never reach a ClaudeMemEnv. serializeEnvFile is kept custom
+// keys in the file never reach a KeepmindEnv. serializeEnvFile is kept custom
 // (header banner + selective quoting; no stdlib equivalent).
 function parseEnvFile(content: string): Record<string, string> {
   return parseEnv(content) as Record<string, string>;
@@ -79,9 +80,9 @@ function parseEnvFile(content: string): Record<string, string> {
 
 function serializeEnvFile(env: Record<string, string>): string {
   const lines: string[] = [
-    '# claude-mem credentials',
-    '# This file stores keys and gateway settings for the claude-mem memory agent',
-    '# Edit this file or use claude-mem settings to configure',
+    '# keepmind credentials',
+    '# This file stores keys and gateway settings for the keepmind memory agent',
+    '# Edit this file or use keepmind settings to configure',
     '',
   ];
 
@@ -108,7 +109,7 @@ function serializeEnvFile(env: Record<string, string>): string {
  * five named keys are ever copied out (see CREDENTIAL_KEYS for why this must
  * not become Object.assign(result, parsed)).
  */
-export function loadClaudeMemEnv(): ClaudeMemEnv {
+export function loadKeepmindEnv(): KeepmindEnv {
   const envFile = envFilePath();
   if (!existsSync(envFile)) {
     return {};
@@ -118,7 +119,7 @@ export function loadClaudeMemEnv(): ClaudeMemEnv {
     const content = readFileSync(envFile, 'utf-8');
     const parsed = parseEnvFile(content);
 
-    const result: ClaudeMemEnv = {};
+    const result: KeepmindEnv = {};
     for (const key of CREDENTIAL_KEYS) {
       if (parsed[key]) result[key] = parsed[key];
     }
@@ -130,7 +131,7 @@ export function loadClaudeMemEnv(): ClaudeMemEnv {
   }
 }
 
-export function saveClaudeMemEnv(env: ClaudeMemEnv): void {
+export function saveKeepmindEnv(env: KeepmindEnv): void {
   const envFile = envFilePath();
   let existing: Record<string, string> = {};
   try {
@@ -180,10 +181,10 @@ export function buildIsolatedEnv(includeCredentials: boolean = true): Record<str
 
   isolatedEnv.CLAUDE_CODE_ENTRYPOINT = 'sdk-ts';
 
-  isolatedEnv.CLAUDE_MEM_INTERNAL = '1';
+  isolatedEnv.KEEPMIND_INTERNAL = '1';
 
   if (includeCredentials) {
-    const credentials = loadClaudeMemEnv();
+    const credentials = loadKeepmindEnv();
 
     for (const key of CREDENTIAL_KEYS) {
       const value = credentials[key];
@@ -234,7 +235,7 @@ export async function buildIsolatedEnvWithFreshOAuth(
   //
   // Post-#2375: ANTHROPIC_BASE_URL is in BLOCKED_ENV_VARS, so it can ONLY be
   // present in isolatedEnv when the user intentionally configured it in
-  // ~/.keepmind/.env (see loadClaudeMemEnv re-injection above). A BASE_URL
+  // ~/.keepmind/.env (see loadKeepmindEnv re-injection above). A BASE_URL
   // leaked from the parent shell no longer reaches this predicate — that was
   // the root cause of #2375 (leaked BASE_URL → OAuth-skip → no credential at
   // all). Keeping the BASE_URL branch here is therefore the *security*-correct
@@ -294,18 +295,18 @@ export async function buildIsolatedEnvWithFreshOAuth(
   return isolatedEnv;
 }
 
-export function getCredential(key: keyof ClaudeMemEnv): string | undefined {
-  const env = loadClaudeMemEnv();
+export function getCredential(key: keyof KeepmindEnv): string | undefined {
+  const env = loadKeepmindEnv();
   return env[key];
 }
 
 export function hasAnthropicApiKey(): boolean {
-  const env = loadClaudeMemEnv();
+  const env = loadKeepmindEnv();
   return !!env.ANTHROPIC_API_KEY;
 }
 
 export function hasAnthropicAuthToken(): boolean {
-  const env = loadClaudeMemEnv();
+  const env = loadKeepmindEnv();
   return !!env.ANTHROPIC_AUTH_TOKEN;
 }
 

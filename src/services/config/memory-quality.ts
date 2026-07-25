@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Single source for the Phase 4 "Memory Quality" config block. Read from the
-// claude-mem settings.json under a `memoryQuality` key (nested object — distinct
+// keepmind settings.json under a `memoryQuality` key (nested object — distinct
 // from the flat string settings handled by SettingsDefaultsManager). Every field
 // is defaulted so a missing/partial block still yields a complete config.
 //
@@ -12,6 +12,7 @@
 import { readFileSync, existsSync } from 'fs';
 import { paths } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
+import { envValue } from '../../shared/legacy-env.js';
 
 export interface MemoryQualityConfig {
   redactSecrets: { enabled: boolean; entropyThreshold: number; entropySweep: boolean };
@@ -68,7 +69,7 @@ let cached: MemoryQualityConfig | null = null;
 
 /**
  * Load the memoryQuality config (cached after first read). Env overrides:
- *   CLAUDE_MEM_REDACT_SECRETS=0  -> redactSecrets.enabled = false
+ *   KEEPMIND_REDACT_SECRETS=0  -> redactSecrets.enabled = false
  */
 export function loadMemoryQualityConfig(force = false): MemoryQualityConfig {
   if (cached && !force) return cached;
@@ -98,7 +99,7 @@ export function loadMemoryQualityConfig(force = false): MemoryQualityConfig {
   };
 
   // Env kill-switch for redaction (emergency disable, highest precedence).
-  const redactEnv = process.env.CLAUDE_MEM_REDACT_SECRETS;
+  const redactEnv = envValue('KEEPMIND_REDACT_SECRETS');
   if (redactEnv === '0' || redactEnv === 'false') {
     cfg.redactSecrets.enabled = false;
   }

@@ -654,7 +654,7 @@ export class VectorSync {
     try {
       const SessionStoreCtor = loadSessionStoreCtor();
       db = storeOverride ?? new SessionStoreCtor();
-      sync = new VectorSync('claude-mem');
+      sync = new VectorSync('keepmind');
     } catch (error) {
       logger.error('VECTOR_SYNC', 'Failed to initialize backfill resources', {}, error instanceof Error ? error : new Error(String(error)));
       if (db && !storeOverride) {

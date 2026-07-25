@@ -1,4 +1,4 @@
--- claude-mem SQLite schema
+-- keepmind SQLite schema
 --
 -- Authoritative shape of the database after all migrations have been
 -- applied. Fresh databases boot directly into this shape; existing
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS schema_versions (
 );
 
 -- ─────────────────────────────────────────────────────────────────────
--- sdk_sessions: one row per Claude/Codex session observed by claude-mem.
+-- sdk_sessions: one row per Claude/Codex session observed by keepmind.
 -- ─────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sdk_sessions (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -50,7 +50,7 @@ export const contextHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
     const cwd = input.cwd ?? process.cwd();
 
-    // Honor CLAUDE_MEM_EXCLUDED_PROJECTS on the inject/read path too. The write
+    // Honor KEEPMIND_EXCLUDED_PROJECTS on the inject/read path too. The write
     // path (ingestObservation) already skips excluded projects, but the
     // SessionStart summary was injected regardless — so an excluded dir (e.g.
     // "~") still got a context dump on every new session (upstream 0409d9e4).
@@ -66,7 +66,7 @@ export const contextHandler: EventHandler = {
     const port = getWorkerPort();
 
     const settings = loadFromFileOnce();
-    const showTerminalOutput = settings.CLAUDE_MEM_CONTEXT_SHOW_TERMINAL_OUTPUT === 'true';
+    const showTerminalOutput = settings.KEEPMIND_CONTEXT_SHOW_TERMINAL_OUTPUT === 'true';
 
     const projectsParam = context.allProjects.join(',');
     const normalizedPlatformSource = input.platform
@@ -112,9 +112,9 @@ export const contextHandler: EventHandler = {
     // Proactive update notice: a one-line hint when a newer keepmind is on npm.
     // Pure local cache read (the worker runs the networked poll on its own), so
     // it never slows SessionStart; compares npm-latest against THIS build, so it
-    // self-clears right after an update. Opt-out: CLAUDE_MEM_UPDATE_CHECK_ENABLED
+    // self-clears right after an update. Opt-out: KEEPMIND_UPDATE_CHECK_ENABLED
     // =false. Prepended first so the (more urgent) stale-OAuth hint lands above.
-    if (String(settings.CLAUDE_MEM_UPDATE_CHECK_ENABLED ?? 'true').toLowerCase() !== 'false') {
+    if (String(settings.KEEPMIND_UPDATE_CHECK_ENABLED ?? 'true').toLowerCase() !== 'false') {
       const updateHint = readUpdateHint();
       if (updateHint) {
         additionalContext = additionalContext ? `${updateHint}\n\n${additionalContext}` : updateHint;
@@ -126,7 +126,7 @@ export const contextHandler: EventHandler = {
     // a previous worker spawn detected an expired keychain entry.
     const staleReason = readStaleMarker();
     if (staleReason) {
-      const hint = `[claude-mem] Claude Desktop OAuth token is stale: ${staleReason}\nPlease re-login via Claude Desktop to refresh the token.`;
+      const hint = `[keepmind] Claude Desktop OAuth token is stale: ${staleReason}\nPlease re-login via Claude Desktop to refresh the token.`;
       additionalContext = additionalContext
         ? `${hint}\n\n${additionalContext}`
         : hint;

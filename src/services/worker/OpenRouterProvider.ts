@@ -14,12 +14,12 @@ import { OpenAICompatibleProvider, type ProviderQueryResult } from './OpenAIComp
 /**
  * OpenAI-compatible client configuration.
  *
- * The endpoint is resolved from CLAUDE_MEM_OPENROUTER_BASE_URL (settings or env;
+ * The endpoint is resolved from KEEPMIND_OPENROUTER_BASE_URL (settings or env;
  * env var OPENROUTER_BASE_URL also honored). When unset, requests go to the
  * default OpenRouter URL — behavior unchanged. When set to an OpenAI-compatible
  * base (DeepSeek, LM Studio, a custom gateway, etc.), the provider POSTs to
  * `<base>/chat/completions`. The model is taken verbatim from
- * CLAUDE_MEM_OPENROUTER_MODEL. See src/shared/openrouter-base-url.ts for the
+ * KEEPMIND_OPENROUTER_MODEL. See src/shared/openrouter-base-url.ts for the
  * resolution rules and per-provider config examples (#2382/#2590/#2622/#2393).
  */
 
@@ -153,7 +153,7 @@ export class OpenRouterProvider extends OpenAICompatibleProvider<OpenRouterConfi
   }
 
   protected missingApiKeyError(): Error {
-    return new Error('OpenRouter API key not configured. Set CLAUDE_MEM_OPENROUTER_API_KEY in settings or OPENROUTER_API_KEY environment variable.');
+    return new Error('OpenRouter API key not configured. Set KEEPMIND_OPENROUTER_API_KEY in settings or OPENROUTER_API_KEY environment variable.');
   }
 
   protected prepareSessionExtras(session: ActiveSession, config: OpenRouterConfig): void {
@@ -184,8 +184,8 @@ export class OpenRouterProvider extends OpenAICompatibleProvider<OpenRouterConfi
 
   protected truncateHistoryForOpenRouter(history: ConversationMessage[]): ConversationMessage[] {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-    const MAX_CONTEXT_MESSAGES = parseInt(settings.CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES) || DEFAULT_MAX_CONTEXT_MESSAGES;
-    const MAX_ESTIMATED_TOKENS = parseInt(settings.CLAUDE_MEM_OPENROUTER_MAX_TOKENS) || DEFAULT_MAX_ESTIMATED_TOKENS;
+    const MAX_CONTEXT_MESSAGES = parseInt(settings.KEEPMIND_OPENROUTER_MAX_CONTEXT_MESSAGES) || DEFAULT_MAX_CONTEXT_MESSAGES;
+    const MAX_ESTIMATED_TOKENS = parseInt(settings.KEEPMIND_OPENROUTER_MAX_TOKENS) || DEFAULT_MAX_ESTIMATED_TOKENS;
     return this.truncateHistory(history, MAX_CONTEXT_MESSAGES, MAX_ESTIMATED_TOKENS);
   }
 
@@ -229,9 +229,9 @@ export class OpenRouterProvider extends OpenAICompatibleProvider<OpenRouterConfi
           headers: {
             'Authorization': `Bearer ${apiKey}`,
             'HTTP-Referer': siteUrl || 'https://github.com/ManuelStaggl/keepmind',
-            'X-Title': appName || 'claude-mem',
+            'X-Title': appName || 'keepmind',
             'Content-Type': 'application/json',
-            ...(priorRequestId ? { 'x-claude-mem-prior-request-id': priorRequestId } : {}),
+            ...(priorRequestId ? { 'x-keepmind-prior-request-id': priorRequestId } : {}),
           },
           body: JSON.stringify({
             model,
@@ -328,14 +328,14 @@ export class OpenRouterProvider extends OpenAICompatibleProvider<OpenRouterConfi
     const settingsPath = USER_SETTINGS_PATH;
     const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
 
-    const apiKey = settings.CLAUDE_MEM_OPENROUTER_API_KEY || getCredential('OPENROUTER_API_KEY') || '';
+    const apiKey = settings.KEEPMIND_OPENROUTER_API_KEY || getCredential('OPENROUTER_API_KEY') || '';
 
     // Model is passed verbatim — any OpenAI-compatible model id is accepted
     // (e.g. deepseek-chat, an LM Studio local model). #2393. Settings are raw
     // JSON passthrough, so coerce non-string spellings (e.g. a JSON-array
     // fallback list) to a string instead of leaking them downstream, where
     // the telemetry scrubber drops non-string model values silently.
-    const rawModel: unknown = settings.CLAUDE_MEM_OPENROUTER_MODEL;
+    const rawModel: unknown = settings.KEEPMIND_OPENROUTER_MODEL;
     const model = typeof rawModel === 'string' && rawModel.trim()
       ? rawModel
       : Array.isArray(rawModel) && rawModel.length > 0
@@ -344,11 +344,11 @@ export class OpenRouterProvider extends OpenAICompatibleProvider<OpenRouterConfi
 
     // Base URL: settings value wins, then OPENROUTER_BASE_URL env var, else
     // the default OpenRouter endpoint (unchanged behavior). #2382/#2590/#2622/#2393.
-    const baseUrl = settings.CLAUDE_MEM_OPENROUTER_BASE_URL || process.env.OPENROUTER_BASE_URL || '';
+    const baseUrl = settings.KEEPMIND_OPENROUTER_BASE_URL || process.env.OPENROUTER_BASE_URL || '';
     const apiUrl = resolveOpenRouterChatCompletionsUrl(baseUrl);
 
-    const siteUrl = settings.CLAUDE_MEM_OPENROUTER_SITE_URL || '';
-    const appName = settings.CLAUDE_MEM_OPENROUTER_APP_NAME || 'claude-mem';
+    const siteUrl = settings.KEEPMIND_OPENROUTER_SITE_URL || '';
+    const appName = settings.KEEPMIND_OPENROUTER_APP_NAME || 'keepmind';
 
     return { apiKey, model, apiUrl, siteUrl, appName };
   }
@@ -357,11 +357,11 @@ export class OpenRouterProvider extends OpenAICompatibleProvider<OpenRouterConfi
 export function isOpenRouterAvailable(): boolean {
   const settingsPath = USER_SETTINGS_PATH;
   const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
-  return !!(settings.CLAUDE_MEM_OPENROUTER_API_KEY || getCredential('OPENROUTER_API_KEY'));
+  return !!(settings.KEEPMIND_OPENROUTER_API_KEY || getCredential('OPENROUTER_API_KEY'));
 }
 
 export function isOpenRouterSelected(): boolean {
   const settingsPath = USER_SETTINGS_PATH;
   const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
-  return settings.CLAUDE_MEM_PROVIDER === 'openrouter';
+  return settings.KEEPMIND_PROVIDER === 'openrouter';
 }

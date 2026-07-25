@@ -6,7 +6,7 @@ import { homedir } from 'os';
 import { dirname, join } from 'path';
 import { SettingsDefaultsManager, type SettingsDefaults } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
-import { loadClaudeMemEnv, saveClaudeMemEnv } from '../../shared/EnvManager.js';
+import { loadKeepmindEnv, saveKeepmindEnv } from '../../shared/EnvManager.js';
 import { ensureWorkerStarted, type WorkerStartResult } from '../../services/worker-spawner.js';
 import {
   ensureBun,
@@ -528,7 +528,7 @@ async function promptForIDESelection(): Promise<string[]> {
   const claudeCodeInfo = detectedIDEs.find((ide) => ide.id === 'claude-code');
 
   if (claudeCodeInfo && !claudeCodeInfo.detected) {
-    log.warn('Claude Code is not installed. Claude-mem works best in Claude Code, but also works with the IDEs below.');
+    log.warn('Claude Code is not installed. keepmind works best in Claude Code, but also works with the IDEs below.');
     const choice = await p.select<'install' | 'skip' | 'cancel'>({
       message: 'Install Claude Code now?',
       options: [
@@ -725,7 +725,7 @@ type ClaudeApiMode = 'direct' | 'gateway';
 // enums, `server-beta-worker` lockedBy marker) are intentionally preserved in
 // the source code; runtime-selector dual-accepts both `'server'` and
 // `'server-beta'` settings values, but the installer writes the new canonical
-// form `'server'` going forward (settings keys: CLAUDE_MEM_SERVER_{URL,
+// form `'server'` going forward (settings keys: KEEPMIND_SERVER_{URL,
 // API_KEY,PROJECT_ID}).
 type RuntimeId = 'worker' | 'server';
 
@@ -734,7 +734,7 @@ function readRawStoredAuthMethod(): 'subscription' | 'api-key' | 'gateway' | und
     if (!existsSync(USER_SETTINGS_PATH)) return undefined;
     const raw = JSON.parse(readFileSync(USER_SETTINGS_PATH, 'utf-8')) as Record<string, unknown>;
     const flat = (raw.env && typeof raw.env === 'object' ? raw.env : raw) as Record<string, unknown>;
-    const value = flat.CLAUDE_MEM_CLAUDE_AUTH_METHOD;
+    const value = flat.KEEPMIND_CLAUDE_AUTH_METHOD;
     if (value === 'subscription' || value === 'api-key' || value === 'gateway') return value;
     return undefined;
   } catch {
@@ -745,7 +745,7 @@ function readRawStoredAuthMethod(): 'subscription' | 'api-key' | 'gateway' | und
 function resolveClaudeAuthMethod(): 'subscription' | 'api-key' | 'gateway' {
   const stored = readRawStoredAuthMethod();
   if (stored) return stored;
-  const env = loadClaudeMemEnv();
+  const env = loadKeepmindEnv();
   if (env.ANTHROPIC_BASE_URL?.trim()) return 'gateway';
   if (env.ANTHROPIC_API_KEY?.trim()) return 'api-key';
   return 'subscription';
@@ -760,25 +760,25 @@ async function promptRuntime(options: InstallOptions): Promise<RuntimeId> {
       `The "${options.runtime}" runtime was removed in this local-only build — using the worker runtime instead.`,
     );
   }
-  mergeSettings({ CLAUDE_MEM_RUNTIME: 'worker' });
+  mergeSettings({ KEEPMIND_RUNTIME: 'worker' });
   return 'worker';
 }
 
 async function promptProvider(options: InstallOptions): Promise<ProviderId> {
-  const initialProvider = (getSetting('CLAUDE_MEM_PROVIDER') as ProviderId) || 'claude';
+  const initialProvider = (getSetting('KEEPMIND_PROVIDER') as ProviderId) || 'claude';
 
   const persistClaudeProvider = (authMethod?: 'subscription' | 'api-key' | 'gateway') => {
     const resolvedAuthMethod = authMethod ?? resolveClaudeAuthMethod();
     const wrote = mergeSettings({
-      CLAUDE_MEM_PROVIDER: 'claude',
-      CLAUDE_MEM_CLAUDE_AUTH_METHOD: resolvedAuthMethod,
+      KEEPMIND_PROVIDER: 'claude',
+      KEEPMIND_CLAUDE_AUTH_METHOD: resolvedAuthMethod,
     });
     if (wrote) log.info('Saved Claude Agent SDK configuration to ~/.keepmind/settings.json');
   };
 
   const useSubscriptionAuth = () => {
     persistClaudeProvider('subscription');
-    saveClaudeMemEnv({
+    saveKeepmindEnv({
       ANTHROPIC_API_KEY: '',
       ANTHROPIC_BASE_URL: '',
       ANTHROPIC_AUTH_TOKEN: '',
@@ -787,7 +787,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
   };
 
   const configureDirectApiKey = async (): Promise<void> => {
-    const existing = loadClaudeMemEnv().ANTHROPIC_API_KEY || '';
+    const existing = loadKeepmindEnv().ANTHROPIC_API_KEY || '';
     if (existing.trim().length > 0) {
       const choice = await p.select<'keep' | 'replace'>({
         message: 'An Anthropic API key is already configured. Keep it or enter a new one?',
@@ -802,7 +802,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
         return;
       }
       if (choice === 'keep') {
-        saveClaudeMemEnv({
+        saveKeepmindEnv({
           ANTHROPIC_API_KEY: existing.trim(),
           ANTHROPIC_BASE_URL: '',
           ANTHROPIC_AUTH_TOKEN: '',
@@ -823,7 +823,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
       return;
     }
 
-    saveClaudeMemEnv({
+    saveKeepmindEnv({
       ANTHROPIC_API_KEY: String(apiKeyResult).trim(),
       ANTHROPIC_BASE_URL: '',
       ANTHROPIC_AUTH_TOKEN: '',
@@ -833,7 +833,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
   };
 
   const configureGateway = async (): Promise<void> => {
-    const existing = loadClaudeMemEnv();
+    const existing = loadKeepmindEnv();
     const baseUrlResult = await p.text({
       message: 'Gateway URL:',
       placeholder: existing.ANTHROPIC_BASE_URL || 'http://localhost:4000',
@@ -869,7 +869,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
     if (!tokenCancelled && tokenInput.length > 0) {
       env.ANTHROPIC_AUTH_TOKEN = tokenInput;
     }
-    saveClaudeMemEnv(env);
+    saveKeepmindEnv(env);
     persistClaudeProvider('gateway');
     if (tokenCancelled || tokenInput.length === 0) {
       log.info('Gateway URL saved; existing gateway token preserved.');
@@ -884,9 +884,9 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
         persistClaudeProvider();
         return 'claude';
       }
-      const wrote = mergeSettings({ CLAUDE_MEM_PROVIDER: options.provider });
+      const wrote = mergeSettings({ KEEPMIND_PROVIDER: options.provider });
       if (wrote) log.info(`Saved provider=${options.provider} to ~/.keepmind/settings.json`);
-      log.warn(`Provider=${options.provider} requested non-interactively. API key prompt skipped — set CLAUDE_MEM_${options.provider.toUpperCase()}_API_KEY and CLAUDE_MEM_PROVIDER in settings.json or env manually if not already set.`);
+      log.warn(`Provider=${options.provider} requested non-interactively. API key prompt skipped — set KEEPMIND_${options.provider.toUpperCase()}_API_KEY and KEEPMIND_PROVIDER in settings.json or env manually if not already set.`);
       return options.provider;
     }
     return initialProvider;
@@ -921,7 +921,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
         { value: 'direct', label: 'Anthropic API key' },
         { value: 'gateway', label: 'LiteLLM or custom gateway' },
       ],
-      initialValue: resolvedAuthMethod === 'gateway' || loadClaudeMemEnv().ANTHROPIC_BASE_URL ? 'gateway' : 'direct',
+      initialValue: resolvedAuthMethod === 'gateway' || loadKeepmindEnv().ANTHROPIC_BASE_URL ? 'gateway' : 'direct',
     });
 
     if (p.isCancel(apiModeResult)) {
@@ -963,12 +963,12 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
 
   const providerLabel = selectedProvider === 'gemini' ? 'Gemini' : 'OpenRouter';
   const keyEnvName = selectedProvider === 'gemini'
-    ? 'CLAUDE_MEM_GEMINI_API_KEY'
-    : 'CLAUDE_MEM_OPENROUTER_API_KEY';
+    ? 'KEEPMIND_GEMINI_API_KEY'
+    : 'KEEPMIND_OPENROUTER_API_KEY';
 
   const existingKey = getSetting(keyEnvName as keyof SettingsDefaults) as string | undefined;
   if (existingKey && existingKey.trim().length > 0) {
-    const wrote = mergeSettings({ CLAUDE_MEM_PROVIDER: selectedProvider });
+    const wrote = mergeSettings({ KEEPMIND_PROVIDER: selectedProvider });
     if (wrote) log.info(`Saved provider=${selectedProvider} to ~/.keepmind/settings.json`);
     return selectedProvider;
   }
@@ -987,7 +987,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
 
   const apiKey = String(apiKeyResult).trim();
   const wrote = mergeSettings({
-    CLAUDE_MEM_PROVIDER: selectedProvider,
+    KEEPMIND_PROVIDER: selectedProvider,
     [keyEnvName]: apiKey,
   });
   if (wrote) {
@@ -1010,14 +1010,14 @@ async function promptClaudeModel(options: InstallOptions): Promise<void> {
         `Unknown Claude model: ${options.model}. Allowed: ${[...allowed].join(', ')}`,
       );
     }
-    const wrote = mergeSettings({ CLAUDE_MEM_MODEL: options.model });
+    const wrote = mergeSettings({ KEEPMIND_MODEL: options.model });
     if (wrote) {
       log.info(`Saved Claude model=${options.model} to ~/.keepmind/settings.json`);
     }
     return;
   }
   if (options.model && allowCustomModel) {
-    const wrote = mergeSettings({ CLAUDE_MEM_MODEL: options.model });
+    const wrote = mergeSettings({ KEEPMIND_MODEL: options.model });
     if (wrote) {
       log.info(`Saved gateway model=${options.model} to ~/.keepmind/settings.json`);
     }
@@ -1026,7 +1026,7 @@ async function promptClaudeModel(options: InstallOptions): Promise<void> {
 
   if (!isInteractive) return;
 
-  const initialModel = getSetting('CLAUDE_MEM_MODEL');
+  const initialModel = getSetting('KEEPMIND_MODEL');
 
   if (allowCustomModel) {
     const result = await p.text({
@@ -1042,7 +1042,7 @@ async function promptClaudeModel(options: InstallOptions): Promise<void> {
     }
 
     const selectedModel = String(result).trim();
-    const wrote = mergeSettings({ CLAUDE_MEM_MODEL: selectedModel });
+    const wrote = mergeSettings({ KEEPMIND_MODEL: selectedModel });
     if (wrote) {
       log.info(`Saved gateway model=${selectedModel} to ~/.keepmind/settings.json`);
     }
@@ -1067,7 +1067,7 @@ async function promptClaudeModel(options: InstallOptions): Promise<void> {
   }
   const selectedModel = result as string;
 
-  const wrote = mergeSettings({ CLAUDE_MEM_MODEL: selectedModel });
+  const wrote = mergeSettings({ KEEPMIND_MODEL: selectedModel });
   if (wrote) {
     log.info(`Saved Claude model=${selectedModel} to ~/.keepmind/settings.json`);
   }
@@ -1282,7 +1282,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
 
   {
     if (needsMarketplace) {
-      const installPort = getSetting('CLAUDE_MEM_WORKER_PORT');
+      const installPort = getSetting('KEEPMIND_WORKER_PORT');
       const shutdownSpinner = isInteractive ? p.spinner() : null;
       shutdownSpinner?.start('Stopping running worker (so we can overwrite cleanly)…');
       try {
@@ -1456,7 +1456,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
             ? `Skipped (--no-auto-start)`
             : `Skipped (non-TTY)`;
         }
-        const port = Number(getSetting('CLAUDE_MEM_WORKER_PORT'));
+        const port = Number(getSetting('KEEPMIND_WORKER_PORT'));
         const marketplaceScriptPath = join(marketplaceDirectory(), 'plugin', 'scripts', 'worker-service.cjs');
         const cacheScriptPath = join(pluginCacheDirectory(version), 'scripts', 'worker-service.cjs');
         const scriptPath = existsSync(marketplaceScriptPath) ? marketplaceScriptPath : cacheScriptPath;
@@ -1511,7 +1511,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
   // spinners and summary note (a live print would be clobbered by clack).
   flushSummary(summary, (line) => (isInteractive ? p.log.message(line) : console.log(`  ${line}`)));
 
-  const workerPort = getSetting('CLAUDE_MEM_WORKER_PORT');
+  const workerPort = getSetting('KEEPMIND_WORKER_PORT');
 
   let actualPort: number | string = workerPort;
   let workerReady = false;
@@ -1569,7 +1569,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
         `Memory injection starts on your second session in a project.`,
         `Everything stays in ${pc.cyan('~/.keepmind')} on this machine.`,
         ``,
-        `${pc.dim('How it works: /how-it-works   ·   Disable first-session hint: CLAUDE_MEM_WELCOME_HINT_ENABLED=false')}`,
+        `${pc.dim('How it works: /how-it-works   ·   Disable first-session hint: KEEPMIND_WELCOME_HINT_ENABLED=false')}`,
         `${pc.dim('Note: close all Claude Code sessions before uninstalling, or ~/.keepmind will be recreated by active hooks.')}`,
       ]
     : workerAlive
@@ -1585,7 +1585,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
         `Memory injection starts on your second session in a project.`,
         `Everything stays in ${pc.cyan('~/.keepmind')} on this machine.`,
         ``,
-        `${pc.dim('How it works: /how-it-works   ·   Disable first-session hint: CLAUDE_MEM_WELCOME_HINT_ENABLED=false')}`,
+        `${pc.dim('How it works: /how-it-works   ·   Disable first-session hint: KEEPMIND_WELCOME_HINT_ENABLED=false')}`,
         `${pc.dim('Note: close all Claude Code sessions before uninstalling, or ~/.keepmind will be recreated by active hooks.')}`,
       ]
     : [
@@ -1600,7 +1600,7 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
         `Memory injection starts on your second session in a project.`,
         `Everything stays in ${pc.cyan('~/.keepmind')} on this machine.`,
         ``,
-        `${pc.dim('How it works: /how-it-works   ·   Disable first-session hint: CLAUDE_MEM_WELCOME_HINT_ENABLED=false')}`,
+        `${pc.dim('How it works: /how-it-works   ·   Disable first-session hint: KEEPMIND_WELCOME_HINT_ENABLED=false')}`,
         `${pc.dim('Note: close all Claude Code sessions before uninstalling, or ~/.keepmind will be recreated by active hooks.')}`,
       ];
 
