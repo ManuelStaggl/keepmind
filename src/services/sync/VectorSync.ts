@@ -441,10 +441,17 @@ export class VectorSync {
     const summaryDocs = await this.backfillSummaries(db, backfillProject, watermarks.summaries);
     const promptDocs = await this.backfillPrompts(db, backfillProject, watermarks.prompts);
 
+    // Flatten: the logger stringifies nested objects as "[object Object]", so the
+    // counts and watermarks this line exists to report were unreadable in the log.
+    const marks = ChromaSyncState.get(backfillProject);
     logger.info('VECTOR_SYNC', 'Smart backfill complete', {
       project: backfillProject,
-      synced: { observationDocs: allDocs.length, summaryDocs: summaryDocs.length, promptDocs: promptDocs.length },
-      watermarks: ChromaSyncState.get(backfillProject)
+      observationDocs: allDocs.length,
+      summaryDocs: summaryDocs.length,
+      promptDocs: promptDocs.length,
+      watermarkObservations: marks.observations,
+      watermarkSummaries: marks.summaries,
+      watermarkPrompts: marks.prompts,
     });
   }
 

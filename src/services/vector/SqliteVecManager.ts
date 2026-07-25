@@ -112,6 +112,11 @@ export class SqliteVecManager {
     this.vecVersion = vec_version;
     this.ensureSchema(db);
     this.db = db;
+    // Boot is the one moment nothing else holds this DB, so a TRUNCATE checkpoint
+    // is guaranteed to succeed here. Without it a WAL left oversized by an earlier
+    // VACUUM (or by a checkpoint that was blocked every tick) survives restarts
+    // indefinitely — observed at 129 MB next to a 135 MB store.
+    this.checkpointWal();
     logger.info('VEC', 'sqlite-vec loaded', { vec_version, dbPath });
     return db;
   }
@@ -162,7 +167,10 @@ export class SqliteVecManager {
         | { busy?: number; log?: number; checkpointed?: number }
         | undefined;
       if (row && Number(row.busy) === 1) {
-        logger.debug('VEC', 'vectors.db wal_checkpoint blocked by an open reader; WAL not truncated', {
+        // INFO, not DEBUG: a WAL that cannot be truncated silently costs disk equal
+        // to the whole store, which is exactly the failure this method exists to
+        // prevent — it should be visible at the default log level.
+        logger.info('VEC', 'vectors.db wal_checkpoint blocked by an open reader; WAL not truncated', {
           walPages: row.log ?? null,
         });
       }
