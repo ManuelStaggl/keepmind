@@ -16,6 +16,7 @@ const EXCLUDED_PATTERNS = [
   /logger\.ts$/,         // Logger itself
   /hook-response\.ts$/,  // Pure data structure
   /hook-constants\.ts$/, // Pure constants
+  /sqlite\/pragmas\.ts$/, // Pure constants (SQLite tuning values)
   /paths\.ts$/,          // Path utilities
   /bun-path\.ts$/,       // Path utilities
   /migrations\.ts$/,     // Database migrations (console.log for migration output)

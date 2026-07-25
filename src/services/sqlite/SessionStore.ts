@@ -22,6 +22,7 @@ import { subjectKey } from '../reconcile/subject-key.js';
 import { DEFAULT_PLATFORM_SOURCE, normalizePlatformSource, sortPlatformSources } from '../../shared/platform-source.js';
 import { findRecentDuplicateUserPrompt as findRecentDuplicateUserPromptRecord } from './prompts/get.js';
 import { normalizeStoredPromptText } from './prompt-storage.js';
+import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_JOURNAL_SIZE_LIMIT_BYTES } from './pragmas.js';
 
 interface IndexColumnInfo {
   seqno: number;
@@ -84,7 +85,11 @@ export class SessionStore {
       this.db.run('PRAGMA journal_mode = WAL');
       this.db.run('PRAGMA synchronous = NORMAL');
       this.db.run('PRAGMA foreign_keys = ON');
-      this.db.run('PRAGMA journal_size_limit = 4194304'); 
+      this.db.run(`PRAGMA journal_size_limit = ${SQLITE_JOURNAL_SIZE_LIMIT_BYTES}`);
+      // See pragmas.ts: without a busy_timeout SQLite fails a locked read/write
+      // immediately instead of waiting, which silently emptied the injected
+      // context block whenever a hook read during an observation write.
+      this.db.run(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
     }
 
     this.initializeSchema();
@@ -2517,16 +2522,40 @@ export class SessionStore {
   }
 
   /**
-   * Phase 4 / Step 6 — "timer reset on use": bump last_used_at for injected/
-   * returned observations so the expiry TTL restarts. Idempotent + bounded.
+   * Record that these observations were actually delivered to a model: bump
+   * `last_used_at` (the expiry "timer reset on use") and increment
+   * `relevance_count`. Idempotent + bounded.
+   *
+   * Both columns existed but were effectively dead: `relevance_count` was never
+   * incremented anywhere, and `last_used_at` was only written when expiry was
+   * already enabled. So the two fields that are supposed to tell us which
+   * memories earn their keep read 0/NULL for every row — which also made them
+   * useless as evidence for *whether* to enable expiry, and would have let
+   * expiry archive rows that are being read every day. Writing them
+   * unconditionally is cheap and must precede any retention decision.
    */
   markObservationsUsed(ids: number[], now: number = Date.now()): void {
     if (ids.length === 0) return;
     try {
       const cols = this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[];
-      if (!cols.some(c => c.name === 'last_used_at')) return;
+      const hasLastUsed = cols.some(c => c.name === 'last_used_at');
+      const hasRelevance = cols.some(c => c.name === 'relevance_count');
+      if (!hasLastUsed && !hasRelevance) return;
+
+      const assignments: string[] = [];
+      const params: SQLQueryBindings[] = [];
+      if (hasLastUsed) {
+        assignments.push('last_used_at = ?');
+        params.push(now);
+      }
+      if (hasRelevance) {
+        assignments.push('relevance_count = COALESCE(relevance_count, 0) + 1');
+      }
+
       const placeholders = ids.map(() => '?').join(',');
-      this.db.prepare(`UPDATE observations SET last_used_at = ? WHERE id IN (${placeholders})`).run(now, ...ids);
+      this.db
+        .prepare(`UPDATE observations SET ${assignments.join(', ')} WHERE id IN (${placeholders})`)
+        .run(...params, ...ids);
     } catch (error) {
       logger.debug('DB', 'markObservationsUsed failed', { count: ids.length }, error instanceof Error ? error : new Error(String(error)));
     }
