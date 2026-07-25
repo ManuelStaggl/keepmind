@@ -362,8 +362,23 @@ describe('Spawn-Contract Templating - Rule A shell resolution matrix', () => {
     return `${resolution} echo "RESOLVED=$_P"`;
   }
 
+  // On Windows, `bash` on PATH is WSL's bash — a separate Linux filesystem that
+  // never sees the Windows temp HOME these tests build, and on a machine with a
+  // stale WSL it fails with an update notice before running anything. Claude Code
+  // itself runs hooks through Git Bash (hence CLAUDE_CODE_GIT_BASH_PATH surviving
+  // env sanitization), so resolve the same shell here. null = no POSIX bash.
+  const POSIX_BASH: string | null = (() => {
+    if (process.platform !== 'win32') return 'bash';
+    const candidates = [
+      process.env.CLAUDE_CODE_GIT_BASH_PATH,
+      'C:\\Program Files\\Git\\bin\\bash.exe',
+      'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+    ].filter((p): p is string => Boolean(p));
+    return candidates.find((p) => existsSync(p)) ?? null;
+  })();
+
   function shellEval(command: string, env: Record<string, string>): { status: number | null; stdout: string; stderr: string } {
-    const result = spawnSync('bash', ['-c', command], {
+    const result = spawnSync(POSIX_BASH ?? 'bash', ['-c', command], {
       env: { PATH: process.env.PATH ?? '', ...env },
       encoding: 'utf-8',
     });
@@ -429,11 +444,15 @@ describe('Spawn-Contract Templating - Rule A shell resolution matrix', () => {
   });
 
   it('fails cleanly with the canonical not-found message when no candidate exists', () => {
+    // Unlike the two variants above this one needs no path translation — it only
+    // asserts the guard's error — so it runs on Windows too, provided a POSIX
+    // bash exists.
+    if (!POSIX_BASH) return;
     const home = mkdtempSync(path.join(tmpdir(), 'cm-empty-'));
     try {
       const parsed = readJson('plugin/hooks/hooks.json');
       const command = hookCommandByPath(parsed, 'UserPromptSubmit.0.0')!;
-      const result = spawnSync('bash', ['-c', command], {
+      const result = spawnSync(POSIX_BASH, ['-c', command], {
         env: { PATH: process.env.PATH ?? '', HOME: home },
         encoding: 'utf-8',
       });
