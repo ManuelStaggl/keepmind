@@ -81,7 +81,8 @@ export async function ensureWorkerStarted(
     if (!ready) {
       logger.warn('SYSTEM', 'Worker is alive but readiness timed out — proceeding anyway');
     }
-    logger.info('SYSTEM', 'Worker already running and healthy (fast path)');
+    // DEBUG: the healthy fast path is the normal case and ran ~4k times/day.
+    logger.debug('SYSTEM', 'Worker already running and healthy (fast path)');
     return ready ? 'ready' : 'warming';
   }
 

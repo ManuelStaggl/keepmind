@@ -908,7 +908,10 @@ export class WorkerService implements WorkerRef {
       const isProcessing = queueDepth > 0;
       const activeSessions = this.sessionManager.getActiveSessionCount();
 
-      logger.info('WORKER', 'Broadcasting processing status', {
+      // DEBUG, not INFO: this fires on every SSE tick and was 11,627 lines (36%)
+      // of a single day's log — it buried the entries that matter and drove log
+      // growth on its own. The status itself is carried by the SSE broadcast below.
+      logger.debug('WORKER', 'Broadcasting processing status', {
         isProcessing,
         queueDepth,
         activeSessions

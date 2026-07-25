@@ -229,11 +229,15 @@ describe('ResponseProcessor', () => {
         'TestAgent'
       );
 
-      expect(logger.warn).toHaveBeenCalledWith(
+      // A skip is the prompt working as designed, so it logs at DEBUG (at WARN it
+      // produced ~3.1k false warnings/day) and increments the skip counter that
+      // makes the compression skip-ratio measurable.
+      expect(logger.debug).toHaveBeenCalledWith(
         'PARSER',
-        expect.stringMatching(/^TestAgent returned non-XML prose response/),
-        expect.objectContaining({ sessionId: 1, outputClass: 'prose' })
+        expect.stringMatching(/^TestAgent skipped a queued batch/),
+        expect.objectContaining({ sessionId: 1, outputClass: 'prose', skippedBatches: 1 })
       );
+      expect(logger.warn).not.toHaveBeenCalled();
       expect(confirmClaimedMessages).toHaveBeenCalledWith(1);
       expect(session.earliestPendingTimestamp).toBeNull();
       expect(mockStoreObservations).not.toHaveBeenCalled();

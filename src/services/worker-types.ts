@@ -51,6 +51,17 @@ export interface ActiveSession {
    * to 0 whenever a fresh (non-resumed) session starts.
    */
   contextTurnCount?: number;
+  /**
+   * Compression turns dispatched for this session, and how many of them the model
+   * answered with "nothing worth recording". Lifetime counters (unlike
+   * contextTurnCount, which resets on every fresh SDK session) because the ratio
+   * between them is the cost signal: measured at ≥65% skipped, each skip still
+   * paying the full conversation prefix. Reported at session end so a batching or
+   * filter change can be verified against numbers instead of impressions.
+   */
+  compressionTurns?: number;
+  skippedBatches?: number;
+  observationsProduced?: number;
   lastSummaryStored?: boolean;
   pendingAgentId?: string | null;
   pendingAgentType?: string | null;

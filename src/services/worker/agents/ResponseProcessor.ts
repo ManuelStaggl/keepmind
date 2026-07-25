@@ -69,11 +69,18 @@ export async function processAgentResponse(
     const preview = previewOutput(text);
     session.consecutiveInvalidOutputs = 0;
 
-    logger.warn('PARSER', `${agentName} returned non-XML ${outputClass} response — ignoring queued batch`, {
+    // An empty/prose answer is the prompt working as designed ("skip anything not
+    // worth recording") — not a warning. Logging it at WARN produced ~3.1k false
+    // warnings a day, drowning the real ones. It IS the key cost signal though, so
+    // it stays visible at DEBUG and is counted per session (see skippedBatches)
+    // so the batching change can be measured rather than guessed at.
+    session.skippedBatches = (session.skippedBatches ?? 0) + 1;
+    logger.debug('PARSER', `${agentName} skipped a queued batch (${outputClass})`, {
       sessionId: session.sessionDbId,
       outputClass,
       preview,
-      consecutiveInvalidOutputs: session.consecutiveInvalidOutputs,
+      skippedBatches: session.skippedBatches,
+      compressionTurns: session.compressionTurns ?? 0,
     });
 
     // Plain-text skip responses are intentionally ignored. Re-queueing them
@@ -100,6 +107,7 @@ export async function processAgentResponse(
 
   const { observations, summary } = parsed;
   const summaryForStore = normalizeSummaryForStorage(summary);
+  session.observationsProduced = (session.observationsProduced ?? 0) + observations.length;
 
   const sessionStore = dbManager.getSessionStore();
   sessionStore.ensureMemorySessionIdRegistered(session.sessionDbId, session.memorySessionId, getWorkerPort());

@@ -49,6 +49,22 @@ export async function handleGeneratorExit(
     return;
   }
 
+  // Compression economics for this session, at INFO so the effect of the batching
+  // settings is auditable from the log alone: turns paid vs. batches the model
+  // declined vs. observations actually produced. Before batching engaged, skipped
+  // ran at ~2/3 of turns — that ratio is the thing to watch after a settings change.
+  const turns = session.compressionTurns ?? 0;
+  if (turns > 0) {
+    const skipped = session.skippedBatches ?? 0;
+    logger.info('SESSION', 'Compression economics', {
+      sessionId: sessionDbId,
+      compressionTurns: turns,
+      skippedBatches: skipped,
+      skipRatio: Math.round((skipped / turns) * 100) / 100,
+      observationsProduced: session.observationsProduced ?? 0,
+    });
+  }
+
   logger.info('SESSION', 'Generator exited — finalizing session', { sessionId: sessionDbId, reason });
 
   try {
