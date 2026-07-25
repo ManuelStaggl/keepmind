@@ -129,6 +129,11 @@ export function buildHardenedSdkOptions(input: HardenedSdkOptionsInput): Options
     ...(input.abortController ? { abortController: input.abortController } : {}),
     ...(input.resume ? { resume: input.resume } : {}),
     ...(input.spawnClaudeCodeProcess ? { spawnClaudeCodeProcess: input.spawnClaudeCodeProcess } : {}),
+    // Observer turns are mechanical reformatting, not reasoning: the prompt fully
+    // specifies the output shape. Thinking on every compression turn buys nothing
+    // and is billed on top of a conversation prefix that already grows per turn
+    // (upstream 09391a74). Behavior-only — outside the tool-lockdown boundary.
+    ...(input.source === 'Observer' ? { thinkingConfig: { type: 'disabled' as const } } : {}),
 
     // === Tool lockdown (defense-in-depth) ===
     tools: [],                                        // belt: disable ALL built-in tools
