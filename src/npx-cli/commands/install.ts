@@ -24,7 +24,6 @@ import {
   InstallAbortError,
   type InstallSummary,
 } from '../install/error-reporter.js';
-import { extractEresolveBlock, isEresolve, runNpmStrict } from '../install/npm-install-helper.js';
 
 function getSetting<K extends keyof SettingsDefaults>(key: K): SettingsDefaults[K] {
   return SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH)[key];
@@ -113,6 +112,25 @@ import { readJsonSafe } from '../../utils/json-utils.js';
 import { shutdownWorkerAndWait } from '../../services/install/shutdown-helper.js';
 import { detectInstalledIDEs } from './ide-detection.js';
 
+/**
+ * Register the marketplace with the host.
+ *
+ * `autoUpdate` MUST stay false. The marketplace directory's contents come from
+ * the npm tarball we just copied, not from a `git pull` — `npx keepmind
+ * install` is the only upgrade path. With autoUpdate on, the host treats the
+ * directory as its own git checkout and restores it from the remote: observed
+ * 2026-07-29, a `clone:` reflog entry ~60s after an install deleted every
+ * gitignored path under it, including the 804 MB of dependencies the installer
+ * had just placed there. The plugin files themselves survive (they are
+ * committed), so the breakage is invisible until the next worker spawn.
+ *
+ * The `github` source stays: it is what the host resolves the catalog from and
+ * what `/plugin` renders. `source: "directory"` would describe the local copy
+ * more honestly, but the plugin dashboard classifies that type as "Unknown"
+ * and can hide the entry, so it trades a silent wipe for a visible regression.
+ * The spawn path repairs a missing tree regardless (services/
+ * plugin-deps-repair.ts) — this flag only removes the routine trigger.
+ */
 function registerMarketplace(): void {
   const knownMarketplaces = readJsonSafe<Record<string, any>>(knownMarketplacesPath(), {});
 
@@ -123,7 +141,7 @@ function registerMarketplace(): void {
     },
     installLocation: marketplaceDirectory(),
     lastUpdated: new Date().toISOString(),
-    autoUpdate: true,
+    autoUpdate: false,
   };
 
   ensureDirectoryExists(pluginsDirectory());
@@ -628,65 +646,12 @@ function copyPluginToCache(version: string): void {
   cpSync(sourcePluginDirectory, cachePath, { recursive: true, force: true });
 }
 
-/**
- * Install marketplace dependencies, strict-first.
- *
- * Phase 4 of plans/04-installer-transparency.md: the old code ALWAYS passed
- * `--legacy-peer-deps`, papering over any real peer conflict unconditionally.
- * Now we run strict first and only fall back to `--legacy-peer-deps` on a
- * confirmed ERESOLVE token, announced loudly. `--ignore-scripts` is the default
- * (v12.6.2 lesson: a transitive postinstall can hang the install).
- */
-async function runNpmInstallInMarketplace(summary: InstallSummary): Promise<void> {
-  const marketplaceDir = marketplaceDirectory();
-  const packageJsonPath = join(marketplaceDir, 'package.json');
-
-  if (!existsSync(packageJsonPath)) return;
-
-  const baseFlags = ['install', '--omit=dev', '--ignore-scripts'];
-  const strictResult = await runNpmStrict(marketplaceDir, baseFlags);
-  if (strictResult.code === 0) return;
-
-  if (strictResult.timedOut) {
-    installerError(ErrorSeverity.ABORT, {
-      component: 'marketplace-npm-install',
-      phase: 'marketplace-deps',
-      cause: new Error('npm install timed out'),
-      details: strictResult.stderr.slice(0, 4000),
-    }, summary);
-  }
-
-  if (!isEresolve(strictResult.stderr)) {
-    // A strict failure with no ERESOLVE is a real bug — never retry, ABORT.
-    installerError(ErrorSeverity.ABORT, {
-      component: 'marketplace-npm-install',
-      phase: 'marketplace-deps',
-      cause: new Error(`npm install failed (exit ${strictResult.code})`),
-      details: strictResult.stderr.slice(0, 4000),
-    }, summary);
-  }
-
-  // Confirmed ERESOLVE — log loudly, attempt one fallback with --legacy-peer-deps.
-  log.warn('npm reported an ERESOLVE peer-dependency conflict in marketplace deps; retrying once with --legacy-peer-deps.');
-  log.warn(extractEresolveBlock(strictResult.stderr));
-
-  const legacyResult = await runNpmStrict(marketplaceDir, [...baseFlags, '--legacy-peer-deps']);
-  if (legacyResult.code === 0) {
-    summary.warnings.push({
-      component: 'marketplace-npm-install',
-      message: 'tree-sitter peer-dep ERESOLVE was resolved with the --legacy-peer-deps fallback. Benign for the marketplace install; re-evaluate when tree-sitter peer ranges change.',
-      remediation: 'No action required.',
-    });
-    return;
-  }
-
-  installerError(ErrorSeverity.ABORT, {
-    component: 'marketplace-npm-install',
-    phase: 'marketplace-deps',
-    cause: new Error(`npm install --legacy-peer-deps still failed (exit ${legacyResult.code}): ERESOLVE`),
-    details: legacyResult.stderr.slice(0, 4000),
-  }, summary);
-}
+// NOTE: runNpmInstallInMarketplace() lived here and ran `npm install` in the
+// marketplace ROOT. Removed 2026-07-29: nothing ever loaded from the tree it
+// produced (the worker and the Codex plugin both resolve from
+// marketplace/plugin/node_modules, which bun populates), it cost ~390 MB, and
+// the host deletes it on the next marketplace refresh. The ERESOLVE handling it
+// carried is still exercised through install/npm-install-helper.ts.
 
 function mergeSettings(updates: Record<string, string>): boolean {
   const path = USER_SETTINGS_PATH;
@@ -1390,22 +1355,19 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
           // populates plugin/node_modules, and cpSync of the source's bun-linked
           // node_modules is unreliable on Windows — so install the plugin deps
           // with bun (frozen lockfile), exactly as the cache install does.
+          //
+          // There is deliberately NO npm install in the marketplace ROOT. It
+          // used to run here and cost ~390 MB, but nothing resolves from it:
+          // the worker loads from plugin/node_modules (verified 2026-07-29 —
+          // a cold worker restart with the root tree absent passes every
+          // doctor check, sqlite-vec and embedder included), and the host
+          // deletes it on the next marketplace refresh anyway.
           const { bunPath } = await ensureBun();
           const stopPlugin = startHeartbeat(message, 'Installing plugin dependencies (bun install)…');
           try {
             await installPluginDependencies(join(marketplaceDirectory(), 'plugin'), bunPath);
           } finally {
             stopPlugin();
-          }
-          // runNpmInstallInMarketplace throws InstallAbortError on a real
-          // failure (non-ERESOLVE, or ERESOLVE that --legacy-peer-deps could
-          // not fix). We deliberately do NOT swallow it here — the top-level
-          // handler turns it into "Installation Aborted" + exit 1.
-          const stopHeartbeat = startHeartbeat(message, 'Running npm install…');
-          try {
-            await runNpmInstallInMarketplace(summary);
-          } finally {
-            stopHeartbeat();
           }
           return `Dependencies installed ${pc.green('OK')}`;
         },
