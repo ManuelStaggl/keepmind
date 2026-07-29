@@ -314,7 +314,20 @@ async function buildHooks() {
         'shell-quote': '^1.9.0',
       },
       overrides: {
-        'tree-sitter': '^0.25.0'
+        'tree-sitter': '^0.25.0',
+        // @huggingface/transformers depends on BOTH onnxruntime-node (210 MB)
+        // and onnxruntime-web (128 MB) and imports them from a single module,
+        // so npm/bun install both. The worker only ever loads the node build,
+        // and dist/transformers.node.{cjs,mjs} contain no reference to
+        // onnxruntime-web at all — it is 128 MB of guaranteed-dead weight,
+        // twice over given the cache+marketplace layout.
+        //
+        // Redirected to a local stub rather than a third-party "skip
+        // dependency" package: this closure is what the worker executes, and
+        // it should not gain a supply-chain edge to save disk. The stub throws
+        // if anything ever does reach for it, so a future transformers release
+        // that loads it in Node fails loudly instead of silently misbehaving.
+        'onnxruntime-web': 'file:./stubs/onnxruntime-web'
       },
       trustedDependencies: [
         'tree-sitter-cli'
@@ -325,6 +338,33 @@ async function buildHooks() {
     };
     fs.writeFileSync('plugin/package.json', JSON.stringify(pluginPackageJson, null, 2) + '\n');
     console.log('✓ plugin/package.json generated');
+
+    // Stub target for the onnxruntime-web override above.
+    const stubDir = 'plugin/stubs/onnxruntime-web';
+    fs.mkdirSync(stubDir, { recursive: true });
+    fs.writeFileSync(`${stubDir}/package.json`, JSON.stringify({
+      name: 'onnxruntime-web',
+      version: '0.0.0-keepmind-stub',
+      private: true,
+      description: 'Stub. keepmind runs the ONNX node backend; the web backend is never loaded.',
+      main: 'index.js',
+      types: 'index.d.ts',
+    }, null, 2) + '\n');
+    fs.writeFileSync(`${stubDir}/index.js`, `// Deliberately empty stub — see the onnxruntime-web override in
+// scripts/build-hooks.js. The worker uses onnxruntime-node; the node build of
+// @huggingface/transformers never imports this package.
+//
+// Throw rather than export an empty object: if a future transformers release
+// does reach for the web backend under Node, that must fail loudly here instead
+// of degrading into a confusing runtime error deep inside inference.
+throw new Error(
+  'onnxruntime-web is stubbed out in keepmind: the worker runs the onnxruntime-node backend. ' +
+  'If you are seeing this, @huggingface/transformers now loads the web backend under Node and ' +
+  'the override in scripts/build-hooks.js must be removed.'
+);
+`);
+    fs.writeFileSync(`${stubDir}/index.d.ts`, 'export {};\n');
+    console.log('✓ plugin/stubs/onnxruntime-web generated');
 
     console.log('\n📋 Building React viewer...');
     const { spawn } = await import('child_process');
