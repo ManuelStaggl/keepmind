@@ -15,6 +15,7 @@ import { redactSecrets, redactSecretsDeep } from '../redaction/redact-secrets.js
 import { SqliteVecManager } from '../vector/SqliteVecManager.js';
 import { BACKUPS_DIR } from '../../shared/paths.js';
 import { evictInactiveProjectVectors } from '../vector/vector-retention.js';
+import { spoolDepth } from '../../shared/hook-spool.js';
 
 const RETRO_SCRUB_SENTINEL = 9001; // schema_versions marker: retro-scrub complete
 const MIN_IDLE_MS = 30_000;
@@ -29,6 +30,8 @@ export interface MaintenanceDeps {
   getConfig: () => MemoryQualityConfig;
   /** epoch of last observed worker activity (acquire/release/observation). */
   lastActivity?: () => number;
+  /** Replay hook calls buffered while the worker was unreachable or overloaded. */
+  drainSpool?: () => Promise<void>;
 }
 
 export class MaintenanceLoop {
@@ -76,6 +79,7 @@ export class MaintenanceLoop {
         () => this.jobVacuum(),
         () => this.jobVectorMaintenance(),
         () => this.jobVectorRetention(),
+        () => this.jobDrainHookSpool(),
         () => this.jobPruneBackups(),
       ];
       const job = jobs[this.jobIndex % jobs.length];
@@ -139,6 +143,21 @@ export class MaintenanceLoop {
       });
     } catch (error) {
       logger.warn('SYSTEM', 'MaintenanceLoop vector retention failed', {}, error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  /**
+   * Replay buffered hook calls that the boot drain could not have seen — the
+   * ones spooled by the 429/5xx path while this worker was already running.
+   * No-op when nothing is queued, which is the normal case.
+   */
+  private async jobDrainHookSpool(): Promise<void> {
+    if (!this.deps.drainSpool) return;
+    if (spoolDepth() === 0) return;
+    try {
+      await this.deps.drainSpool();
+    } catch (error) {
+      logger.warn('SYSTEM', 'MaintenanceLoop hook-spool drain failed', {}, error instanceof Error ? error : new Error(String(error)));
     }
   }
 

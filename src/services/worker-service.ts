@@ -588,6 +588,13 @@ export class WorkerService implements WorkerRef {
         // (no SessionEnd release), so gate on recency of activity instead.
         activeSessions: () => (this.sessionRefCounter.msSinceActivity() < 30_000 ? 1 : 0),
         getConfig: () => loadMemoryQualityConfig(true),
+        // The boot drain only catches what was buffered while no worker was
+        // reachable. Entries spooled by the 429/5xx path — i.e. while this
+        // worker was up but overloaded — would otherwise wait for the next
+        // restart. The maintenance loop is the right owner: it is idle-gated,
+        // and replaying a backlog into a worker that is already struggling is
+        // exactly what should not happen.
+        drainSpool: () => this.drainBufferedHookCalls(),
       });
       this.maintenanceLoop.start();
     } catch (error) {

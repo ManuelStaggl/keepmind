@@ -32,6 +32,9 @@ import {
   paths,
 } from '../../shared/paths.js';
 import { Database } from '../../storage/db.js';
+import { readVectorHealthMarker } from '../../shared/vector-health.js';
+import { probeVectorDeps } from '../../services/vector/vector-deps-repair.js';
+import { spoolDepth } from '../../shared/hook-spool.js';
 
 export type CheckStatus = 'ok' | 'warn' | 'fail' | 'skip';
 
@@ -622,13 +625,44 @@ function buildMemoryGroup(probe: WorkerProbe): CheckGroup {
       });
     }
   } else {
+    // No live worker to ask. Presence of vectors.db proves only that a vector
+    // store was built at some point — the install that prompted this had one AND
+    // a sqlite-vec that had not loaded for weeks, so "file exists" reported ok
+    // for the exact failure being looked for. Report what the last worker
+    // recorded, and fall back to probing the module directly.
+    const marker = readVectorHealthMarker();
     const vecPresent = existsSync(join(VECTOR_DB_DIR, 'vectors.db'));
+    if (marker) {
+      checks.push({
+        name: 'Vector search',
+        status: 'warn',
+        detail: `DEGRADED (${marker.reason}): ${marker.detail || 'vector store failed to load'} — ${marker.remediation}`,
+        required: false,
+      });
+    } else {
+      const probe = probeVectorDeps();
+      checks.push({
+        name: 'Vector search',
+        status: probe.ok ? (vecPresent ? 'ok' : 'skip') : 'warn',
+        detail: probe.ok
+          ? (vecPresent
+            ? 'enabled; native deps load and vector store present (start worker for a live readiness probe)'
+            : 'enabled; native deps load but no vector store yet — built on first backfill')
+          : `native deps unavailable (${probe.reason}): ${probe.message}`,
+        required: false,
+      });
+    }
+  }
+
+  // Hook payloads buffered because no worker could take them. A non-empty spool
+  // is not itself a fault — it is memory that would previously have been lost —
+  // but a spool that stays full means the drain is not running.
+  const queued = spoolDepth();
+  if (queued > 0) {
     checks.push({
-      name: 'Vector search',
-      status: vecPresent ? 'ok' : 'skip',
-      detail: vecPresent
-        ? 'enabled; vector store present (start worker for a live readiness probe)'
-        : 'enabled but no vector store yet — built on first backfill',
+      name: 'Buffered hook calls',
+      status: 'warn',
+      detail: `${queued} call(s) waiting for replay — they are drained when the worker is idle and ready. A count that never falls means the worker is not starting.`,
       required: false,
     });
   }
