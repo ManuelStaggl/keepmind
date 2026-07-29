@@ -14,6 +14,18 @@
 // pointless — that moment has passed and the answer went nowhere — so the
 // whitelist below is deliberate, not incidental: an entry belongs here when
 // losing it loses data, and when replaying it late is still correct.
+//
+// The second condition is the sharp one. keepmind previously HAD a durable
+// replay queue and removed it: SessionMessageBuffer's header records that
+// persisting tool-use fragments and replaying them into the stateful,
+// non-deterministic reducer "regenerated different/duplicate observations or
+// looped forever — that was the retry storm." This spool is not that, and must
+// not become it. It holds only payloads the worker demonstrably never accepted
+// — no worker reachable, or an explicit 429 refusal — so there is no reducer
+// state to resurrect and a replay is indistinguishable from the hook having
+// arrived a moment later. Callers must never spool an ambiguous outcome (a 5xx,
+// a timeout mid-request); dropping one observation is strictly better than
+// re-creating the storm.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';

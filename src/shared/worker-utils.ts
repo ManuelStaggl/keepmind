@@ -704,10 +704,19 @@ export async function executeWithWorkerFallback<T = unknown>(
     const text = await response.text().catch(() => '');
     resetWorkerFailureCounter();
     if (response.status === 429 || response.status >= 500) {
-      // Overload or an internal error — the payload is still good, so buffer it
-      // rather than dropping it; the drain runs when the worker is healthy again.
-      spoolWorkerCall(url, method, body);
-      logger.warn('SYSTEM', `Worker API ${method} ${url} returned ${response.status}; buffered for replay`, {
+      // Buffer ONLY a 429. A 429 is a refusal — the worker demonstrably did not
+      // take the payload, so replaying it is equivalent to the hook arriving
+      // later. A 5xx is ambiguous: the worker may already have enqueued the
+      // tool-use fragment before failing, and SessionMessageBuffer is explicit
+      // that re-feeding fragments to the stateful, non-deterministic reducer
+      // "regenerated different/duplicate observations or looped forever — that
+      // was the retry storm". The hook does not send toolUseId, so the buffer's
+      // dedup cannot catch a replay either. Losing one observation is strictly
+      // better than reviving that failure mode.
+      if (response.status === 429) {
+        spoolWorkerCall(url, method, body);
+      }
+      logger.warn('SYSTEM', `Worker API ${method} ${url} returned ${response.status}; ${response.status === 429 ? 'buffered for replay' : 'dropped (replay unsafe after a 5xx)'}`, {
         body: text.substring(0, 200),
       });
       return {
