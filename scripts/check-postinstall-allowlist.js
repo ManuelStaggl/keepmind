@@ -55,6 +55,17 @@ const ALLOWLIST = new Set([
   '@tree-sitter-grammars/tree-sitter-toml',
   '@tree-sitter-grammars/tree-sitter-yaml',
   '@tree-sitter-grammars/tree-sitter-markdown',
+  // Reviewed 2026-07-29 before adding, per the "do NOT auto-add" rule above.
+  // All three declare exactly `install: node-gyp-build` — the same standard
+  // prebuild selector as every grammar already listed here. node-gyp-build
+  // picks a prebuilt binary shipped inside the package and does not fetch from
+  // the network, so it is not the hazard this guard exists for: that was
+  // tree-sitter-swift's NESTED tree-sitter-cli postinstall downloading a Rust
+  // binary (CHANGELOG v12.6.1 -> v12.6.2). Every install path also passes
+  // --ignore-scripts, so these never execute in practice.
+  'tree-sitter-c-sharp',
+  'tree-sitter-powershell',
+  '@tree-sitter-grammars/tree-sitter-xml',
   '@derekstride/tree-sitter-sql',
   'esbuild',
   '@biomejs/biome',
