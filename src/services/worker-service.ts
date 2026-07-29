@@ -10,6 +10,7 @@ import { getWorkerPort, getConfiguredWorkerPort, getWorkerHost, fetchWithTimeout
 import { getCurrentWorkerPid, verifyRestartedWorker } from './restart-verify.js';
 import { runShutdownSequence, type WorkerShutdownReason } from './worker-shutdown.js';
 import { DATA_DIR, ensureDir, resolveOpenDbPath } from '../shared/paths.js';
+import { sweepPluginCache } from '../shared/plugin-cache-sweep.js';
 import { HOOK_TIMEOUTS } from '../shared/hook-constants.js';
 import { envValue } from '../shared/legacy-env.js';
 import { getUptimeSeconds } from '../shared/uptime.js';
@@ -638,6 +639,22 @@ export class WorkerService implements WorkerRef {
 
       logger.info('WORKER', 'Checking for one-time CWD remap...');
       runOneTimeCwdRemap();
+
+      // Reclaim superseded plugin-cache versions (perf plan P6). Deferred off the
+      // boot path: it walks directories that can hold ~900 MB each, and nothing
+      // downstream depends on it. The worker is the right owner — it starts once
+      // per session, knows which directory it is running from, and shares the
+      // typed helper. `version-check.js` would have needed the logic duplicated
+      // in hand-written JS.
+      setImmediate(() => {
+        try {
+          sweepPluginCache();
+        } catch (error: unknown) {
+          logger.debug('SYSTEM', 'Plugin cache sweep failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      });
 
       logger.info('WORKER', 'Adopting merged worktrees (background)...');
       adoptMergedWorktreesForAllKnownRepos({}).then(adoptions => {

@@ -6,6 +6,7 @@ import { homedir } from 'os';
 import { dirname, join } from 'path';
 import { SettingsDefaultsManager, type SettingsDefaults } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
+import { sweepPluginCache } from '../../shared/plugin-cache-sweep.js';
 import { loadKeepmindEnv, saveKeepmindEnv } from '../../shared/EnvManager.js';
 import { ensureWorkerStarted, type WorkerStartResult } from '../../services/worker-spawner.js';
 import {
@@ -1351,7 +1352,15 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
             }
             writeInstallMarker(cacheDir, version, bunVersion);
           }
-          return `Runtime ready (Bun ${bunVersion}) ${pc.green('OK')}`;
+          // Reclaim superseded versions. Each cache version carries its own
+          // dependency closure (~900 MB), and the host's in_use sweep does not
+          // reliably collect ours — one machine had 2.69 GB across three
+          // versions, two of them stale for weeks.
+          const swept = sweepPluginCache();
+          const reclaimed = swept.removed.length > 0
+            ? ` ${pc.dim(`(reclaimed ${swept.removed.join(', ')})`)}`
+            : '';
+          return `Runtime ready (Bun ${bunVersion}) ${pc.green('OK')}${reclaimed}`;
         },
       },
     ];
