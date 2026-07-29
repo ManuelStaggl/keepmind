@@ -154,17 +154,19 @@ try {
   ]);
   mirror(rootDir, INSTALLED_PATH, rootPatterns);
 
-  console.log('Running bun install in marketplace...');
-  execSync('bun install', { cwd: INSTALLED_PATH, stdio: 'inherit' });
-
-  // The worker resolves its runtime deps from marketplace/plugin/node_modules,
-  // and NOTHING here refreshed it: the install above targets the marketplace
-  // ROOT, and node_modules is a hard-protected dir the mirror never touches. So
+  // NOTE: no `bun install` in the marketplace ROOT. It used to run here and
+  // grew to 1.4 GB (735 packages — devDependencies included, since the root
+  // manifest is the repo's own). Nothing loads from it: the running worker's
+  // native modules (sqlite-vec, onnxruntime, sharp) all resolve out of
+  // marketplace/plugin/node_modules, verified against the live process module
+  // list. Removed alongside the same dead step in install.ts.
+  //
+  // The plugin tree below is the one that matters, and NOTHING used to refresh
+  // it: the old root install targeted the wrong directory, and node_modules is
+  // a hard-protected dir the mirror never touches. So
   // marketplace/plugin/package.json was kept current while the tree beside it
   // aged indefinitely — a dev sync could leave the worker running against
   // months-old dependencies, silently, with no signal that the two disagreed.
-  // `npx keepmind install` has always done this step (install.ts); only the dev
-  // path was missing it.
   const marketplacePluginDir = path.join(INSTALLED_PATH, 'plugin');
   if (existsSync(path.join(marketplacePluginDir, 'package.json'))) {
     console.log('Running bun install in marketplace plugin...');
