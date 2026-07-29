@@ -4,6 +4,60 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.0.0] - 2026-07-29
+
+Hook latency, session startup and package footprint — driven by measurements from a setup audit, not by guesswork.
+
+## ⚠️ Breaking change
+
+**12 skills moved into a separate, opt-in plugin `keepmind-extras`.** After updating they are gone until you enable it:
+
+```
+/plugin   →  keepmind-extras
+```
+
+Affected: `babysit`, `design-is`, `do`, `knowledge-agent`, `make-plan`, `oh-my-issues`, `pathfinder`, `standup`, `timeline-report`, `version-bump`, `weekly-digests`, `wowerpoint`.
+
+Nothing about the memory system changes. The core plugin keeps `mem-search`, `smart-explore`, `learn-codebase`, `how-it-works` and `what-the`.
+
+**Why:** the 17 skill frontmatter descriptions sat resident in *every* session — 4115 characters, ~1029 tokens — against a skill list budgeted at roughly 1% of the context window. On one real installation across 1025 session starts, exactly one of them had ever been invoked. Splitting frees **808 tokens (79%)**.
+
+## Performance
+
+All numbers measured on Windows Server 2025 against a warm worker.
+
+| Change | Before | After |
+|---|---|---|
+| Session start | 1128 ms (3 hooks) | **495 ms** (1 hook) — −56% |
+| Per-hook wall clock | 469 ms | **393 ms** — −16% |
+| Tool calls that spawn a hook | 100% | **90%** — measured over 1002 real calls |
+
+**One Node process per hook instead of two.** `bun-runner.js` drained stdin and then spawned `hook-client.cjs` in a fresh Node — the same binary, since `findNode()` returns `process.execPath` — plus a `cmd.exe` on Windows. The client is now loaded in-process, with the payload handed over on `globalThis` and consumed one-shot by `readJsonFromStdin()`. Lifecycle commands keep the spawn path; a synchronous load failure falls back to it. `KEEPMIND_HOOK_SPAWN=1` forces the legacy path.
+
+**Three SessionStart hooks collapsed into one.** `worker-service.cjs start` is dropped outright: it only called `ensureWorkerStarted()` and printed a suppressed status object, while every hook already calls that same function — so it was redundant *and* the priciest hook of the session, parsing the ~2.7 MB worker bundle to do nothing else. `context` and `session-acquire` are now one `session-start` event.
+
+**PostToolUse no longer runs behind every tool call.** It ran with `matcher: "*"`; the matcher now allow-lists the tools that actually produce observations. Left out: `Glob`, `Grep` and the bookkeeping tools. **MCP calls are deliberately kept** — unlike search tools they carry real content (browser checks, doc lookups, live device state), and on a real workload they are the largest single category of tool use.
+
+## Disk
+
+**Superseded plugin-cache versions are now reclaimed.** Each cached version carries its own dependency closure — 26 tree-sitter grammars plus onnxruntime, ~898 MB. One machine held 2.69 GB across three versions, 1.79 GB of it stale for weeks. The sweep keeps the two newest and unconditionally pins the directory the running process lives in plus the version the marketplace reports installed. It runs after install and off the worker's boot path, and never throws.
+
+## Fixes found along the way
+
+- **Handle leak in `collectStdin()`**: the 5 s safety timer was never cleared. Invisible while the process only waited on a child — but `hardenedHookExit()` deliberately avoids `process.exit()` (it trips a Windows libuv assertion with the worker bundle loaded) and waits for an *idle* loop instead. In-process that meant 2410 ms per hook instead of 393 ms.
+- **The canonical hook-template check had a hole**: it only visited hook paths the manifest declared, so an extra hook entry was invisible to it — which is how SessionStart grew to three Node cold starts. It now rejects any hook the manifest does not know about.
+- `TaskOutput` / `TaskStop` added to the ingest-time skip list, for hosts whose matcher still fires broadly.
+
+## Honest correction to the original audit
+
+The double process spawn was **not** the dominant cost, and narrowing the matcher does **not** remove "roughly half" of the waiting time. Node start plus bundle parse is 78 ms of a 379 ms hook, and the three localhost roundtrips are ~35 ms; the remaining ~265 ms sits in the client's pre-flight and the worker's synchronous ingest. One Node process per hook is the floor — Claude Code hooks are shell commands with no persistent channel — and this release reaches it. The rest is a separate investigation.
+
+A proposed PreToolUse path index was **dropped after measuring it**: it would have saved 24 ms of a 470 ms hook while introducing a silent failure mode where a false negative suppresses context injection. Not a good trade.
+
+## Verification
+
+`2005 tests, 1999 pass, 0 fail, 6 skipped`.
+
 ## [2.0.0] - 2026-07-25
 
 keepmind 2.0.0
