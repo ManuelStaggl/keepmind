@@ -287,9 +287,8 @@ Apache-2.0 allows broad use, modification, distribution, and commercial use, sub
 
 - **文件**：[docs/](docs/)
 - **Issues**：[GitHub Issues](https://github.com/ManuelStaggl/keepmind/issues)
-- **儲存庫**：[github.com/thedotmack/claude-mem](https://github.com/thedotmack/claude-mem)
-- **官方 Discord**：[加入 Discord](https://discord.com/invite/J4wttp9vDu)
-- **作者**：Alex Newman ([@thedotmack](https://github.com/thedotmack))
+- **儲存庫**：[github.com/ManuelStaggl/keepmind](https://github.com/ManuelStaggl/keepmind)
+- **授權**：Apache-2.0。keepmind 是 [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem)（版權所有 Alex Newman）的衍生作品，依 Apache License 2.0 使用。Fork 版權 © 2026 Manuel Staggl。
 
 ---
 

@@ -55,12 +55,7 @@ description: Automated semantic versioning and release workflow for Claude Code 
     ```
     (Runs `node scripts/generate-changelog.js`, which pulls releases from the GitHub API and rewrites `CHANGELOG.md`.)
 10. **Sync changelog**: Commit and push the updated `CHANGELOG.md`.
-11. **Notify**: Run the Discord notification from `~/Scripts/keepmind/`, where the `.env` with Discord webhook details lives:
-    ```bash
-    cd ~/Scripts/keepmind/ && npm run discord:notify vX.Y.Z
-    ```
-    Do this even when the release worktree does not have a local `.env`.
-12. **Finalize**: `git status` — working tree must be clean.
+11. **Finalize**: `git status` — working tree must be clean.
 
 ## Checklist
 
@@ -71,5 +66,4 @@ description: Automated semantic versioning and release workflow for Claude Code 
 - [ ] `npm-publish.yml` run succeeded and `npm view keepmind@X.Y.Z version` prints X.Y.Z (so `npx keepmind@X.Y.Z` resolves) — published by CI, not locally
 - [ ] GitHub release created with notes
 - [ ] `CHANGELOG.md` updated and pushed
-- [ ] Discord notification run from `~/Scripts/keepmind/` — needs a `.env` with `DISCORD_UPDATES_WEBHOOK`; skip and say so if that directory is not on the machine
 - [ ] `git status` shows clean tree

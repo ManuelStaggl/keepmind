@@ -63,7 +63,6 @@
     "worker:logs": "node scripts/worker-logs.cjs -n 50",
     "worker:tail": "node scripts/worker-logs.cjs -n 50 --follow",
     "changelog:generate": "node scripts/generate-changelog.js",
-    "discord:notify": "node scripts/discord-release-notify.js",
     "worker:start": "node plugin/scripts/worker-service.cjs start",
     "worker:stop": "node plugin/scripts/worker-service.cjs stop",
     "worker:restart": "node plugin/scripts/worker-service.cjs restart",
