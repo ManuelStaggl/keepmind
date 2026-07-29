@@ -168,11 +168,25 @@ export function verifyCriticalModules(targetDir: string): void {
   const resolvePaths = [nodeModulesPath];
 
   const unresolvable: string[] = [];
+  const escaped: string[] = [];
+
+  /**
+   * Resolution must land INSIDE the install tree. Node walks parent directories,
+   * so a package sitting in an unrelated node_modules above the target (a user's
+   * ~/node_modules, a repo checkout) satisfies `resolve` while the tree we just
+   * built is missing it — turning a broken install into a green one that fails
+   * later at runtime, somewhere else. This matters more now that the tree lives
+   * under ~/.claude rather than beside the bundle.
+   */
+  const resolvesInsideTarget = (spec: string): boolean => {
+    const resolved = requireFromTarget.resolve(spec, { paths: resolvePaths });
+    return resolved.startsWith(nodeModulesPath);
+  };
 
   // Each declared dependency must be installed, not merely a directory on disk.
   for (const dep of dependencies) {
     try {
-      requireFromTarget.resolve(dep, { paths: resolvePaths });
+      if (!resolvesInsideTarget(dep)) escaped.push(dep);
     } catch {
       // Bare-name resolution can fail for a perfectly-installed package that has
       // no importable entry point — e.g. bin-only packages like `tree-sitter-cli`
@@ -182,7 +196,7 @@ export function verifyCriticalModules(targetDir: string): void {
       // This preserves the original "is it installed" guarantee while still
       // upgrading from directory-existence to real module resolution (#2730).
       try {
-        requireFromTarget.resolve(`${dep}/package.json`, { paths: resolvePaths });
+        if (!resolvesInsideTarget(`${dep}/package.json`)) escaped.push(dep);
       } catch {
         unresolvable.push(dep);
       }
@@ -194,7 +208,7 @@ export function verifyCriticalModules(targetDir: string): void {
   if (dependencies.includes('zod')) {
     for (const subpath of ZOD_REQUIRED_SUBPATHS) {
       try {
-        requireFromTarget.resolve(subpath, { paths: resolvePaths });
+        if (!resolvesInsideTarget(subpath)) escaped.push(subpath);
       } catch {
         unresolvable.push(subpath);
       }
@@ -204,6 +218,13 @@ export function verifyCriticalModules(targetDir: string): void {
   if (unresolvable.length > 0) {
     throw new Error(
       `Post-install check failed: unresolvable modules: ${unresolvable.join(', ')}`,
+    );
+  }
+
+  if (escaped.length > 0) {
+    throw new Error(
+      `Post-install check failed: ${escaped.join(', ')} resolved from outside ${nodeModulesPath}. ` +
+        `The install tree is incomplete and an unrelated node_modules is masking it.`,
     );
   }
 }

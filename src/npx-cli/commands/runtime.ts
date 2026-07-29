@@ -46,15 +46,25 @@ function installedPluginVersion(): string | null {
 }
 
 /**
- * Resolve a plugin runtime script, preferring the cache copy over the
- * marketplace copy. The cache directory is where install runs `bun install`, so
- * it is the ONLY copy with a populated node_modules — the worker bundle
- * externalises runtime deps (zod incl. its zod/v3 subpath, sqlite-vec, the
- * Agent SDK) and requires them at runtime. Running the marketplace copy (source
- * only, no node_modules) fails with `Cannot find module 'zod/v3'`. Falls back
- * to any cached version that has the script, then the marketplace source.
+ * Resolve a plugin runtime script, preferring the marketplace copy.
+ *
+ * This used to prefer the CACHE copy, for one reason only: the cache was where
+ * `bun install` ran, so it was the only tree with a populated node_modules, and
+ * launching the marketplace copy died with `Cannot find module 'zod/v3'`. That
+ * reason is gone — dependencies now live in the plugin data directory and the
+ * bundles resolve them from there (src/shared/plugin-node-modules.ts), so every
+ * copy of the script can run.
+ *
+ * Preferring the cache is now actively wrong: a stale cache version would run an
+ * OLD bundle against the CURRENT dependency tree. Marketplace-first matches
+ * resolveWorkerScriptPath() in src/shared/worker-utils.ts, so the CLI and the
+ * hooks launch the same bundle. The cache remains as a fallback for installs
+ * where the marketplace copy is absent.
  */
 function pluginScriptPath(scriptName: string): string {
+  const marketplaceScript = join(marketplaceDirectory(), 'plugin', 'scripts', scriptName);
+  if (existsSync(marketplaceScript)) return marketplaceScript;
+
   const version = installedPluginVersion();
   if (version) {
     const cacheScript = join(pluginCacheDirectory(version), 'scripts', scriptName);
@@ -67,7 +77,7 @@ function pluginScriptPath(scriptName: string): string {
       if (existsSync(candidate)) return candidate;
     }
   }
-  return join(marketplaceDirectory(), 'plugin', 'scripts', scriptName);
+  return marketplaceScript;
 }
 
 function workerServiceScriptPath(): string {
@@ -81,8 +91,9 @@ function workerServiceScriptPath(): string {
  * are re-read from ~/.keepmind/.env at SDK spawn time (#2357 / #2375).
  */
 function spawnPlugin(runtimePath: string, args: string[], startFailureLabel = 'worker'): void {
-  // cwd = the script's own directory so it runs from the cache tree that owns
-  // the populated node_modules (matches where the script path was resolved).
+  // cwd = the script's own directory. Module resolution no longer depends on it
+  // (the bundles resolve through plugin-node-modules), but a stable cwd next to
+  // the script keeps relative paths inside the plugin predictable.
   const child = spawnHidden(runtimePath, args, {
     stdio: 'inherit',
     cwd: dirname(args[0]),

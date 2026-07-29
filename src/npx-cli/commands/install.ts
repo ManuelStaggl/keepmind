@@ -7,6 +7,8 @@ import { dirname, join } from 'path';
 import { SettingsDefaultsManager, type SettingsDefaults } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
 import { sweepPluginCache } from '../../shared/plugin-cache-sweep.js';
+import { depsInstallRoot } from '../../shared/plugin-node-modules.js';
+import { ensureDepsWorkspace } from '../../shared/plugin-workspace.js';
 import { loadKeepmindEnv, saveKeepmindEnv } from '../../shared/EnvManager.js';
 import { ensureWorkerStarted, type WorkerStartResult } from '../../services/worker-spawner.js';
 import {
@@ -1334,16 +1336,23 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
           message('Checking Bun…');
           const { version: bunVersion } = await ensureBun(summary);
           installedBunVersion = bunVersion;
-          const cacheDir = pluginCacheDirectory(version);
-          if (!isInstallCurrent(cacheDir, version)) {
+          // ONE dependency tree, in the plugin data directory. It used to be
+          // two — one per cache version and one in marketplace/plugin — which
+          // cost 1.3 GB on this machine alone and, worse, put the tree inside
+          // the directory the host restores from git. ${CLAUDE_PLUGIN_ROOT} is
+          // documented as ephemeral; ${CLAUDE_PLUGIN_DATA} survives updates.
+          // Resolution follows via src/shared/plugin-node-modules.ts.
+          const depsDir = depsInstallRoot();
+          ensureDepsWorkspace(npmPackagePluginDirectory(), depsDir);
+          if (!isInstallCurrent(depsDir, version)) {
             const { bunPath } = await ensureBun();
             const stopHeartbeat = startHeartbeat(message, 'Installing plugin dependencies (bun install)…');
             try {
-              await installPluginDependencies(cacheDir, bunPath);
+              await installPluginDependencies(depsDir, bunPath);
             } finally {
               stopHeartbeat();
             }
-            writeInstallMarker(cacheDir, version, bunVersion);
+            writeInstallMarker(depsDir, version, bunVersion);
           }
           // Reclaim superseded versions. Each cache version carries its own
           // dependency closure (~900 MB), and the host's in_use sweep does not
@@ -1367,33 +1376,11 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
           return `Plugin files copied ${pc.green('OK')}`;
         },
       });
-      tasks.push({
-        title: 'Installing marketplace dependencies',
-        task: async (message) => {
-          // The worker (marketplace/plugin/scripts/worker-service.cjs) resolves
-          // its runtime deps — zod (incl. the zod/v3 subpath), sqlite-vec,
-          // @huggingface/transformers — from marketplace/plugin/node_modules.
-          // npm in the marketplace ROOT hits the tree-sitter ERESOLVE and never
-          // populates plugin/node_modules, and cpSync of the source's bun-linked
-          // node_modules is unreliable on Windows — so install the plugin deps
-          // with bun (frozen lockfile), exactly as the cache install does.
-          //
-          // There is deliberately NO npm install in the marketplace ROOT. It
-          // used to run here and cost ~390 MB, but nothing resolves from it:
-          // the worker loads from plugin/node_modules (verified 2026-07-29 —
-          // a cold worker restart with the root tree absent passes every
-          // doctor check, sqlite-vec and embedder included), and the host
-          // deletes it on the next marketplace refresh anyway.
-          const { bunPath } = await ensureBun();
-          const stopPlugin = startHeartbeat(message, 'Installing plugin dependencies (bun install)…');
-          try {
-            await installPluginDependencies(join(marketplaceDirectory(), 'plugin'), bunPath);
-          } finally {
-            stopPlugin();
-          }
-          return `Dependencies installed ${pc.green('OK')}`;
-        },
-      });
+      // No second dependency install here. The marketplace copy carries code
+      // only; the worker it launches resolves its native deps out of the plugin
+      // data directory via src/shared/plugin-node-modules.ts. Installing into
+      // marketplace/plugin again would recreate the tree the host deletes on its
+      // next refresh — which is the failure this whole change exists to end.
     }
 
     await runTasks(tasks);
@@ -1619,7 +1606,6 @@ async function runInstallCommandInner(options: InstallOptions, summary: InstallS
 
 export async function runRepairCommand(): Promise<void> {
   const version = readPluginVersion();
-  const cacheDir = pluginCacheDirectory(version);
 
   if (isInteractive) {
     p.intro(pc.bgCyan(pc.black(' keepmind repair ')));
@@ -1634,29 +1620,25 @@ export async function runRepairCommand(): Promise<void> {
       task: async (message) => {
         message('Checking Bun…');
         const { version: bunVersion } = await ensureBun();
-        // Repair must regenerate the cache if it was wiped (e.g. user ran
-        // `rm -rf ~/.claude/plugins/cache`). Without this, bun install would
-        // fail immediately with no package.json to install against.
-        if (!existsSync(join(cacheDir, 'package.json'))) {
-          message('Cache missing — repopulating from npm package…');
-          copyPluginToCache(version);
-        }
+        // Repair regenerates the workspace from the npm package, so it recovers
+        // a data directory that was wiped as well as one whose manifest drifted.
+        // There is only one tree to repair now: both the cache install and the
+        // marketplace install resolve through the plugin data directory.
+        const depsDir = depsInstallRoot();
+        message('Refreshing dependency workspace…');
+        ensureDepsWorkspace(npmPackagePluginDirectory(), depsDir);
         message('Reinstalling plugin dependencies…');
         const { bunPath } = await ensureBun();
-        await installPluginDependencies(cacheDir, bunPath);
-        writeInstallMarker(cacheDir, version, bunVersion);
+        await installPluginDependencies(depsDir, bunPath);
+        writeInstallMarker(depsDir, version, bunVersion);
         return `Runtime ready (Bun ${bunVersion}) ${pc.green('OK')}`;
       },
     },
     {
-      // The worker resolves its native deps (sqlite-vec, @huggingface/
-      // transformers, zod) from the MARKETPLACE plugin dir when present
-      // (resolveWorkerScriptPath prefers marketplace/plugin/scripts). Repairing
-      // only the cache left a marketplace-run worker with missing native deps —
-      // exactly the state `repair` is meant to fix. Mirror the install path:
-      // re-copy the plugin files and install deps into the marketplace plugin
-      // dir too. Skipped when no marketplace install exists (cache-only setup).
-      title: 'Reinstalling marketplace plugin dependencies',
+      // Code and dependencies are separate concerns now: this refreshes the
+      // bundles the host launches, while the task above owns the single tree
+      // they resolve against. Skipped when no marketplace install exists.
+      title: 'Refreshing marketplace plugin files',
       task: async (message) => {
         const marketplacePluginDir = join(marketplaceDirectory(), 'plugin');
         if (!existsSync(marketplacePluginDir)) {
@@ -1664,10 +1646,7 @@ export async function runRepairCommand(): Promise<void> {
         }
         message('Refreshing marketplace plugin files…');
         copyPluginToMarketplace();
-        message('Installing marketplace plugin dependencies…');
-        const { bunPath } = await ensureBun();
-        await installPluginDependencies(marketplacePluginDir, bunPath);
-        return `Marketplace plugin deps installed ${pc.green('OK')}`;
+        return `Marketplace plugin files refreshed ${pc.green('OK')}`;
       },
     },
   ]);
