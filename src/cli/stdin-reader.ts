@@ -35,7 +35,48 @@ function tryParseJson(input: string): { success: true; value: unknown } | { succ
 
 const SAFETY_TIMEOUT_MS = 30000;
 
+/**
+ * Perf plan P1: when bun-runner.js loads this client IN-PROCESS (instead of
+ * spawning a second Node), it has already drained `process.stdin` to produce the
+ * #2188 empty-payload diagnostic. Listening on stdin here would hang until the
+ * safety timeout, so the runner hands the payload over on this global instead.
+ *
+ * One-shot by contract: the property is deleted on read, so a second call falls
+ * through to the normal stdin path and a stale payload can never be replayed.
+ */
+const PRE_READ_STDIN_KEY = '__KEEPMIND_HOOK_STDIN';
+
+function takePreReadStdin(): string | null {
+  const holder = globalThis as unknown as Record<string, unknown>;
+  const raw = holder[PRE_READ_STDIN_KEY];
+  if (raw === undefined || raw === null) {
+    return null;
+  }
+  delete holder[PRE_READ_STDIN_KEY];
+
+  if (typeof raw === 'string') return raw;
+  if (Buffer.isBuffer(raw)) return raw.toString('utf-8');
+
+  logger.warn('HOOK', 'Pre-read stdin payload had an unexpected type, ignoring it', { type: typeof raw });
+  return null;
+}
+
 export async function readJsonFromStdin(): Promise<unknown> {
+  const preRead = takePreReadStdin();
+  if (preRead !== null) {
+    // Mirrors the stream path's EOF semantics exactly: blank input resolves to
+    // undefined, malformed input throws (hookCommand turns that into a blocking
+    // error), valid JSON resolves.
+    if (!preRead.trim()) {
+      return undefined;
+    }
+    const parsed = tryParseJson(preRead);
+    if (parsed.success) {
+      return parsed.value;
+    }
+    throw new Error(`Malformed JSON in pre-read hook payload: ${preRead.slice(0, 100)}...`);
+  }
+
   if (!isStdinAvailable()) {
     return undefined;
   }

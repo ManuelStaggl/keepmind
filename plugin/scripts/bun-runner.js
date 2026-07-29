@@ -4,6 +4,7 @@ import { existsSync, readFileSync, mkdirSync, appendFileSync, writeFileSync } fr
 import { join, dirname, resolve } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -90,21 +91,36 @@ args[0] = fixBrokenScriptPath(args[0]);
 // per-hook latency (perf plan P1). Lifecycle commands (start/stop/restart/status)
 // and everything else keep using worker-service.cjs. Fall back to the original
 // script if the slim client is absent (older/partial install).
+//
+// `inProcessClient` is the same bundle, remembered separately: for hooks we
+// LOAD it in this very process instead of spawning a second Node (see the
+// require() below). The spawn path stays intact as the fallback.
+let inProcessClient = null;
 if (args.includes('hook')) {
   const slimClient = join(dirname(args[0]), 'hook-client.cjs');
   if (existsSync(slimClient)) {
     args[0] = slimClient;
+    // MUST be absolute: createRequire() treats a relative string as a bare
+    // module specifier and looks it up in node_modules, so a relative invocation
+    // (`node bun-runner.js plugin/scripts/... hook ...`) would silently throw
+    // MODULE_NOT_FOUND and fall back to the slow spawn path.
+    inProcessClient = resolve(slimClient);
   }
 }
 
-const bunPath = findNode();
-
-if (!bunPath) {
-  console.error('Error: Node not found. Please install Node.js: https://nodejs.org');
-  console.error('After installation, restart your terminal.');
-  process.exit(1);
-}
-
+/**
+ * Drain the hook payload from stdin.
+ *
+ * Every settle path MUST clear the safety timer and detach the stdin listeners.
+ * The timer used to be left pending, which was invisible while this process only
+ * ever spawned a child and waited on it — but it is a live libuv handle, and the
+ * in-process hook path below runs the client in THIS loop. `hardenedHookExit()`
+ * (src/shared/hook-io.ts) deliberately does not call process.exit(); it sets
+ * process.exitCode and lets an IDLE loop drain, because process.exit() with the
+ * worker bundle loaded trips a Windows libuv assertion. A stray 5s timer meant
+ * the loop was never idle, so every hook sat waiting for the unref'd
+ * EXIT_DRAIN_FALLBACK_MS escape hatch — measured 2.4s instead of 0.47s.
+ */
 function collectStdin() {
   return new Promise((resolve) => {
     if (process.stdin.isTTY) {
@@ -113,130 +129,197 @@ function collectStdin() {
     }
 
     const chunks = [];
-    process.stdin.on('data', (chunk) => chunks.push(chunk));
-    process.stdin.on('end', () => {
-      resolve(chunks.length > 0 ? Buffer.concat(chunks) : null);
-    });
-    process.stdin.on('error', () => {
-      resolve(null);
-    });
+    let settled = false;
 
-    setTimeout(() => {
-      process.stdin.removeAllListeners();
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      process.stdin.removeAllListeners('data');
+      process.stdin.removeAllListeners('end');
+      process.stdin.removeAllListeners('error');
       process.stdin.pause();
-      resolve(chunks.length > 0 ? Buffer.concat(chunks) : null);
-    }, 5000);
+      resolve(value);
+    };
+
+    const collected = () => (chunks.length > 0 ? Buffer.concat(chunks) : null);
+
+    const timer = setTimeout(() => finish(collected()), 5000);
+    // unref'd as belt-and-braces: even if a future settle path forgets to clear
+    // it, a pending timer must never hold the process open.
+    timer.unref?.();
+
+    process.stdin.on('data', (chunk) => chunks.push(chunk));
+    process.stdin.on('end', () => finish(collected()));
+    process.stdin.on('error', () => finish(null));
   });
 }
 
 const stdinData = await collectStdin();
 
-const spawnOptions = {
-  stdio: ['pipe', 'inherit', 'inherit'],
-  windowsHide: true,
-  env: process.env
-};
+// Lifecycle subcommands (start, stop, restart, status) never consume stdin —
+// they manage the worker daemon, not hook payloads. Everything else is a hook
+// and MUST have received a payload.
+const LIFECYCLE_COMMANDS = ['start', 'stop', 'restart', 'status'];
+const isLifecycle = LIFECYCLE_COMMANDS.some(cmd => args.includes(cmd));
+const hasPayload = Boolean(stdinData && stdinData.length > 0);
 
-let spawnCmd = bunPath;
-let spawnArgs = args;
+/**
+ * Original launcher path: spawn a child Node for `args`. Still used for every
+ * lifecycle command (they need the full worker-service bundle) and as the
+ * fallback when the in-process hook client cannot be loaded.
+ */
+function spawnChild() {
+  const bunPath = findNode();
 
-if (IS_WINDOWS) {
-  const quote = (s) => `"${String(s).replace(/"/g, '\\"')}"`;
-  spawnOptions.shell = true;
-  spawnCmd = [bunPath, ...args].map(quote).join(' ');
-  spawnArgs = [];
-}
+  if (!bunPath) {
+    console.error('Error: Node not found. Please install Node.js: https://nodejs.org');
+    console.error('After installation, restart your terminal.');
+    process.exit(1);
+  }
 
-const child = spawn(spawnCmd, spawnArgs, spawnOptions);
+  const spawnOptions = {
+    stdio: ['pipe', 'inherit', 'inherit'],
+    windowsHide: true,
+    env: process.env
+  };
 
-if (child.stdin) {
-  if (stdinData && stdinData.length > 0) {
-    child.stdin.write(stdinData);
-    child.stdin.end();
-  } else {
-    // Lifecycle subcommands (start, stop, restart, status) never consume stdin —
-    // they manage the worker daemon, not hook payloads.  Killing the child here
-    // prevents the daemon from starting/stopping on platforms where Claude Code
-    // doesn't pipe a payload for SessionStart (e.g. Windows CC ≤ 2.1.145).
-    const lifecycleCommands = ['start', 'stop', 'restart', 'status'];
-    const isLifecycle = lifecycleCommands.some(cmd => args.includes(cmd));
+  let spawnCmd = bunPath;
+  let spawnArgs = args;
 
-    if (isLifecycle) {
-      // Lifecycle commands don't need stdin — close pipe and let child run.
-      try { child.stdin.end(); } catch {}
+  if (IS_WINDOWS) {
+    const quote = (s) => `"${String(s).replace(/"/g, '\\"')}"`;
+    spawnOptions.shell = true;
+    spawnCmd = [bunPath, ...args].map(quote).join(' ');
+    spawnArgs = [];
+  }
+
+  const child = spawn(spawnCmd, spawnArgs, spawnOptions);
+
+  if (child.stdin) {
+    if (hasPayload) {
+      child.stdin.write(stdinData);
+      child.stdin.end();
     } else {
-      // Issue #2188: empty/missing stdin previously masked by `|| '{}'` fallback,
-      // which silently hid WSL bash failures (e.g. hooks invoked under a broken
-      // shell that never piped a payload). Surface the failure mode instead.
-      const dataDir = process.env.KEEPMIND_DATA_DIR || process.env.CLAUDE_MEM_DATA_DIR || join(homedir(), '.keepmind');
-      const payloadType = stdinData === null
-        ? 'null (no data event or stream error)'
-        : stdinData === undefined
-          ? 'undefined'
-          : Buffer.isBuffer(stdinData) && stdinData.length === 0
-            ? 'empty Buffer (zero bytes received)'
-            : `unexpected (${typeof stdinData})`;
-      const payloadByteLength = (stdinData && typeof stdinData.length === 'number')
-        ? stdinData.length
-        : 0;
-      const diagnostic = [
-        `[bun-runner] empty stdin payload received — issue #2188`,
-        `  script: ${args[0]}`,
-        `  payload byte length: ${payloadByteLength}`,
-        `  payload type: ${payloadType}`,
-        `  platform: ${process.platform}`,
-        `  shell: ${process.env.SHELL || 'n/a'}`,
-        `  stdin TTY: ${process.stdin.isTTY === true ? 'true' : process.stdin.isTTY === false ? 'false' : 'undefined'}`,
-        `  timestamp: ${new Date().toISOString()}`,
-        `  CLAUDE_PLUGIN_ROOT: ${RESOLVED_PLUGIN_ROOT}`,
-      ].join('\n');
-
-      // IO discipline (see src/shared/hook-io.ts intent vocabulary):
-      // - this stderr write is a USER_HINT (Claude Code surfaces it inline).
-      // - the CAPTURE_BROKEN marker file below is a DIAGNOSTIC durable signal for
-      //   the next session-start hint.
-      // - exit 0 below is the EXIT_SIGNAL per CLAUDE.md (Windows Terminal tab
-      //   management); the marker file, not the exit code, is the durable failure
-      //   signal. bun-runner runs in its own node process BEFORE hookCommand's
-      //   stderr buffer is installed, so this write is never swallowed.
-
-      // Write to stderr so Claude Code surfaces the diagnostic.
-      console.error(diagnostic);
-
-      // Persist diagnostic to the runner-errors log and drop a CAPTURE_BROKEN marker
-      // file so the next session-start hint can surface the failure. We exit 0 to
-      // honor the project's exit-code strategy (worker/hook errors exit 0 to
-      // prevent Windows Terminal tab pileup) — the marker file is the durable
-      // signal that something is wrong, not the exit code.
-      try {
-        const logsDir = join(dataDir, 'logs');
-        mkdirSync(logsDir, { recursive: true });
-        appendFileSync(join(logsDir, 'runner-errors.log'), diagnostic + '\n\n');
-        mkdirSync(dataDir, { recursive: true });
-        writeFileSync(join(dataDir, 'CAPTURE_BROKEN'), diagnostic + '\n');
-      } catch (writeErr) {
-        console.error(`[bun-runner] failed to persist diagnostic: ${writeErr && writeErr.message ? writeErr.message : writeErr}`);
-      }
-
+      // Lifecycle only — the no-payload hook case already exited via
+      // reportEmptyStdinAndExit(). Closing the pipe prevents the daemon from
+      // hanging on platforms where Claude Code doesn't pipe a payload for
+      // SessionStart (e.g. Windows CC ≤ 2.1.145).
       try { child.stdin.end(); } catch {}
-      try { child.kill(); } catch {}
-      process.exit(0);
     }
   }
+
+  child.on('error', (err) => {
+    // EXCEPTION to CLAUDE.md exit-0-on-error: Node-not-found is a user environment
+    // problem, not a hook execution failure. Surfacing exit 1 here forces Claude
+    // Code to display the stderr message rather than silently retrying. This runs
+    // before any hook handler, so the exit-0 tab-management rationale doesn't apply.
+    console.error(`Failed to start Node: ${err.message}`);
+    process.exit(1);
+  });
+
+  child.on('close', (code, signal) => {
+    if ((signal || code > 128) && args.includes('start')) {
+      process.exit(0);
+    }
+    process.exit(code || 0);
+  });
 }
 
-child.on('error', (err) => {
-  // EXCEPTION to CLAUDE.md exit-0-on-error: Node-not-found is a user environment
-  // problem, not a hook execution failure. Surfacing exit 1 here forces Claude
-  // Code to display the stderr message rather than silently retrying. This runs
-  // before any hook handler, so the exit-0 tab-management rationale doesn't apply.
-  console.error(`Failed to start Node: ${err.message}`);
-  process.exit(1);
-});
+/**
+ * Issue #2188: an empty/missing stdin payload was once masked by a `|| '{}'`
+ * fallback, which silently hid WSL bash failures (hooks invoked under a broken
+ * shell that never piped anything). Surface the failure mode instead. Never
+ * returns.
+ */
+function reportEmptyStdinAndExit() {
+  const dataDir = process.env.KEEPMIND_DATA_DIR || process.env.CLAUDE_MEM_DATA_DIR || join(homedir(), '.keepmind');
+  const payloadType = stdinData === null
+    ? 'null (no data event or stream error)'
+    : stdinData === undefined
+      ? 'undefined'
+      : Buffer.isBuffer(stdinData) && stdinData.length === 0
+        ? 'empty Buffer (zero bytes received)'
+        : `unexpected (${typeof stdinData})`;
+  const payloadByteLength = (stdinData && typeof stdinData.length === 'number')
+    ? stdinData.length
+    : 0;
+  const diagnostic = [
+    `[bun-runner] empty stdin payload received — issue #2188`,
+    `  script: ${args[0]}`,
+    `  payload byte length: ${payloadByteLength}`,
+    `  payload type: ${payloadType}`,
+    `  platform: ${process.platform}`,
+    `  shell: ${process.env.SHELL || 'n/a'}`,
+    `  stdin TTY: ${process.stdin.isTTY === true ? 'true' : process.stdin.isTTY === false ? 'false' : 'undefined'}`,
+    `  timestamp: ${new Date().toISOString()}`,
+    `  CLAUDE_PLUGIN_ROOT: ${RESOLVED_PLUGIN_ROOT}`,
+  ].join('\n');
 
-child.on('close', (code, signal) => {
-  if ((signal || code > 128) && args.includes('start')) {
-    process.exit(0);
+  // IO discipline (see src/shared/hook-io.ts intent vocabulary):
+  // - this stderr write is a USER_HINT (Claude Code surfaces it inline).
+  // - the CAPTURE_BROKEN marker file below is a DIAGNOSTIC durable signal for
+  //   the next session-start hint.
+  // - exit 0 below is the EXIT_SIGNAL per CLAUDE.md (Windows Terminal tab
+  //   management); the marker file, not the exit code, is the durable failure
+  //   signal. bun-runner runs in its own node process BEFORE hookCommand's
+  //   stderr buffer is installed, so this write is never swallowed.
+
+  // Write to stderr so Claude Code surfaces the diagnostic.
+  console.error(diagnostic);
+
+  // Persist diagnostic to the runner-errors log and drop a CAPTURE_BROKEN marker
+  // file so the next session-start hint can surface the failure. We exit 0 to
+  // honor the project's exit-code strategy (worker/hook errors exit 0 to
+  // prevent Windows Terminal tab pileup) — the marker file is the durable
+  // signal that something is wrong, not the exit code.
+  try {
+    const logsDir = join(dataDir, 'logs');
+    mkdirSync(logsDir, { recursive: true });
+    appendFileSync(join(logsDir, 'runner-errors.log'), diagnostic + '\n\n');
+    mkdirSync(dataDir, { recursive: true });
+    writeFileSync(join(dataDir, 'CAPTURE_BROKEN'), diagnostic + '\n');
+  } catch (writeErr) {
+    console.error(`[bun-runner] failed to persist diagnostic: ${writeErr && writeErr.message ? writeErr.message : writeErr}`);
   }
-  process.exit(code || 0);
-});
+
+  process.exit(0);
+}
+
+if (!hasPayload && !isLifecycle) {
+  reportEmptyStdinAndExit();
+}
+
+// Perf plan P1: for hook events, LOAD the slim client in THIS process instead of
+// spawning a second Node. `findNode()` returns process.execPath, so the spawn
+// cold-started the very same binary a second time — plus a cmd.exe on Windows
+// (shell:true). That double start was the dominant slice of the ~1.8s median
+// per-hook latency, and it was pure overhead: ONE Node process per hook is the
+// floor, since Claude Code hooks are shell commands with no persistent channel.
+//
+// The payload is handed over via globalThis because this process has already
+// drained stdin (the #2188 diagnostic above needs it); src/cli/stdin-reader.ts
+// consumes it there, one-shot.
+// KEEPMIND_HOOK_SPAWN=1 forces the legacy two-process path. Escape hatch for
+// diagnosing a host that misbehaves under the in-process client, and the knob
+// that makes both paths comparable in a latency measurement.
+const forceSpawn = process.env.KEEPMIND_HOOK_SPAWN === '1';
+
+if (inProcessClient && hasPayload && !forceSpawn) {
+  try {
+    globalThis.__KEEPMIND_HOOK_STDIN = stdinData;
+    // hook-client-entry reads argv[3]=platform, argv[4]=event. Rewrite argv to the
+    // shape the spawned form had: [node, hook-client.cjs, hook, <platform>, <event>].
+    process.argv = [process.argv[0], inProcessClient, ...args.slice(1)];
+    createRequire(import.meta.url)(inProcessClient);
+    // The client owns stdout/stderr/exit from here and never returns control.
+  } catch (err) {
+    // Only SYNCHRONOUS load failures land here (corrupt or partial bundle) — the
+    // client handles its own async errors and exit codes. Fall back to spawning.
+    delete globalThis.__KEEPMIND_HOOK_STDIN;
+    console.error(`[bun-runner] in-process hook client failed to load, falling back to spawn: ${err && err.message ? err.message : err}`);
+    spawnChild();
+  }
+} else {
+  spawnChild();
+}

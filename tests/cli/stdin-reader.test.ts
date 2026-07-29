@@ -49,3 +49,54 @@ describe('readJsonFromStdin — onEnd contract (#2089)', () => {
     await expect(readJsonFromStdin()).rejects.toThrow(/Malformed JSON at stdin EOF/);
   });
 });
+
+// Perf plan P1: bun-runner.js loads the hook client in-process and hands over the
+// payload it already drained from stdin. Key must match PRE_READ_STDIN_KEY.
+describe('readJsonFromStdin — pre-read payload handover (perf plan P1)', () => {
+  const KEY = '__KEEPMIND_HOOK_STDIN';
+  const holder = globalThis as unknown as Record<string, unknown>;
+
+  afterEach(() => {
+    delete holder[KEY];
+  });
+
+  it('parses a Buffer payload without touching stdin', async () => {
+    // stdin is left as a TTY-ish real stream on purpose: if the handover did not
+    // short-circuit, this would hang or resolve undefined instead of parsing.
+    holder[KEY] = Buffer.from('{"hook":"payload"}', 'utf-8');
+    const result = await readJsonFromStdin();
+    expect(result).toEqual({ hook: 'payload' });
+  });
+
+  it('parses a string payload', async () => {
+    holder[KEY] = '{"tool_name":"Edit"}';
+    const result = await readJsonFromStdin();
+    expect(result).toEqual({ tool_name: 'Edit' });
+  });
+
+  it('consumes the payload one-shot so it cannot be replayed', async () => {
+    holder[KEY] = '{"first":true}';
+    await readJsonFromStdin();
+    expect(holder[KEY]).toBeUndefined();
+
+    // Second call must fall through to the normal stdin path.
+    installFakeStdin('{"second":true}');
+    expect(await readJsonFromStdin()).toEqual({ second: true });
+  });
+
+  it('resolves undefined for a blank payload, mirroring the stream EOF path', async () => {
+    holder[KEY] = '   \n';
+    expect(await readJsonFromStdin()).toBeUndefined();
+  });
+
+  it('throws on a malformed payload so hookCommand can surface it', async () => {
+    holder[KEY] = '{"truncated":';
+    await expect(readJsonFromStdin()).rejects.toThrow(/Malformed JSON in pre-read hook payload/);
+  });
+
+  it('ignores an unexpected payload type and falls back to stdin', async () => {
+    holder[KEY] = 12345;
+    installFakeStdin('{"fallback":true}');
+    expect(await readJsonFromStdin()).toEqual({ fallback: true });
+  });
+});
