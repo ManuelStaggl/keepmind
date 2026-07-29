@@ -11,12 +11,12 @@
 // resolves the canonical quantized model (~23.7 MB on disk), cold-load ~2 s,
 // per-embed ~15-20 ms, output length 384, L2 norm ≈ 1.0.
 
-import { createRequire } from 'node:module';
 import type { FeatureExtractionPipeline } from '@huggingface/transformers';
 import { join } from 'path';
 import { DATA_DIR } from '../../shared/paths.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { logger } from '../../utils/logger.js';
+import { pluginRequire } from '../../shared/plugin-node-modules.js';
 
 export const EMBED_DIM = 384;
 
@@ -46,7 +46,9 @@ function setting(key: string, fallback: string): string {
 // before any handler ran. Deferring the require to first real use lets the worker
 // boot; a missing dep degrades the embedder to unavailable (semantic search falls
 // back to keyword/FTS) instead of taking the daemon down.
-const requireNative = createRequire(import.meta.url);
+// Resolved through plugin-node-modules rather than a bundle-relative
+// createRequire: the tree now lives in the plugin data directory, which survives
+// the host restoring the plugin root from git.
 type TransformersModule = {
   pipeline: (task: string, model: string, opts?: Record<string, unknown>) => Promise<unknown>;
   env: Record<string, unknown>;
@@ -54,7 +56,7 @@ type TransformersModule = {
 let transformersModule: TransformersModule | null = null;
 function loadTransformers(): TransformersModule {
   if (transformersModule) return transformersModule;
-  const mod = requireNative('@huggingface/transformers') as TransformersModule;
+  const mod = pluginRequire<TransformersModule>('@huggingface/transformers');
   // Cache the model on disk under our data dir so it downloads once (not under
   // node_modules/.cache) and is served offline after. Configured here at first
   // real use rather than at module load.

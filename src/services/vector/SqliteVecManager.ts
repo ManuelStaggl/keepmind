@@ -13,7 +13,6 @@
 //     are strict — integer columns MUST be bound as BigInt.
 //   • vec0 forbids `k = ?` and `LIMIT` together — use `k = ?` only.
 
-import { createRequire } from 'node:module';
 import { join } from 'path';
 import { mkdirSync } from 'fs';
 import { Database } from '../../storage/db.js';
@@ -21,6 +20,7 @@ import { VECTOR_DB_DIR } from '../../shared/paths.js';
 import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_JOURNAL_SIZE_LIMIT_BYTES } from '../sqlite/pragmas.js';
 import { EmbedderService, EMBED_DIM } from './EmbedderService.js';
 import { logger } from '../../utils/logger.js';
+import { pluginRequire } from '../../shared/plugin-node-modules.js';
 
 /** A single embeddable chunk (one vec0 row). Mirrors a Chroma document. */
 export interface VecChunk {
@@ -80,11 +80,13 @@ function vecBlob(v: Float32Array): Uint8Array {
  * the worker boot; a missing native dep degrades vector search to unavailable
  * (FTS/keyword search still works) instead of taking the whole daemon down.
  */
-const requireNative = createRequire(import.meta.url);
+// Resolved through plugin-node-modules rather than a bundle-relative
+// createRequire: the tree now lives in the plugin data directory, which survives
+// the host restoring the plugin root from git.
 type SqliteVecModule = { getLoadablePath: () => string };
 let sqliteVecModule: SqliteVecModule | null = null;
 function loadSqliteVecModule(): SqliteVecModule {
-  return (sqliteVecModule ??= requireNative('sqlite-vec') as SqliteVecModule);
+  return (sqliteVecModule ??= pluginRequire<SqliteVecModule>('sqlite-vec'));
 }
 
 export class SqliteVecManager {

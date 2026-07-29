@@ -3,13 +3,14 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync, readFileSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
-import { createRequire } from "node:module";
 import { logger } from "../../utils/logger.js";
 import { resolveOnDemandGrammar, requestGrammarInstall } from "./grammar-installer.js";
-
-const _require = typeof __filename !== 'undefined'
-  ? createRequire(__filename)
-  : createRequire(import.meta.url);
+// Grammars resolve through plugin-node-modules rather than a bundle-relative
+// createRequire: the tree now lives in the plugin data directory, which survives
+// the host restoring the plugin root from git. The separate on-demand chain via
+// grammar-installer (~/.keepmind/grammars) is untouched — it is its own concern
+// and already lives outside the plugin root.
+import { pluginResolve } from "../../shared/plugin-node-modules.js";
 
 export interface CodeSymbol {
   name: string;
@@ -277,7 +278,7 @@ function resolveGrammarPath(language: string): string | null {
   const subdir = GRAMMAR_SUBDIR[language];
   if (subdir) {
     try {
-      const rootPkgPath = _require.resolve(pkg + "/package.json");
+      const rootPkgPath = pluginResolve(pkg + "/package.json");
       const resolved = join(dirname(rootPkgPath), subdir);
       if (existsSync(join(resolved, "src"))) return resolved;
     } catch {
@@ -287,7 +288,7 @@ function resolveGrammarPath(language: string): string | null {
   }
 
   try {
-    const packageJsonPath = _require.resolve(pkg + "/package.json");
+    const packageJsonPath = pluginResolve(pkg + "/package.json");
     return dirname(packageJsonPath);
   } catch {
     return null;
@@ -586,7 +587,7 @@ function getTreeSitterBin(): string {
   if (cachedBinPath) return cachedBinPath;
 
   try {
-    const pkgPath = _require.resolve("tree-sitter-cli/package.json");
+    const pkgPath = pluginResolve("tree-sitter-cli/package.json");
     const binPath = join(dirname(pkgPath), "tree-sitter");
     if (existsSync(binPath)) {
       cachedBinPath = binPath;

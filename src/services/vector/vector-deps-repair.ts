@@ -11,12 +11,12 @@
 // install inconsistency) and then re-enables vector search, all in the background
 // so it never blocks worker startup.
 
-import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { homedir } from 'node:os';
 import { exec, spawnSync } from 'node:child_process';
 import { logger } from '../../utils/logger.js';
+import { pluginRequire, pluginResolve } from '../../shared/plugin-node-modules.js';
 
 const IS_WINDOWS = process.platform === 'win32';
 const NATIVE_VECTOR_DEPS = ['sqlite-vec', '@huggingface/transformers'] as const;
@@ -28,13 +28,11 @@ const INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
 // restart still provides a retry.
 let repairAttempted = false;
 
-const requireFromWorker = createRequire(import.meta.url);
-
-/** True only when EVERY native vector dep resolves from the worker's node_modules. */
+/** True only when EVERY native vector dep resolves from the plugin dependency tree. */
 export function vectorDepsAvailable(): boolean {
   for (const dep of NATIVE_VECTOR_DEPS) {
     try {
-      requireFromWorker.resolve(dep);
+      pluginResolve(dep);
     } catch {
       return false;
     }
@@ -62,7 +60,7 @@ export interface VectorDepsProbe {
 export function probeVectorDeps(): VectorDepsProbe {
   for (const dep of NATIVE_VECTOR_DEPS) {
     try {
-      requireFromWorker.resolve(dep);
+      pluginResolve(dep);
     } catch (error) {
       return {
         ok: false,
@@ -73,7 +71,7 @@ export function probeVectorDeps(): VectorDepsProbe {
   }
 
   try {
-    const mod = requireFromWorker('sqlite-vec') as { getLoadablePath?: () => string };
+    const mod = pluginRequire<{ getLoadablePath?: () => string }>('sqlite-vec');
     if (typeof mod.getLoadablePath !== 'function') {
       return { ok: false, reason: 'load_failed', message: 'sqlite-vec loaded but exposes no getLoadablePath()' };
     }
