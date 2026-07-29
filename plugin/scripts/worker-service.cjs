@@ -2051,7 +2051,9 @@ ${t.prompts.output_format_header}
 </observation>
 ${t.prompts.format_examples}
 
-${t.prompts.footer}`}function BE(t,e,r,i){return`<observed_from_primary_session>
+${t.prompts.footer}
+
+Do not include internal or system XML tags in your response.`}function BE(t,e,r,i){return`<observed_from_primary_session>
   <user_request>${r}</user_request>
   <requested_at>${new Date().toISOString().split("T")[0]}</requested_at>
 </observed_from_primary_session>

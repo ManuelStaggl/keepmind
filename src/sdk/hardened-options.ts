@@ -133,6 +133,17 @@ export function buildHardenedSdkOptions(input: HardenedSdkOptionsInput): Options
     // specifies the output shape. Thinking on every compression turn buys nothing
     // and is billed on top of a conversation prefix that already grows per turn
     // (upstream 09391a74). Behavior-only — outside the tool-lockdown boundary.
+    //
+    // Model interaction, verified against the model docs 2026-07-29: on the
+    // default (Haiku 4.5) this is simply the old thinking-off path — Haiku has no
+    // adaptive thinking to disable. On the thinking-capable models a user may
+    // select instead, disabling thinking makes the model occasionally leak
+    // internal XML into the visible response, which would reach the observation
+    // parser. buildObserverSystemPrompt therefore forbids internal/system tags
+    // generically; do NOT name thinking tags there and do NOT add a
+    // "don't reason" instruction — both measurably worsen the leak. Disabling
+    // thinking is also rejected above effort `high` on Opus 5, which is safe
+    // here only because keepmind never raises effort (the API default is high).
     ...(input.source === 'Observer' ? { thinkingConfig: { type: 'disabled' as const } } : {}),
 
     // === Tool lockdown (defense-in-depth) ===

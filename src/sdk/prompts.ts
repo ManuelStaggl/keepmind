@@ -78,7 +78,9 @@ ${mode.prompts.output_format_header}
 </observation>
 ${mode.prompts.format_examples}
 
-${mode.prompts.footer}`;
+${mode.prompts.footer}
+
+Do not include internal or system XML tags in your response.`;
 }
 
 // The init/continuation user turns are now SLIM (perf plan L4): the identity +

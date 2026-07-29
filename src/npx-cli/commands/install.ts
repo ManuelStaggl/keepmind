@@ -967,11 +967,35 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
   return selectedProvider;
 }
 
+/**
+ * Models offerable for observation compression.
+ *
+ * Haiku stays the default and the recommendation: compression is mechanical
+ * reformatting of a tool use into an <observation> block, it runs on every file
+ * touch, and Haiku 4.5's 200K context is far more than one turn needs. Paying
+ * Opus rates per tool call would be a large bill for no better XML.
+ *
+ * The superseded IDs below stay accepted, never offered: an existing
+ * ~/.keepmind/settings.json may pin one, and a reinstall must not reject a
+ * machine's working configuration. Anthropic keeps the older aliases live, so
+ * they still resolve — they are simply no longer what a fresh install picks.
+ */
+const CLAUDE_MODEL_CHOICES = [
+  { value: 'claude-haiku-4-5', label: 'Haiku 4.5 (recommended — fast, cheap, great for compression)' },
+  { value: 'claude-sonnet-5', label: 'Sonnet 5 (balanced quality and cost)' },
+  { value: 'claude-opus-5', label: 'Opus 5 (highest quality, most expensive)' },
+] as const;
+
+const SUPERSEDED_CLAUDE_MODELS = [
+  'claude-haiku-4-5-20251001', // dated form of the current Haiku alias
+  'claude-sonnet-4-6',
+  'claude-opus-4-7',
+];
+
 async function promptClaudeModel(options: InstallOptions): Promise<void> {
-  const allowed = new Set([
-    'claude-haiku-4-5-20251001',
-    'claude-sonnet-4-6',
-    'claude-opus-4-7',
+  const allowed = new Set<string>([
+    ...CLAUDE_MODEL_CHOICES.map(choice => choice.value),
+    ...SUPERSEDED_CLAUDE_MODELS,
   ]);
   const allowCustomModel = resolveClaudeAuthMethod() === 'gateway';
 
@@ -1020,15 +1044,13 @@ async function promptClaudeModel(options: InstallOptions): Promise<void> {
     return;
   }
 
-  const initialValue = allowed.has(initialModel) ? initialModel : 'claude-haiku-4-5-20251001';
+  // A pinned superseded model is still a valid answer — preselect whatever the
+  // machine already uses rather than silently proposing a costlier upgrade.
+  const initialValue = allowed.has(initialModel) ? initialModel : 'claude-haiku-4-5';
 
   const result = await p.select<string>({
     message: 'Which Claude model should keepmind use to compress observations?\nThis runs whenever you and Claude touch a file — keep it cheap and fast.',
-    options: [
-      { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5 (recommended — fast, cheap, great for compression)' },
-      { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6 (balanced quality and cost)' },
-      { value: 'claude-opus-4-7', label: 'Opus 4.7 (highest quality, most expensive)' },
-    ],
+    options: [...CLAUDE_MODEL_CHOICES],
     initialValue,
   });
 
