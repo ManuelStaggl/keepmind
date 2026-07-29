@@ -4,11 +4,15 @@
 //
 // Claude Code keeps each installed plugin version in its own directory under
 // ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/, and its own in_use
-// sweep does not reliably reclaim ours. Because `npx keepmind install` runs
-// `bun install` INTO that directory, every version carries a full dependency
-// closure — 26 tree-sitter grammars plus onnxruntime, ~900 MB each. Three
-// versions measured on one machine: 2.69 GB, of which 1.79 GB was two versions
-// that had not been installed for weeks.
+// sweep does not reliably reclaim ours.
+//
+// Installs no longer put a dependency closure in there — there is one tree, in
+// the plugin data directory (src/shared/plugin-node-modules.ts) — so new version
+// directories hold only bundles and are cheap. The sweep still matters for two
+// reasons: those directories still accumulate one per version, and machines
+// upgraded from an older keepmind still carry the old ~900 MB-per-version
+// closures (three versions measured on one machine: 2.69 GB, of which 1.79 GB
+// was two versions not installed for weeks). Those are reclaimed here.
 //
 // This is deliberately conservative. It keeps the newest RETAINED_VERSIONS
 // version directories, plus unconditionally whatever directory the running

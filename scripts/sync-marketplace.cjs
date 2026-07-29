@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const { execSync } = require('child_process');
-const { existsSync, readFileSync, mkdirSync, copyFileSync, readdirSync, rmSync, statSync } = require('fs');
+const { existsSync, readFileSync, mkdirSync, copyFileSync, readdirSync, rmSync, statSync, cpSync } = require('fs');
 const path = require('path');
 const os = require('os');
 
@@ -161,18 +161,6 @@ try {
   // marketplace/plugin/node_modules, verified against the live process module
   // list. Removed alongside the same dead step in install.ts.
   //
-  // The plugin tree below is the one that matters, and NOTHING used to refresh
-  // it: the old root install targeted the wrong directory, and node_modules is
-  // a hard-protected dir the mirror never touches. So
-  // marketplace/plugin/package.json was kept current while the tree beside it
-  // aged indefinitely — a dev sync could leave the worker running against
-  // months-old dependencies, silently, with no signal that the two disagreed.
-  const marketplacePluginDir = path.join(INSTALLED_PATH, 'plugin');
-  if (existsSync(path.join(marketplacePluginDir, 'package.json'))) {
-    console.log('Running bun install in marketplace plugin...');
-    execSync('bun install', { cwd: marketplacePluginDir, stdio: 'inherit' });
-  }
-
   const version = getPluginVersion();
   const CACHE_VERSION_PATH = path.join(CACHE_BASE_PATH, version);
 
@@ -187,8 +175,34 @@ try {
   console.log(`Syncing to cache folder (version ${version})...`);
   mirror(pluginDir, CACHE_VERSION_PATH, pluginPatterns);
 
-  console.log(`Running bun install in cache folder (version ${version})...`);
-  execSync('bun install', { cwd: CACHE_VERSION_PATH, stdio: 'inherit' });
+  // ONE dependency tree, in the plugin data directory — the same destination
+  // `npx keepmind install` uses, and the same one the bundles resolve from
+  // (src/shared/plugin-node-modules.ts). This used to be two installs, into
+  // marketplace/plugin and into the version cache, which cost ~800 MB per dev
+  // sync and put a tree inside the directory the host restores from git.
+  //
+  // Staged the same way the installer stages it: manifest, lockfile, and every
+  // directory a local `file:` spec points at (the onnxruntime-web stub, without
+  // which --frozen-lockfile cannot resolve).
+  const depsRoot = process.env.KEEPMIND_NODE_MODULES
+    || path.join(os.homedir(), '.claude', 'plugins', 'data', 'keepmind-keepmind');
+  mkdirSync(depsRoot, { recursive: true });
+  for (const file of ['package.json', 'bun.lock']) {
+    cpSync(path.join(pluginDir, file), path.join(depsRoot, file));
+  }
+  const manifest = JSON.parse(readFileSync(path.join(pluginDir, 'package.json'), 'utf-8'));
+  const localSpecs = Object.values({ ...(manifest.dependencies || {}), ...(manifest.overrides || {}) })
+    .filter((spec) => typeof spec === 'string' && spec.startsWith('file:'));
+  for (const spec of localSpecs) {
+    const relative = spec.slice('file:'.length).replace(/^\.\//, '');
+    if (path.isAbsolute(relative)) continue;
+    const top = relative.split(/[\\/]/)[0];
+    if (!top || top === '.' || top === '..') continue;
+    cpSync(path.join(pluginDir, top), path.join(depsRoot, top), { recursive: true });
+  }
+
+  console.log(`Running bun install in plugin data dir (${depsRoot})...`);
+  execSync('bun install --frozen-lockfile --ignore-scripts', { cwd: depsRoot, stdio: 'inherit' });
 
   console.log('\x1b[32m%s\x1b[0m', 'Sync complete!');
 } catch (error) {

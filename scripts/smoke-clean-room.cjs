@@ -91,27 +91,52 @@ function checkPluginClosure(failures) {
     filter: (src) => path.basename(src) !== 'node_modules',
   });
 
-  // Runtime install parity with src/npx-cli/install/setup-runtime.ts:415 —
+  // Install into a SEPARATE data directory and leave the plugin tree without a
+  // node_modules — the layout the plugin actually ships with, and precisely the
+  // state the host leaves behind when it restores the plugin root from git.
+  // Booting the worker from a tree with no dependencies beside it is the whole
+  // point: it proves the bundles resolve through the data directory.
+  const tmpData = fs.mkdtempSync(path.join(os.tmpdir(), 'cmem-smoke-data-'));
+  cleanup.tmpData = tmpData;
+  log(`  Temp deps dir:   ${tmpData}`);
+  for (const file of ['package.json', 'bun.lock']) {
+    fs.cpSync(path.join(tmpPlugin, file), path.join(tmpData, file));
+  }
+  // Local file: dependencies (the onnxruntime-web stub) must travel with the
+  // manifest or --frozen-lockfile cannot resolve them.
+  const smokeManifest = JSON.parse(fs.readFileSync(path.join(tmpPlugin, 'package.json'), 'utf8'));
+  for (const spec of Object.values({ ...(smokeManifest.dependencies || {}), ...(smokeManifest.overrides || {}) })) {
+    if (typeof spec !== 'string' || !spec.startsWith('file:')) continue;
+    const relative = spec.slice('file:'.length).replace(/^\.\//, '');
+    if (path.isAbsolute(relative)) continue;
+    const top = relative.split(/[\\/]/)[0];
+    if (!top || top === '.' || top === '..') continue;
+    if (!fs.existsSync(path.join(tmpPlugin, top))) {
+      failures.push(`plugin package declares file: dependency ${top} but does not ship it`);
+      return;
+    }
+    fs.cpSync(path.join(tmpPlugin, top), path.join(tmpData, top), { recursive: true });
+  }
+
+  // Runtime install parity with src/npx-cli/install/setup-runtime.ts —
   // `bun install --frozen-lockfile --ignore-scripts`. Frozen lockfile is what
   // makes this a real closure assertion: if plugin/bun.lock omits a subpath's
   // provider, the install reproduces the broken tree a user would get.
   log('  Running: bun install --frozen-lockfile --ignore-scripts');
   try {
     execSync('bun install --frozen-lockfile --ignore-scripts', {
-      cwd: tmpPlugin,
+      cwd: tmpData,
       stdio: 'pipe',
       timeout: 180000,
     });
   } catch (error) {
     const out = `${error.stdout || ''}${error.stderr || ''}`.trim();
-    failures.push(`bun install failed in fresh plugin temp dir: ${out || error.message}`);
+    failures.push(`bun install failed in fresh deps temp dir: ${out || error.message}`);
     return;
   }
 
   // Assert each zod subpath resolves from the freshly installed node_modules.
-  // require.resolve with an explicit paths root simulates how the bundled
-  // worker (which lives under <tmpPlugin>/scripts) resolves its bare requires.
-  const nodeModules = path.join(tmpPlugin, 'node_modules');
+  const nodeModules = path.join(tmpData, 'node_modules');
   const missing = [];
   for (const spec of ZOD_SPECIFIERS) {
     try {
@@ -146,12 +171,21 @@ function checkPluginClosure(failures) {
     return;
   }
   log('  Booting worker via: node scripts/worker-service.cjs --version');
+  if (fs.existsSync(path.join(tmpPlugin, 'node_modules'))) {
+    failures.push('plugin tree unexpectedly has node_modules — the boot below would not prove anything');
+    return;
+  }
   const res = spawnSync(process.execPath, [workerEntry, '--version'], {
-    cwd: tmpPlugin,
+    // cwd is the repo, deliberately: the worker inherits the user's project
+    // directory in production, and this repo HAS a node_modules. If resolution
+    // ever fell back to the cwd, this test would stop being meaningful.
+    cwd: REPO_ROOT,
     encoding: 'utf8',
     timeout: 20000,
-    // Force resolution to land inside the temp node_modules, never the repo's.
-    env: { ...process.env, NODE_PATH: nodeModules },
+    // No NODE_PATH. The bundles resolve through the candidate chain in
+    // src/shared/plugin-node-modules.ts; KEEPMIND_NODE_MODULES points that
+    // chain at the temp tree, exactly as CLAUDE_PLUGIN_DATA would in production.
+    env: { ...process.env, KEEPMIND_NODE_MODULES: tmpData },
   });
   const workerOut = `${res.stdout || ''}${res.stderr || ''}`;
   if (MODULE_NOT_FOUND_RE.test(workerOut)) {
@@ -345,6 +379,7 @@ function main() {
     checkPackageCompleteness(failures);
   } finally {
     rmrf(cleanup.tmpPlugin);
+    rmrf(cleanup.tmpData);
     rmrf(cleanup.tmpPkg);
     if (cleanup.tarball) {
       try {

@@ -15,6 +15,8 @@ const MARKER = join(DATA_DIR, '.deps-repair-failed.json');
 let root = '';
 let installRoot = '';
 let savedNodeModulesEnv: string | undefined;
+let savedConfigDirEnv: string | undefined;
+let savedPluginDataEnv: string | undefined;
 let savedCwd = '';
 let cwdSandbox = '';
 let savedArgv1 = '';
@@ -93,6 +95,13 @@ describe('plugin dependency self-repair', () => {
     installRoot = join(tmpdir(), `keepmind-deps-install-${process.pid}-${Math.random().toString(36).slice(2)}`);
     savedNodeModulesEnv = process.env.KEEPMIND_NODE_MODULES;
     process.env.KEEPMIND_NODE_MODULES = installRoot;
+    // The chain ALSO derives ~/.claude/plugins/data/keepmind-keepmind, which on
+    // a developer machine holds a real dependency tree and would satisfy the
+    // sentinels no matter what these tests set up. Redirect the config dir too.
+    savedConfigDirEnv = process.env.CLAUDE_CONFIG_DIR;
+    savedPluginDataEnv = process.env.CLAUDE_PLUGIN_DATA;
+    process.env.CLAUDE_CONFIG_DIR = join(installRoot, 'config');
+    delete process.env.CLAUDE_PLUGIN_DATA;
     // The candidate chain ends at the cwd, and this repo HAS a node_modules —
     // which would make the sentinels resolve and suppress every repair. Run from
     // an empty directory so only the roots under test can satisfy them.
@@ -113,6 +122,10 @@ describe('plugin dependency self-repair', () => {
     process.argv[1] = savedArgv1;
     if (savedNodeModulesEnv === undefined) delete process.env.KEEPMIND_NODE_MODULES;
     else process.env.KEEPMIND_NODE_MODULES = savedNodeModulesEnv;
+    if (savedConfigDirEnv === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = savedConfigDirEnv;
+    if (savedPluginDataEnv === undefined) delete process.env.CLAUDE_PLUGIN_DATA;
+    else process.env.CLAUDE_PLUGIN_DATA = savedPluginDataEnv;
     resetPluginResolution();
     for (const dir of [root, installRoot, cwdSandbox]) {
       if (dir) try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
