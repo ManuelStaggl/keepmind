@@ -227,6 +227,43 @@ describe('Plugin Distribution - package.json Files Field', () => {
     expect(packageJson.files).toContain('plugin/skills');
     expect(packageJson.files).toContain('plugin/scripts/*.cjs');
   });
+
+  // `files` is an allowlist, so a path the plugin manifest resolves at install
+  // time is silently absent from the tarball unless it is listed. That is how
+  // `plugin/stubs` went missing: plugin/package.json overrides onnxruntime-web
+  // to `file:./stubs/onnxruntime-web` and bun.lock pins it, so a registry
+  // install ran `bun install --frozen-lockfile` against a path that did not
+  // exist. It stayed invisible locally because sync-marketplace.cjs mirrors the
+  // working tree, which does have the directory. Assert the rule, not the case.
+  it('ships every local file: dependency the plugin manifest resolves', () => {
+    const packageJson = JSON.parse(readFileSync(path.join(projectRoot, 'package.json'), 'utf-8'));
+    const pluginPackageJson = JSON.parse(
+      readFileSync(path.join(projectRoot, 'plugin', 'package.json'), 'utf-8'),
+    );
+
+    const localSpecs = Object.values<string>({
+      ...(pluginPackageJson.dependencies ?? {}),
+      ...(pluginPackageJson.overrides ?? {}),
+    }).filter((spec) => typeof spec === 'string' && spec.startsWith('file:'));
+
+    // Guard the guard: if the overrides ever stop using file: specs this test
+    // must fail loudly rather than pass vacuously.
+    expect(localSpecs.length).toBeGreaterThan(0);
+
+    for (const spec of localSpecs) {
+      const relative = spec.slice('file:'.length).replace(/^\.\//, '');
+      const onDisk = path.join(projectRoot, 'plugin', relative);
+      expect(existsSync(onDisk)).toBe(true);
+
+      // Covered by the allowlist means: an entry naming this path or a parent
+      // directory of it. `files` entries are POSIX-style, so compare that way.
+      const posixPath = `plugin/${relative.split(path.sep).join('/')}`;
+      const covered = (packageJson.files as string[]).some(
+        (entry) => posixPath === entry || posixPath.startsWith(`${entry}/`),
+      );
+      expect(covered).toBe(true);
+    }
+  });
 });
 
 describe('Plugin Distribution - Build Script Verification', () => {
