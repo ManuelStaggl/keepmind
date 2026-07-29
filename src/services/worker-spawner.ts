@@ -17,6 +17,7 @@ import {
   waitForReadiness,
 } from './infrastructure/HealthMonitor.js';
 import { acquireSpawnLock, releaseSpawnLock } from '../shared/worker-spawn-gate.js';
+import { ensurePluginDependencies } from './plugin-deps-repair.js';
 
 export type WorkerStartResult = 'ready' | 'warming' | 'dead';
 
@@ -144,6 +145,12 @@ export async function ensureWorkerStarted(
   let resolvedPort = port;
   try {
     if (spawnLockHeld) {
+      // Under the lock so only one repair runs at a time. A worker spawned
+      // without node_modules dies on its first require; repairing here turns a
+      // silent permanent outage into a one-off delay.
+      if (!ensurePluginDependencies(workerScriptPath)) {
+        return 'dead';
+      }
       logger.info('SYSTEM', 'Starting worker daemon', { workerScriptPath });
       const pid = spawnDaemon(workerScriptPath, port);
       if (pid === undefined) {
