@@ -19,7 +19,10 @@ import { getAuthMethodDescription } from '../shared/EnvManager.js';
 import { logger } from '../utils/logger.js';
 import { ChromaSync } from './sync/ChromaSync.js';
 import { SqliteVecManager } from './vector/SqliteVecManager.js';
-import { vectorDepsAvailable, attemptVectorDepsSelfRepair } from './vector/vector-deps-repair.js';
+import { vectorDepsAvailable, attemptVectorDepsSelfRepair, probeVectorDeps } from './vector/vector-deps-repair.js';
+import { recordVectorDegraded, clearVectorDegraded } from '../shared/vector-health.js';
+import { drainHookSpool } from '../shared/hook-spool.js';
+import { VECTOR_SEARCH_SETUP_REMEDIATION } from '../shared/dependency-health.js';
 import { EmbedderService } from './vector/EmbedderService.js';
 import { configureSupervisorSignalHandlers, getSupervisor, startSupervisor } from '../supervisor/index.js';
 import { sanitizeEnv } from '../supervisor/env-sanitizer.js';
@@ -679,16 +682,30 @@ export class WorkerService implements WorkerRef {
       if (this.vectorSearchEnabled) {
         try {
           SqliteVecManager.instance().load();
+          clearVectorDegraded();
           logger.info('SYSTEM', 'In-process vector store loaded (sqlite-vec)');
         } catch (error) {
           logger.error('SYSTEM', 'sqlite-vec failed to load — semantic search will degrade to keyword search', {}, error as Error);
+          // Leave a marker the NEXT SessionStart hook reads, so the user is told
+          // once, in the session, that search has silently lost half its
+          // capability. Logging alone kept this invisible for weeks.
+          const probe = probeVectorDeps();
+          recordVectorDegraded(
+            probe.ok ? 'load_failed' : probe.reason,
+            probe.ok ? (error instanceof Error ? error.message : String(error)) : probe.message,
+            VECTOR_SEARCH_SETUP_REMEDIATION,
+          );
           // Common right after a plugin update that didn't reinstall node_modules:
           // the native vector deps are simply missing. Try a one-time background
           // reinstall and, on success, bring vector search up without a restart.
           if (!vectorDepsAvailable()) {
             attemptVectorDepsSelfRepair(() => {
               try {
+                // The boot failure latched; the reinstall is exactly the event
+                // that makes a retry meaningful.
+                SqliteVecManager.instance().resetLoadFailure();
                 SqliteVecManager.instance().load();
+                clearVectorDegraded();
                 EmbedderService.instance().warmup().catch(() => { /* best-effort */ });
                 logger.info('SYSTEM', 'In-process vector store loaded after self-repair');
               } catch (reloadError) {
@@ -742,6 +759,15 @@ export class WorkerService implements WorkerRef {
       this.resolveInitialization();
       logger.info('SYSTEM', 'Core initialization complete (DB + search ready)');
 
+      // Replay hook calls that arrived while this worker was starting (or while
+      // a previous one was busy/absent). Deferred off the boot path with
+      // setImmediate: the queue can hold up to 1000 entries and nothing here
+      // blocks readiness — the point is that the data is no longer lost, not
+      // that it lands in the same millisecond.
+      setImmediate(() => {
+        void this.drainBufferedHookCalls();
+      });
+
       await this.startTranscriptWatcher(settings);
 
       if (this.vectorSearchEnabled) {
@@ -762,6 +788,43 @@ export class WorkerService implements WorkerRef {
       return;
     } catch (error) {
       logger.error('SYSTEM', 'Background initialization failed', {}, error instanceof Error ? error : undefined);
+    }
+  }
+
+  /**
+   * Replay hook payloads buffered while no worker could take them (A2).
+   *
+   * Delivery goes back through this worker's own HTTP API rather than calling
+   * the route handlers directly: the entries were produced against that
+   * contract, and re-entering it keeps validation, content-hash de-duplication
+   * and platform-source handling identical to a live hook call. A replayed
+   * observation must not be able to take a shortcut a real one cannot.
+   */
+  private async drainBufferedHookCalls(): Promise<void> {
+    try {
+      const port = this.boundPort || getConfiguredWorkerPort();
+      if (!port) return;
+
+      await drainHookSpool(async (entry) => {
+        try {
+          const response = await fetch(`http://127.0.0.1:${port}${entry.url}`, {
+            method: entry.method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(entry.body),
+            signal: AbortSignal.timeout(15_000),
+          });
+          // 4xx means this payload will never be accepted — dropping it is the
+          // only way it stops consuming a retry slot on every boot.
+          return {
+            ok: response.ok,
+            permanent: response.status >= 400 && response.status < 500,
+          };
+        } catch {
+          return { ok: false, permanent: false };
+        }
+      });
+    } catch (error) {
+      logger.debug('WORKER', 'Hook spool drain failed', {}, error instanceof Error ? error : undefined);
     }
   }
 

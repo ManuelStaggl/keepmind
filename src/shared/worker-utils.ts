@@ -14,6 +14,7 @@ import { checkVersionMatch } from "../services/infrastructure/index.js";
 // ProcessManager imports nothing from worker-utils, so no cycle.
 import { resolveWorkerRuntimePath } from "../services/infrastructure/ProcessManager.js";
 import { acquireSpawnLock, releaseSpawnLock } from "./worker-spawn-gate.js";
+import { spoolWorkerCall } from "./hook-spool.js";
 
 function readTimeoutEnv(
   envName: string,
@@ -682,6 +683,10 @@ export async function executeWithWorkerFallback<T = unknown>(
   const alive = await ensureWorkerAliveOnce();
   if (!alive) {
     await recordWorkerUnreachable();
+    // Buffer instead of discarding. Every "worker not ready" path above returns
+    // false, and each one used to mean an observation was gone for good.
+    // Read-path calls are filtered out inside spoolWorkerCall.
+    spoolWorkerCall(url, method, body);
     return { continue: true, reason: 'worker_unreachable', [WORKER_FALLBACK_BRAND]: true };
   }
 
@@ -699,7 +704,10 @@ export async function executeWithWorkerFallback<T = unknown>(
     const text = await response.text().catch(() => '');
     resetWorkerFailureCounter();
     if (response.status === 429 || response.status >= 500) {
-      logger.warn('SYSTEM', `Worker API ${method} ${url} returned ${response.status}; skipping hook API call`, {
+      // Overload or an internal error — the payload is still good, so buffer it
+      // rather than dropping it; the drain runs when the worker is healthy again.
+      spoolWorkerCall(url, method, body);
+      logger.warn('SYSTEM', `Worker API ${method} ${url} returned ${response.status}; buffered for replay`, {
         body: text.substring(0, 200),
       });
       return {
