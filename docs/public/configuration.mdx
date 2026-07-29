@@ -63,7 +63,45 @@ Use [LiteLLM Gateway](configuration/litellm-gateway) when you want `KEEPMIND_PRO
 |-------------------------------|---------------------------------|---------------------------------------|
 | `KEEPMIND_DATA_DIR`         | `~/.keepmind`                 | Data directory location               |
 | `KEEPMIND_LOG_LEVEL`        | `INFO`                          | Log verbosity (DEBUG, INFO, WARN, ERROR, SILENT) |
+| `KEEPMIND_LOG_DEDUP`          | `1`                             | Collapse identical repeated log lines. Set `0` for one line per event when tracing. |
+| `KEEPMIND_GRAMMAR_AUTOINSTALL`| `1`                             | Fetch non-core tree-sitter grammars on first use. Set `0` on air-gapped machines. |
 | `CLAUDE_CODE_PATH`            | _(auto-detect)_                 | Path to Claude Code CLI (for Windows) |
+
+#### Log deduplication
+
+A single recurring cause could otherwise write one line per event indefinitely.
+The first occurrence of a given line inside a 60-second window is written in
+full; repeats are counted, and the next line after the window carries
+`(repeated N× in the previous Ms)`, so nothing is silently lost. Lines are
+considered repeats only when their level, component, message **and** payload all
+match — two different failures that share a message stay separate.
+
+#### Tree-sitter grammars
+
+The plugin ships grammars for the languages that appear in almost any project
+(JS/TS/TSX, Python, C#, PowerShell, XML/XAML, Markdown, YAML, TOML, CSS, Bash).
+Anything else is fetched on first use into `~/.keepmind/grammars`, so an install
+does not carry hundreds of megabytes of grammars for languages the machine never
+sees. The fetch never blocks: the file that triggered it is folded without
+symbols, and the grammar is in place for the next one.
+
+### Memory Quality
+
+A nested `memoryQuality` object in `settings.json`. Every field is optional.
+
+| Key                              | Default | Description                                              |
+|----------------------------------|---------|----------------------------------------------------------|
+| `vectorRetention.enabled`        | `true`  | Drop vectors for projects with no activity in the window |
+| `vectorRetention.inactiveDays`   | `90`    | How long a project may be dormant before eviction        |
+| `expiry.enabled`                 | `false` | Archive stale, low-importance, never-recalled observations |
+
+`vectorRetention` defaults on because it is reversible: only the vector index is
+touched. The observation stays in SQLite, keyword search still finds it, and a
+project that becomes active again is re-embedded automatically. `expiry`
+defaults off because it archives the observations themselves.
+
+Activity counts retrieval as well as writes, so a finished project whose
+memories are still being read is not treated as dormant.
 
 ## Model Configuration
 
@@ -129,11 +167,20 @@ The data directory location depends on the environment:
 ~/.keepmind/
 ├── keepmind.db           # SQLite database
 ├── .install-version        # Version marker written by `npx keepmind install`/`repair`
+├── .vector-health.json     # Written when the vector store fails to load; cleared on success
 ├── settings.json           # Worker port + provider/model settings
+├── grammars/               # Tree-sitter grammars fetched on demand
+├── spool/                  # Hook calls buffered while no worker could accept them
+├── vector-db/              # sqlite-vec store (vectors.db)
 └── logs/
     ├── worker-out.log      # Worker stdout logs
     └── worker-error.log    # Worker stderr logs
 ```
+
+`spool/` is normally empty. Entries appear when a hook fired while the worker was
+starting, absent or overloaded — payloads that would otherwise have been dropped
+— and are replayed once the worker is ready and idle. A count that never falls
+means the worker is not starting; `npx keepmind doctor` reports it.
 
 ### Plugin Directory Structure
 
