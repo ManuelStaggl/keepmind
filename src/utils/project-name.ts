@@ -18,6 +18,52 @@ function expandTilde(p: string): string {
  * unavailable). `--show-toplevel` resolves to the working-tree root even when
  * invoked from a worktree or a nested subdirectory.
  */
+// Resolving the repo root costs a `git` PROCESS SPAWN — ~25 ms on Windows,
+// measured — and getProjectContext() runs on every observation the worker
+// ingests plus every hook that needs a project key. That single spawn dominated
+// the per-observation cost.
+//
+// Positive and negative results are cached differently because they age
+// differently: a directory's repo root is effectively immutable for the life of
+// a process, while "not a repo" becomes wrong the moment someone runs `git init`
+// — so negatives expire and positives do not.
+const repoRootCache = new Map<string, string>();
+const notARepoCache = new Map<string, number>();
+const NOT_A_REPO_TTL_MS = 60_000;
+const REPO_CACHE_MAX = 256;
+
+/** Test hook: drop the repo-root caches. */
+export function resetProjectNameCacheForTesting(): void {
+  repoRootCache.clear();
+  notARepoCache.clear();
+}
+
+function cachedGitRepoRoot(dir: string, now: number = Date.now()): string | null {
+  const hit = repoRootCache.get(dir);
+  if (hit !== undefined) return hit;
+
+  const missAt = notARepoCache.get(dir);
+  if (missAt !== undefined && now - missAt < NOT_A_REPO_TTL_MS) return null;
+
+  const root = findGitRepoRoot(dir);
+  if (root) {
+    // Map insertion order is iteration order, so the first key is the oldest.
+    if (repoRootCache.size >= REPO_CACHE_MAX) {
+      const oldest = repoRootCache.keys().next();
+      if (!oldest.done) repoRootCache.delete(oldest.value);
+    }
+    repoRootCache.set(dir, root);
+    notARepoCache.delete(dir);
+  } else {
+    if (notARepoCache.size >= REPO_CACHE_MAX) {
+      const oldest = notARepoCache.keys().next();
+      if (!oldest.done) notARepoCache.delete(oldest.value);
+    }
+    notARepoCache.set(dir, now);
+  }
+  return root;
+}
+
 function findGitRepoRoot(dir: string): string | null {
   try {
     const root = execFileSync('git', ['rev-parse', '--show-toplevel'], {
@@ -47,7 +93,7 @@ export function getProjectName(cwd: string | null | undefined): string {
   // #2663 — derive the project name from the git repo root when inside a repo so
   // the name is stable across subdirectories/worktrees. Fall back to the cwd
   // basename when not in a repo.
-  const repoRoot = findGitRepoRoot(expanded);
+  const repoRoot = cachedGitRepoRoot(expanded);
   const nameSource = repoRoot ?? expanded;
 
   const basename = path.basename(nameSource);
