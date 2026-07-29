@@ -357,6 +357,26 @@ export class SqliteVecManager {
     return removed;
   }
 
+  /**
+   * Drop every vec row belonging to a project (retention eviction). Returns the
+   * number removed. No-op when the vec store was never loaded, so an eviction
+   * pass never forces a load on a degraded install.
+   */
+  deleteByProject(project: string): number {
+    if (!this.db) return 0;
+    const res = this.db
+      .prepare('DELETE FROM vec_documents WHERE project = ? OR merged_into_project = ?')
+      .run(project, project);
+    return Number(res.changes ?? 0);
+  }
+
+  /** Distinct projects currently holding vectors. */
+  listProjects(): string[] {
+    if (!this.db) return [];
+    const rows = this.db.prepare('SELECT DISTINCT project FROM vec_documents').all() as Array<{ project: string }>;
+    return rows.map(r => r.project).filter((p): p is string => typeof p === 'string' && p.length > 0);
+  }
+
   /** Patch merged_into_project for the given sqlite_ids (worktree adoption). */
   updateMergedIntoProject(sqliteIds: number[], mergedIntoProject: string): number {
     if (sqliteIds.length === 0) return 0;

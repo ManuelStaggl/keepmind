@@ -26,6 +26,8 @@ import * as SqliteFilesModule from '../sqlite/observations/files.js';
 
 type SessionStoreType = InstanceType<typeof SessionStoreImpl>;
 import { SqliteVecManager, type VecChunk, type VecFilter } from '../vector/SqliteVecManager.js';
+import { lastActivityByProject, isProjectInactive } from '../vector/vector-retention.js';
+import { loadMemoryQualityConfig } from '../config/memory-quality.js';
 
 type SessionStore = SessionStoreType;
 type SessionStoreCtor = new () => SessionStoreType;
@@ -665,9 +667,30 @@ export class VectorSync {
 
     VectorSync.backfillInProgress = true;
     try {
-      const projects = db.db.prepare(
+      const allProjects = db.db.prepare(
         'SELECT DISTINCT project FROM observations WHERE project IS NOT NULL AND project != ?'
       ).all('') as { project: string }[];
+
+      // Skip projects retention considers dormant. Without this gate the two
+      // features fight: the maintenance loop evicts an inactive project's
+      // vectors and the next boot's backfill immediately re-embeds them, paying
+      // the embedding cost forever and reclaiming nothing. Same predicate on
+      // both sides, so "inactive" means one thing.
+      const retention = loadMemoryQualityConfig().vectorRetention;
+      let projects = allProjects;
+      if (retention.enabled) {
+        const activity = lastActivityByProject(db.db);
+        projects = allProjects.filter(
+          ({ project }) => !isProjectInactive(activity, project, retention.inactiveDays),
+        );
+        const skipped = allProjects.length - projects.length;
+        if (skipped > 0) {
+          logger.info('VECTOR_SYNC', 'Skipping backfill for dormant projects', {
+            skipped,
+            inactiveDays: retention.inactiveDays,
+          });
+        }
+      }
 
       logger.info('VECTOR_SYNC', `Backfill check for ${projects.length} projects`);
 

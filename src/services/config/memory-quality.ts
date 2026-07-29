@@ -25,6 +25,13 @@ export interface MemoryQualityConfig {
   };
   supersession: { enabled: boolean };
   expiry: { enabled: boolean; ttlDays: number; importanceFloor: number; hardDelete: boolean };
+  /**
+   * Inactivity retention for the VECTOR index only (D1). Safe to default on:
+   * evicting a vector destroys nothing — the observation stays in SQLite, stays
+   * findable by keyword search, and is re-embedded automatically if the project
+   * becomes active again.
+   */
+  vectorRetention: { enabled: boolean; inactiveDays: number };
   optimizer: { enabled: boolean; tickMinutes: number; vacuumHours: number };
 }
 
@@ -46,6 +53,10 @@ export const MEMORY_QUALITY_DEFAULTS: MemoryQualityConfig = {
   },
   supersession: { enabled: false },
   expiry: { enabled: false, ttlDays: 28, importanceFloor: 7, hardDelete: false },
+  // 90 days: long enough that a project you return to after a quarter still has
+  // its vectors, short enough to reclaim finished work. Unlike expiry this is
+  // reversible, which is why it defaults on where expiry does not.
+  vectorRetention: { enabled: true, inactiveDays: 90 },
   optimizer: { enabled: true, tickMinutes: 5, vacuumHours: 24 },
 };
 
@@ -95,6 +106,7 @@ export function loadMemoryQualityConfig(force = false): MemoryQualityConfig {
     reconcile: mergeSection(def.reconcile, raw?.reconcile),
     supersession: mergeSection(def.supersession, raw?.supersession),
     expiry: mergeSection(def.expiry, raw?.expiry),
+    vectorRetention: mergeSection(def.vectorRetention, raw?.vectorRetention),
     optimizer: mergeSection(def.optimizer, raw?.optimizer),
   };
 

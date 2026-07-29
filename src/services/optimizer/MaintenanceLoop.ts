@@ -14,6 +14,7 @@ import { expireStaleObservations } from '../expiry/expiry.js';
 import { redactSecrets, redactSecretsDeep } from '../redaction/redact-secrets.js';
 import { SqliteVecManager } from '../vector/SqliteVecManager.js';
 import { BACKUPS_DIR } from '../../shared/paths.js';
+import { evictInactiveProjectVectors } from '../vector/vector-retention.js';
 
 const RETRO_SCRUB_SENTINEL = 9001; // schema_versions marker: retro-scrub complete
 const MIN_IDLE_MS = 30_000;
@@ -74,6 +75,7 @@ export class MaintenanceLoop {
         () => this.jobWalCheckpoint(),
         () => this.jobVacuum(),
         () => this.jobVectorMaintenance(),
+        () => this.jobVectorRetention(),
         () => this.jobPruneBackups(),
       ];
       const job = jobs[this.jobIndex % jobs.length];
@@ -117,6 +119,26 @@ export class MaintenanceLoop {
       } catch (error) {
         logger.warn('SYSTEM', 'MaintenanceLoop vector purge for expired observations failed', {}, error instanceof Error ? error : new Error(String(error)));
       }
+    }
+  }
+
+  /**
+   * D1: drop vectors for projects nobody has touched in months. Reversible —
+   * the SQLite rows stay, and a project that becomes active again is re-embedded
+   * by the normal backfill (whose watermark comes from the vec store itself).
+   */
+  private jobVectorRetention(): void {
+    const cfg = this.deps.getConfig();
+    if (!cfg.vectorRetention.enabled) return;
+
+    try {
+      const vec = SqliteVecManager.instance();
+      if (!vec.isLoaded()) return;
+      evictInactiveProjectVectors(this.deps.getStore().db, vec, {
+        inactiveDays: cfg.vectorRetention.inactiveDays,
+      });
+    } catch (error) {
+      logger.warn('SYSTEM', 'MaintenanceLoop vector retention failed', {}, error instanceof Error ? error : new Error(String(error)));
     }
   }
 
