@@ -11,10 +11,12 @@ import { fileEditHandler } from './file-edit.js';
 import { fileContextHandler } from './file-context.js';
 import { sessionAcquireHandler } from './session-acquire.js';
 import { sessionReleaseHandler } from './session-release.js';
+import { sessionStartHandler } from './session-start.js';
 import { precompactHandler } from './precompact.js';
 
 export type EventType =
   | 'context'
+  | 'session-start'
   | 'session-init'
   | 'observation'
   | 'summarize'
@@ -27,6 +29,9 @@ export type EventType =
 
 const handlers: Record<EventType, EventHandler> = {
   'context': contextHandler,
+  // Bundles session-acquire + context into one hook (perf plan P3). The two
+  // sub-events stay registered above/below for other hosts and older configs.
+  'session-start': sessionStartHandler,
   'session-init': sessionInitHandler,
   'observation': observationHandler,
   'summarize': summarizeHandler,
@@ -60,4 +65,5 @@ export { fileEditHandler } from './file-edit.js';
 export { fileContextHandler } from './file-context.js';
 export { sessionAcquireHandler } from './session-acquire.js';
 export { sessionReleaseHandler } from './session-release.js';
+export { sessionStartHandler } from './session-start.js';
 export { precompactHandler } from './precompact.js';

@@ -95,14 +95,15 @@ function shellTemplateManifest(buildShellCommand) {
           trailingCommand: ['node', '"$_P/scripts/version-check.js"'],
           notFoundMessage: 'keepmind: version-check.js not found',
         }),
-        // No trailingJson: `worker-service start` already prints its own status
-        // JSON via exitWithStatus/buildStatusOutput. Appending a second object
-        // made stdout two concatenated JSON objects = invalid JSON, so Claude
-        // Code could not parse it, ignored suppressOutput, and rendered the raw
-        // text at the top of every session (upstream b1984920).
-        'SessionStart.0.0': claudeHook(['start']),
-        'SessionStart.0.1': claudeHook(['hook', 'claude-code', 'context']),
-        'SessionStart.0.2': claudeHook(['hook', 'claude-code', 'session-acquire']),
+        // ONE SessionStart hook (perf plan P3). It used to be three:
+        // `start`, `context`, `session-acquire` — three Node cold starts and
+        // three runs of the defensive plugin-root resolution, ~6.5-13s total. The
+        // `start` command was dropped outright (hook-client-entry.ts calls the
+        // same ensureWorkerStarted() on every hook, so it was redundant while
+        // being the priciest hook of the session: it parsed the ~2.7MB worker
+        // bundle to do nothing else). The other two are bundled by the
+        // `session-start` handler; see src/cli/handlers/session-start.ts.
+        'SessionStart.0.0': claudeHook(['hook', 'claude-code', 'session-start']),
         'UserPromptSubmit.0.0': claudeHook(['hook', 'claude-code', 'session-init']),
         'PostToolUse.0.0': claudeHook(['hook', 'claude-code', 'observation']),
         'PreToolUse.0.0': claudeHook(['hook', 'claude-code', 'file-context']),
@@ -191,6 +192,25 @@ async function verifyShellTemplateCanonical() {
         }
       }
     } else {
+      // The command loop below only visits paths the manifest knows about, so an
+      // EXTRA hook entry would slip through unnoticed — exactly how SessionStart
+      // grew to three Node cold starts. Assert the manifest accounts for every
+      // hook in the file, so adding one is a deliberate manifest change.
+      const declared = new Set(Object.keys(spec.commands));
+      for (const [event, groups] of Object.entries(parsed.hooks ?? {})) {
+        groups.forEach((group, groupIdx) => {
+          (group.hooks ?? []).forEach((_hook, hookIdx) => {
+            const dottedPath = `${event}.${groupIdx}.${hookIdx}`;
+            if (!declared.has(dottedPath)) {
+              throw new Error(
+                `${filePath} declares a hook at ${dottedPath} that the canonical manifest does not know about. ` +
+                `Add it to shellTemplateManifest() in scripts/build-hooks.js, or remove it — every hook costs a Node cold start on the host.`
+              );
+            }
+          });
+        });
+      }
+
       let mutated = false;
       for (const [dottedPath, expected] of Object.entries(spec.commands)) {
         const actual = hookCommandByPath(parsed, dottedPath);

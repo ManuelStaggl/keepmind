@@ -146,8 +146,11 @@ function collectStdin() {
 
     const timer = setTimeout(() => finish(collected()), 5000);
     // unref'd as belt-and-braces: even if a future settle path forgets to clear
-    // it, a pending timer must never hold the process open.
-    timer.unref?.();
+    // it, a pending timer must never hold the process open. No optional chaining
+    // here — this launcher must parse on pre-ES2020 Node (issue #2791).
+    if (timer && typeof timer.unref === 'function') {
+      timer.unref();
+    }
 
     process.stdin.on('data', (chunk) => chunks.push(chunk));
     process.stdin.on('end', () => finish(collected()));
