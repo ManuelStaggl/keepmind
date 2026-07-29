@@ -105,12 +105,18 @@ export class SettingsDefaultsManager {
     // toggles, schema loading, and shell polling. Skipping them at ingest means
     // the event never reaches the compression LLM at all — cheaper than letting
     // the model decide "not worth recording" one paid turn at a time.
+    // This list is the SECOND line of defense. On Claude Code the PostToolUse
+    // matcher in plugin/hooks/hooks.json now allow-lists tool names, so a skipped
+    // tool never even spawns the hook. Hosts whose matcher granularity is coarser
+    // (codex-hooks.json, cursor-hooks/hooks.json still match broadly) rely on this
+    // list instead — there the hook runs and the skip happens here, at ingest.
     KEEPMIND_SKIP_TOOLS: [
       'ListMcpResourcesTool', 'SlashCommand', 'Skill', 'TodoWrite', 'AskUserQuestion',
       'ToolSearch',                                   // loads tool schemas; no work happened
       'BashOutput', 'KillShell',                      // polling/teardown of a shell already observed
       'EnterPlanMode', 'ExitPlanMode',                // mode toggle; the plan itself is observed elsewhere
       'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',  // task-list bookkeeping, like TodoWrite
+      'Glob', 'Grep',                                 // navigation; the files they lead to are observed via Read/Edit
     ].join(','),
     KEEPMIND_PROVIDER: 'claude',  // Default to Claude
     KEEPMIND_CLAUDE_AUTH_METHOD: 'subscription',  // Default to logged-in Claude SDK auth (not API key)
