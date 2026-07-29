@@ -1,6 +1,6 @@
 ---
 name: claude-code-plugin-release
-description: Automated semantic versioning and release workflow for Claude Code plugins. Handles version increments across package.json, marketplace.json, plugin.json manifests, build verification, git tagging, GitHub releases, and changelog generation. NPM publishing (so `npx keepmind@X.Y.Z` resolves) is handed off to the human maintainer, who raised npm security.
+description: Automated semantic versioning and release workflow for Claude Code plugins. Handles version increments across package.json, marketplace.json, plugin.json manifests, build verification, git tagging, GitHub releases, and changelog generation. Pushing the tag publishes to npm automatically via OIDC trusted publishing in CI - no local publish, no human step.
 ---
 
 # Version Bump & Release Workflow
@@ -33,20 +33,21 @@ description: Automated semantic versioning and release workflow for Claude Code 
 4.  **Commit**: `git add -A && git commit -m "chore: bump version to X.Y.Z"`.
 5.  **Tag**: `git tag -a vX.Y.Z -m "Version X.Y.Z"`.
 6.  **Push**: `git push origin main && git push origin vX.Y.Z`.
-7.  **Publish to npm — HAND OFF TO HUMAN.** The human maintainer raised npm
-    security, so publishing now requires credentials/2FA only they can provide.
-    The agent MUST NOT run `npm publish` (or `np` / `npm run release:*`, which
-    also publish) itself. **Hand off NPM publishing to the human now:** stop and
-    tell them the version is committed, tagged, and pushed, and that they must
-    publish to npm to make `npx keepmind@X.Y.Z` resolve. Give them the command:
+7.  **npm publish — AUTOMATIC, do nothing.** Pushing the `vX.Y.Z` tag in step 6
+    triggers `.github/workflows/npm-publish.yml`, which publishes via **OIDC
+    trusted publishing**: the runner mints a short-lived id-token that npm
+    verifies against the package's configured trusted publisher. There is no
+    stored `NPM_TOKEN` and no 2FA prompt, so no human step is involved.
+
+    Do NOT run `npm publish` (or `np` / `npm run release:*`) locally. This machine
+    has no npm credentials at all (`npm whoami` → E401) and a local publish would
+    only duplicate what CI already did.
+
+    Just verify it landed (the workflow takes ~90s):
     ```bash
-    npm publish   # run by the HUMAN — the prepublishOnly script rebuilds the package
-    ```
-    Wait for the human to confirm they published, then verify it landed:
-    ```bash
+    gh run list --workflow=npm-publish.yml --limit 1
     npm view keepmind@X.Y.Z version   # should print X.Y.Z
     ```
-    If the publish build touched local artifacts, run `npm run build-and-sync` again afterward.
 8.  **GitHub release**: `gh release create vX.Y.Z --title "vX.Y.Z" --notes "RELEASE_NOTES"`.
 9.  **Changelog**: Regenerate via the project's changelog script:
     ```bash
@@ -67,8 +68,8 @@ description: Automated semantic versioning and release workflow for Claude Code 
 - [ ] `git grep` for old version returns zero hits
 - [ ] `npm run build-and-sync` succeeded
 - [ ] Git tag created and pushed
-- [ ] **NPM publishing handed off to the human** (agent does NOT run `npm publish` — human raised security); once they publish, `npm view keepmind@X.Y.Z version` confirms it (so `npx keepmind@X.Y.Z` resolves)
+- [ ] `npm-publish.yml` run succeeded and `npm view keepmind@X.Y.Z version` prints X.Y.Z (so `npx keepmind@X.Y.Z` resolves) — published by CI, not locally
 - [ ] GitHub release created with notes
 - [ ] `CHANGELOG.md` updated and pushed
-- [ ] Discord notification run from `~/Scripts/keepmind/`
+- [ ] Discord notification run from `~/Scripts/keepmind/` — needs a `.env` with `DISCORD_UPDATES_WEBHOOK`; skip and say so if that directory is not on the machine
 - [ ] `git status` shows clean tree
