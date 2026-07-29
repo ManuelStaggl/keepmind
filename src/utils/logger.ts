@@ -106,14 +106,52 @@ export function resetLogDedupForTesting(): void {
 
 
 /**
+ * A cheap, bounded fingerprint of a line's variable payload.
+ *
+ * Keying suppression on the message text alone would collapse genuinely
+ * DIFFERENT events that share a message — "Batch embed/insert failed" for three
+ * separate batches, or a per-session warning across sessions — and the detail
+ * that distinguishes them lives entirely in `context`/`data`. Folding those into
+ * the key keeps distinct failures distinct while still collapsing the case this
+ * exists for: a repeated module-load error whose context is identical every time.
+ *
+ * Truncated because the key is built on the hot path and never read back.
+ */
+function payloadFingerprint(context?: LogContext, data?: unknown): string {
+  try {
+    let out = '';
+    if (context) {
+      for (const key of Object.keys(context).sort()) {
+        out += `${key}=${String((context as Record<string, unknown>)[key])};`;
+        if (out.length > 200) break;
+      }
+    }
+    if (data instanceof Error) out += `E:${data.message}`;
+    else if (typeof data === 'string' || typeof data === 'number' || typeof data === 'boolean') out += `D:${data}`;
+    else if (data) out += 'D:obj';
+    return out.slice(0, 200);
+  } catch {
+    // A getter that throws must not break logging.
+    return '';
+  }
+}
+
+/**
  * Decide whether this line is written, and with what repeat suffix.
  *
  * Returns null when the line is a repeat inside an open window (caller drops
  * it), or a suffix string ('' or ' (repeated N× in the previous Ms)') to append
  * when it is written.
  */
-export function classifyRepeat(level: LogLevel, component: string, message: string, now: number): string | null {
-  const key = `${level}|${component}|${message}`;
+export function classifyRepeat(
+  level: LogLevel,
+  component: string,
+  message: string,
+  now: number,
+  context?: LogContext,
+  data?: unknown,
+): string | null {
+  const key = `${level}|${component}|${message}|${payloadFingerprint(context, data)}`;
   const entry = dedupState.get(key);
 
   if (entry && now - entry.windowStartedAt < DEDUP_WINDOW_MS) {
@@ -319,7 +357,7 @@ class Logger {
     // KEEPMIND_LOG_DEDUP=0 when chasing an exact per-event trace.
     let repeatSuffix = '';
     if (process.env.KEEPMIND_LOG_DEDUP !== '0') {
-      const classified = classifyRepeat(level, component, message, Date.now());
+      const classified = classifyRepeat(level, component, message, Date.now(), context, data);
       if (classified === null) return;
       repeatSuffix = classified;
     }

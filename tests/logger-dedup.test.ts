@@ -116,6 +116,35 @@ describe('logger repeat suppression (A3 — one cause must not write 2157 lines)
     });
   });
 
+  it('does not collapse different failures that share a message', () => {
+    // "Batch embed/insert failed" for three separate batches is three events;
+    // the detail that distinguishes them lives in the context, not the message.
+    const msg = uniqueMessage();
+    logger.error('VECTOR_SYNC', msg, { batch: 1 });
+    logger.error('VECTOR_SYNC', msg, { batch: 2 });
+    logger.error('VECTOR_SYNC', msg, { batch: 3 });
+
+    expect(linesMatching(msg)).toHaveLength(3);
+  });
+
+  it('does not collapse the same message carrying different errors', () => {
+    const msg = uniqueMessage();
+    logger.error('SYSTEM', msg, {}, new Error('disk full'));
+    logger.error('SYSTEM', msg, {}, new Error('permission denied'));
+
+    expect(linesMatching(msg)).toHaveLength(2);
+  });
+
+  it('still collapses a repeat whose payload is identical every time', () => {
+    // The sqlite-vec flood: same message, same empty context, same error.
+    const msg = uniqueMessage();
+    for (let i = 0; i < 50; i++) {
+      logger.error('SYSTEM', msg, {}, new Error("Cannot find module 'sqlite-vec'"));
+    }
+
+    expect(linesMatching(msg)).toHaveLength(1);
+  });
+
   it('KEEPMIND_LOG_DEDUP=0 restores a line per event for tracing', () => {
     const msg = uniqueMessage();
     process.env.KEEPMIND_LOG_DEDUP = '0';
