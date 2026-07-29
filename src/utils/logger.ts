@@ -75,6 +75,68 @@ interface LogContext {
 export type ErrorSink = (err: unknown, ctx?: Record<string, unknown>) => void;
 let errorSink: ErrorSink | null = null;
 
+// ---------------------------------------------------------------------------
+// Repeat suppression
+//
+// A single recurring cause could write one line per event forever: a missing
+// sqlite-vec produced 2157 identical ERROR lines in one day (each carrying a
+// multi-line "Require stack:" in its message), and 55.8 MB of logs across 15
+// files. The information content of line 2000 is zero — what matters is that it
+// happened and how often.
+//
+// So: the first occurrence of a (level, component, message) triple inside a
+// window is written in full; further occurrences are counted, not written. The
+// next line emitted after the window closes carries the suppressed count, so no
+// occurrence is ever silently lost. Context/data payloads of the suppressed
+// repeats ARE dropped — that is the point; the first one is representative.
+const DEDUP_WINDOW_MS = 60_000;
+const DEDUP_MAX_KEYS = 500;
+
+interface DedupEntry {
+  windowStartedAt: number;
+  suppressed: number;
+}
+
+const dedupState = new Map<string, DedupEntry>();
+
+/** Test hook: drop the repeat-suppression state between cases. */
+export function resetLogDedupForTesting(): void {
+  dedupState.clear();
+}
+
+
+/**
+ * Decide whether this line is written, and with what repeat suffix.
+ *
+ * Returns null when the line is a repeat inside an open window (caller drops
+ * it), or a suffix string ('' or ' (repeated N× in the previous Ms)') to append
+ * when it is written.
+ */
+export function classifyRepeat(level: LogLevel, component: string, message: string, now: number): string | null {
+  const key = `${level}|${component}|${message}`;
+  const entry = dedupState.get(key);
+
+  if (entry && now - entry.windowStartedAt < DEDUP_WINDOW_MS) {
+    entry.suppressed++;
+    return null;
+  }
+
+  // Map insertion order is iteration order, so the first key is the least
+  // recently *started* window — good enough for a bounded cache whose only job
+  // is to stop unbounded growth.
+  if (!entry && dedupState.size >= DEDUP_MAX_KEYS) {
+    const oldest = dedupState.keys().next();
+    if (!oldest.done) dedupState.delete(oldest.value);
+  }
+
+  const suppressed = entry?.suppressed ?? 0;
+  const windowSeconds = entry ? Math.round((now - entry.windowStartedAt) / 1000) : 0;
+  dedupState.set(key, { windowStartedAt: now, suppressed: 0 });
+
+  return suppressed > 0
+    ? ` (repeated ${suppressed}× in the previous ${windowSeconds}s)`
+    : '';
+}
 
 class Logger {
   private level: LogLevel | null = null;
@@ -252,6 +314,16 @@ class Logger {
   ): void {
     if (level < this.getLevel()) return;
 
+    // Repeat suppression runs BEFORE any formatting so a hot loop of identical
+    // lines costs a map lookup, not a JSON.stringify. Opt out with
+    // KEEPMIND_LOG_DEDUP=0 when chasing an exact per-event trace.
+    let repeatSuffix = '';
+    if (process.env.KEEPMIND_LOG_DEDUP !== '0') {
+      const classified = classifyRepeat(level, component, message, Date.now());
+      if (classified === null) return;
+      repeatSuffix = classified;
+    }
+
     this.ensureLogFileInitialized();
 
     const timestamp = this.formatTimestamp(new Date());
@@ -291,7 +363,7 @@ class Logger {
       }
     }
 
-    const logLine = `[${timestamp}] [${levelStr}] [${componentStr}] ${correlationStr}${message}${contextStr}${dataStr}`;
+    const logLine = `[${timestamp}] [${levelStr}] [${componentStr}] ${correlationStr}${message}${repeatSuffix}${contextStr}${dataStr}`;
 
     if (this.logFilePath) {
       try {
