@@ -32,12 +32,16 @@ describe('bun-runner.js hook path: single Node process (perf plan P1)', () => {
   });
 
   it('only takes the in-process path for hook commands with a payload', () => {
-    expect(source).toMatch(/if\s*\(\s*inProcessClient\s*&&\s*hasPayload\s*\)/);
+    // KEEPMIND_HOOK_SPAWN=1 is the escape hatch back to the legacy two-process path.
+    expect(source.includes('if (inProcessClient && hasPayload && !forceSpawn) {')).toBe(true);
+    expect(source.includes("const forceSpawn = process.env.KEEPMIND_HOOK_SPAWN === '1';")).toBe(true);
     // inProcessClient is set ONLY inside the `hook` branch, so lifecycle
     // commands (start/stop/restart/status) can never reach the in-process path.
     const hookBranch = source.match(/if \(args\.includes\('hook'\)\) \{[\s\S]*?\n\}/);
     expect(hookBranch).not.toBeNull();
-    expect(hookBranch![0]).toContain('inProcessClient = slimClient');
+    // resolve()d, not the raw join: createRequire treats a relative string as a
+    // bare module specifier and would look it up in node_modules.
+    expect(hookBranch![0]).toContain('inProcessClient = resolve(slimClient)');
   });
 
   it('hands the already-drained payload over on the agreed global', () => {

@@ -113,6 +113,12 @@ describe('Plugin Distribution - Codex Marketplace', () => {
     }
   });
 
+  it('ships a single Claude Code SessionStart command (perf plan P3)', () => {
+    const hooks = readJson('plugin/hooks/hooks.json');
+    expect(hooks.hooks.SessionStart).toHaveLength(1);
+    expect(hooks.hooks.SessionStart[0].hooks).toHaveLength(1);
+  });
+
   it('ships a single Codex SessionStart command', () => {
     const codexHooks = readJson('plugin/hooks/codex-hooks.json');
     expect(codexHooks.hooks.SessionStart[0].hooks).toHaveLength(1);
@@ -298,10 +304,11 @@ const RULE_A_EXPECTATIONS: Record<string, Record<string, string>> = {
       trailingCommand: ['node', '"$_P/scripts/version-check.js"'],
       notFoundMessage: 'keepmind: version-check.js not found',
     }),
-    // No trailingJson: `start` prints its own status JSON, so appending a second
-    // object made stdout invalid JSON and Claude Code rendered it verbatim.
-    'SessionStart.0.0': claudeHook(['start']),
-    'SessionStart.0.1': claudeHook(['hook', 'claude-code', 'context']),
+    // ONE SessionStart hook (perf plan P3). It was three: `start`, `context` and
+    // `session-acquire`, i.e. three Node cold starts. `start` was redundant —
+    // every hook already calls ensureWorkerStarted() — and the other two are
+    // bundled by the `session-start` handler.
+    'SessionStart.0.0': claudeHook(['hook', 'claude-code', 'session-start']),
     'UserPromptSubmit.0.0': claudeHook(['hook', 'claude-code', 'session-init']),
     'PostToolUse.0.0': claudeHook(['hook', 'claude-code', 'observation']),
     'PreToolUse.0.0': claudeHook(['hook', 'claude-code', 'file-context']),

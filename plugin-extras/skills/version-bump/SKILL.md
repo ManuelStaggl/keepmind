@@ -16,18 +16,19 @@ description: Automated semantic versioning and release workflow for Claude Code 
 3.  **Paths — every file that carries the version string**:
     - `package.json` — **the npm/npx-published version** (`npx keepmind@X.Y.Z` resolves from this)
     - `plugin/package.json` — bundled plugin runtime deps
-    - `.claude-plugin/marketplace.json` — version inside `plugins[0].version`
+    - `.claude-plugin/marketplace.json` — a version inside **every** entry of `plugins[]`: `keepmind` AND `keepmind-extras`
     - `.claude-plugin/plugin.json` — top-level Claude-plugin manifest
     - `plugin/.claude-plugin/plugin.json` — bundled Claude-plugin manifest
+    - `plugin-extras/.claude-plugin/plugin.json` — the optional-skills plugin. Its `name` is `keepmind-extras` and MUST stay that way; a plugin is keyed by name, so renaming it orphans every install.
     - `.codex-plugin/plugin.json` — Codex-plugin manifest
     - `plugin/.codex-plugin/plugin.json` — bundled Codex-plugin manifest
 
-    Verify coverage before editing: `git grep -l "\"version\": \"<OLD>\""` should list all seven. If a new manifest has been added since this doc was last updated, update this list.
+    Verify coverage before editing: `git grep -l "\"version\": \"<OLD>\""` should list all eight. If a new manifest has been added since this doc was last updated, update this list.
 
 ## Workflow
 
-1.  **Update**: Increment the version string in every path above. Do NOT touch `CHANGELOG.md` — it's regenerated.
-2.  **Verify**: `git grep -n "\"version\": \"<NEW>\""` — confirm all eight files match. `git grep -n "\"version\": \"<OLD>\""` — should return zero hits.
+1.  **Update**: Bump `package.json` and `plugin/package.json`, then run `node scripts/sync-plugin-manifests.js` — it propagates the version into every plugin manifest and every marketplace entry, and preserves `keepmind-extras`'s own name/description. Do NOT touch `CHANGELOG.md` — it's regenerated.
+2.  **Verify**: `git grep -n "\"version\": \"<NEW>\""` — confirm every file above matches, including both marketplace entries. `git grep -n "\"version\": \"<OLD>\""` — should return zero hits.
 3.  **Build and sync**: `npm run build-and-sync` to regenerate artifacts, sync the local marketplace copy, restart the worker, and clear the queue. Do not use plain `npm run build` for release validation because it can leave the local marketplace/worker out of sync.
 4.  **Commit**: `git add -A && git commit -m "chore: bump version to X.Y.Z"`.
 5.  **Tag**: `git tag -a vX.Y.Z -m "Version X.Y.Z"`.

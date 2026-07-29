@@ -12,6 +12,8 @@ const codexPluginPath = path.join(rootDir, '.codex-plugin', 'plugin.json');
 const bundledCodexPluginPath = path.join(rootDir, 'plugin', '.codex-plugin', 'plugin.json');
 const claudePluginPath = path.join(rootDir, '.claude-plugin', 'plugin.json');
 const bundledClaudePluginPath = path.join(rootDir, 'plugin', '.claude-plugin', 'plugin.json');
+const extrasPluginPath = path.join(rootDir, 'plugin-extras', '.claude-plugin', 'plugin.json');
+const marketplacePath = path.join(rootDir, '.claude-plugin', 'marketplace.json');
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -63,6 +65,38 @@ function syncClaudePlugin(plugin, pkg) {
   };
 }
 
+/**
+ * keepmind-extras is a SEPARATE plugin in the same marketplace: it ships the
+ * optional workflow skills so their frontmatter descriptions do not sit resident
+ * in every session that only wants the memory system.
+ *
+ * Unlike syncClaudePlugin it must NOT take `name`, `description` or `keywords`
+ * from package.json — those belong to the core plugin, and a plugin is keyed by
+ * name (renaming it would orphan every existing install). Only the version and
+ * the shared provenance fields track the release.
+ */
+function syncExtrasPlugin(plugin, pkg) {
+  return {
+    ...plugin,
+    version: pkg.version,
+    homepage: pkg.homepage,
+    repository: normalizeRepositoryUrl(pkg.repository),
+    license: pkg.license,
+    author: {
+      ...(typeof plugin.author === 'object' && plugin.author ? plugin.author : {}),
+      name: normalizeAuthorName(pkg.author),
+    },
+  };
+}
+
+/** Keep every marketplace entry's version in step with package.json. */
+function syncMarketplace(marketplace, pkg) {
+  return {
+    ...marketplace,
+    plugins: (marketplace.plugins ?? []).map((entry) => ({ ...entry, version: pkg.version })),
+  };
+}
+
 function normalizeAuthorName(author) {
   if (typeof author === 'string') return author;
   if (author && typeof author === 'object' && typeof author.name === 'string') return author.name;
@@ -81,7 +115,7 @@ function normalizeRepositoryUrl(repository) {
 }
 
 function main() {
-  for (const filePath of [packageJsonPath, codexPluginPath, bundledCodexPluginPath, claudePluginPath, bundledClaudePluginPath]) {
+  for (const filePath of [packageJsonPath, codexPluginPath, bundledCodexPluginPath, claudePluginPath, bundledClaudePluginPath, extrasPluginPath, marketplacePath]) {
     if (!fs.existsSync(filePath)) {
       console.error(`Missing required file: ${filePath}`);
       process.exit(1);
@@ -98,6 +132,8 @@ function main() {
   writeJson(bundledCodexPluginPath, syncCodexPlugin(bundledCodexPlugin, pkg));
   writeJson(claudePluginPath, syncClaudePlugin(claudePlugin, pkg));
   writeJson(bundledClaudePluginPath, syncClaudePlugin(bundledClaudePlugin, pkg));
+  writeJson(extrasPluginPath, syncExtrasPlugin(readJson(extrasPluginPath), pkg));
+  writeJson(marketplacePath, syncMarketplace(readJson(marketplacePath), pkg));
 
   console.log('✓ Synced plugin manifests from package.json');
 }

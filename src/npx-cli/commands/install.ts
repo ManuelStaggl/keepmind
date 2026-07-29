@@ -152,6 +152,12 @@ function registerPlugin(version: string): void {
   writeJsonFileAtomic(installedPluginsPath(), installedPlugins);
 }
 
+/**
+ * Enables the CORE plugin only. `keepmind-extras@keepmind` is deliberately left
+ * alone: its 12 workflow-skill descriptions would then sit resident in every
+ * session, which is exactly the cost the core/extras split removes. Users who
+ * want them opt in via /plugin.
+ */
 function enablePluginInClaudeSettings(): void {
   const settings = readJsonSafe<Record<string, any>>(claudeSettingsPath(), {});
 

@@ -31,32 +31,38 @@ describe('PostToolUse matcher (perf plan P2)', () => {
     expect(postToolUseMatcher.endsWith('$')).toBe(true);
   });
 
-  it.each([
-    'Read', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit',
-    'Bash', 'PowerShell',
-    'Task', 'Agent',
-    'WebFetch', 'WebSearch',
-  ])('observes %s — it produces an observation', (tool) => {
-    expect(matches(tool)).toBe(true);
+  // Asserted as list-vs-list rather than one expect per name: the shim's expect()
+  // takes no message argument, so a bare toBe(true) in a loop would report only
+  // "expected false to be true" without naming the tool that broke.
+  const notMatching = (tools: string[]): string[] => tools.filter((tool) => !matches(tool));
+  const matching = (tools: string[]): string[] => tools.filter((tool) => matches(tool));
+
+  it('observes the tools that produce observations', () => {
+    expect(notMatching([
+      'Read', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit',
+      'Bash', 'PowerShell',
+      'Task', 'Agent',
+      'WebFetch', 'WebSearch',
+    ])).toEqual([]);
   });
 
-  it.each([
-    'mcp__hass__GetLiveContext',
-    'mcp__context7__query-docs',
-    'mcp__claude-in-chrome__get_page_text',
-  ])('observes %s — MCP calls carry real content and stay in memory', (tool) => {
-    expect(matches(tool)).toBe(true);
+  it('observes MCP calls — they carry real content and stay in memory', () => {
+    expect(notMatching([
+      'mcp__hass__GetLiveContext',
+      'mcp__context7__query-docs',
+      'mcp__claude-in-chrome__get_page_text',
+    ])).toEqual([]);
   });
 
-  it.each([
-    'Glob', 'Grep',                                     // navigation only
-    'ToolSearch',                                       // loads schemas; no work happened
-    'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',   // bookkeeping
-    'TodoWrite', 'AskUserQuestion', 'Skill', 'SlashCommand',
-    'EnterPlanMode', 'ExitPlanMode',
-    'BashOutput', 'KillShell',
-  ])('skips %s — no hook process is spawned for it at all', (tool) => {
-    expect(matches(tool)).toBe(false);
+  it('spawns no hook process at all for tools without recallable content', () => {
+    expect(matching([
+      'Glob', 'Grep',                                     // navigation only
+      'ToolSearch',                                       // loads schemas; no work happened
+      'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',   // bookkeeping
+      'TodoWrite', 'AskUserQuestion', 'Skill', 'SlashCommand',
+      'EnterPlanMode', 'ExitPlanMode',
+      'BashOutput', 'KillShell',
+    ])).toEqual([]);
   });
 
   it('does not leak partial matches in either direction', () => {

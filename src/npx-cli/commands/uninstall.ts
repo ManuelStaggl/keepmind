@@ -86,9 +86,14 @@ export function removeFromClaudeSettings(): void {
   const settings = readJsonSafe<Record<string, any>>(claudeSettingsPath(), {});
   let dirty = false;
 
-  if (settings.enabledPlugins?.['keepmind@keepmind'] !== undefined) {
-    delete settings.enabledPlugins['keepmind@keepmind'];
-    dirty = true;
+  // Both plugins from this marketplace: the installer only ever enables the core
+  // one, but a user who opted into keepmind-extras via /plugin would otherwise be
+  // left with a dangling entry pointing at a marketplace that is gone.
+  for (const key of ['keepmind@keepmind', 'keepmind-extras@keepmind']) {
+    if (settings.enabledPlugins?.[key] !== undefined) {
+      delete settings.enabledPlugins[key];
+      dirty = true;
+    }
   }
 
   // Symmetric counterpart to disableClaudeAutoMemory() in install.ts. The

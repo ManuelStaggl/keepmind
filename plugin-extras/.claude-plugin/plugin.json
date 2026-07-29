@@ -1,0 +1,18 @@
+{
+  "name": "keepmind-extras",
+  "version": "2.0.0",
+  "description": "Optional keepmind workflow skills - planning, releases, digests and reports. Install alongside keepmind when you want them; the memory system does not need them.",
+  "author": {
+    "name": "Manuel Staggl"
+  },
+  "repository": "https://github.com/ManuelStaggl/keepmind",
+  "license": "Apache-2.0",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "plugin",
+    "skills",
+    "keepmind"
+  ],
+  "homepage": "https://github.com/ManuelStaggl/keepmind#readme"
+}

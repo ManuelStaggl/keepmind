@@ -46,7 +46,8 @@
     "plugin/scripts/*.js",
     "plugin/scripts/*.cjs",
     "plugin/skills",
-    "plugin/ui"
+    "plugin/ui",
+    "plugin-extras"
   ],
   "engines": {
     "node": ">=22.5.0"
