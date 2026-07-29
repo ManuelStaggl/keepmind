@@ -291,29 +291,25 @@ async function buildHooks() {
         '@huggingface/transformers': '^4.2.0',
         'sqlite-vec': '^0.1.9',
         'tree-sitter-cli': '^0.26.10',
-        'tree-sitter-c': '^0.24.1',
-        'tree-sitter-cpp': '^0.23.4',
-        'tree-sitter-go': '^0.25.0',
-        'tree-sitter-java': '^0.23.5',
+        // CORE GRAMMARS ONLY — must stay in sync with CORE_LANGUAGES in
+        // src/services/smart-file-read/parser.ts.
+        //
+        // Everything else (cpp, go, java, ruby, rust, kotlin, swift, php,
+        // elixir, lua, scala, haskell, zig, scss, sql, c) is fetched on first
+        // use into ~/.keepmind/grammars — see grammar-installer.ts. Shipping
+        // them all cost ~380 MB of node_modules that a given machine mostly
+        // never touches; one measured install carried swift, scala, cpp,
+        // haskell, ruby and php against a repo with zero files in any of them.
         'tree-sitter-javascript': '^0.25.0',
-        'tree-sitter-python': '^0.25.0',
-        'tree-sitter-ruby': '^0.23.1',
-        'tree-sitter-rust': '^0.24.0',
         'tree-sitter-typescript': '^0.23.2',
-        'tree-sitter-kotlin': '^0.3.8',
-        'tree-sitter-swift': '^0.7.1',
-        'tree-sitter-php': '^0.24.2',
-        'tree-sitter-elixir': '^0.3.5',
-        '@tree-sitter-grammars/tree-sitter-lua': '^0.4.1',
-        'tree-sitter-scala': '^0.24.0',
+        'tree-sitter-python': '^0.25.0',
+        'tree-sitter-c-sharp': '^0.23.5',
+        'tree-sitter-powershell': '^0.26.4',
+        '@tree-sitter-grammars/tree-sitter-xml': '^0.7.0',
         'tree-sitter-bash': '^0.25.1',
-        'tree-sitter-haskell': '^0.23.1',
-        '@tree-sitter-grammars/tree-sitter-zig': '^1.1.2',
         'tree-sitter-css': '^0.25.0',
-        'tree-sitter-scss': '^1.0.0',
         '@tree-sitter-grammars/tree-sitter-toml': '^0.7.0',
         '@tree-sitter-grammars/tree-sitter-yaml': '^0.7.1',
-        '@derekstride/tree-sitter-sql': '^0.3.11',
         '@tree-sitter-grammars/tree-sitter-markdown': '^0.3.2',
         'shell-quote': '^1.9.0',
       },

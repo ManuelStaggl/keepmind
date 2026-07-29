@@ -5,6 +5,7 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { logger } from "../../utils/logger.js";
+import { resolveOnDemandGrammar, requestGrammarInstall } from "./grammar-installer.js";
 
 const _require = typeof __filename !== 'undefined'
   ? createRequire(__filename)
@@ -51,6 +52,21 @@ const LANG_MAP: Record<string, string> = {
   ".cxx": "cpp",
   ".hpp": "cpp",
   ".hh": "cpp",
+  ".cs": "c_sharp",
+  ".csx": "c_sharp",
+  ".ps1": "powershell",
+  ".psm1": "powershell",
+  ".psd1": "powershell",
+  // XAML is XML. Without this, a WPF/Avalonia project's entire view layer is
+  // structurally unreadable — .xaml was the third-largest source extension in
+  // the install that surfaced this.
+  ".xml": "xml",
+  ".xaml": "xml",
+  ".axaml": "xml",
+  ".csproj": "xml",
+  ".props": "xml",
+  ".targets": "xml",
+  ".resx": "xml",
   ".kt": "kotlin",
   ".kts": "kotlin",
   ".swift": "swift",
@@ -193,6 +209,9 @@ export function loadUserGrammars(projectRoot: string): UserGrammarConfig {
 }
 
 const GRAMMAR_PACKAGES: Record<string, string> = {
+  c_sharp: "tree-sitter-c-sharp",
+  powershell: "tree-sitter-powershell",
+  xml: "@tree-sitter-grammars/tree-sitter-xml",
   javascript: "tree-sitter-javascript",
   typescript: "tree-sitter-typescript/typescript",
   tsx: "tree-sitter-typescript/tsx",
@@ -220,10 +239,37 @@ const GRAMMAR_PACKAGES: Record<string, string> = {
   markdown: "@tree-sitter-grammars/tree-sitter-markdown",
 };
 
+// Packages that ship several grammars side by side; the language lives in a
+// subdirectory rather than at the package root.
 const GRAMMAR_SUBDIR: Record<string, string> = {
   markdown: "tree-sitter-markdown",
+  xml: "xml",   // the package also ships a `dtd` grammar
 };
 
+/**
+ * Grammars that ship with the plugin. Everything else in GRAMMAR_PACKAGES is
+ * fetched on first use (see grammar-installer.ts).
+ *
+ * The split is by how likely a given machine is to contain the language at all,
+ * not by popularity in the abstract: a repo that has zero Swift files pays 73 MB
+ * for the Swift grammar regardless of how popular Swift is. Core is the set that
+ * shows up across almost any project — build config, docs, scripts, web — plus
+ * the languages we cannot fold without.
+ */
+const CORE_LANGUAGES = new Set([
+  "javascript", "typescript", "tsx",
+  "python",
+  "c_sharp", "powershell", "xml",
+  "markdown", "yaml", "toml",
+  "css",
+  "bash",
+]);
+
+export function isCoreLanguage(language: string): boolean {
+  return CORE_LANGUAGES.has(language);
+}
+
+/** Resolve from the plugin's own node_modules (the shipped core). */
 function resolveGrammarPath(language: string): string | null {
   const pkg = GRAMMAR_PACKAGES[language];
   if (!pkg) return null;
@@ -251,6 +297,19 @@ function resolveGrammarPath(language: string): string | null {
 export function resolveGrammarPathWithFallback(language: string, projectRoot?: string): string | null {
   const bundled = resolveGrammarPath(language);
   if (bundled) return bundled;
+
+  // Previously fetched on demand?
+  const pkg = GRAMMAR_PACKAGES[language];
+  if (pkg) {
+    const onDemand = resolveOnDemandGrammar(pkg, GRAMMAR_SUBDIR[language]);
+    if (onDemand) return onDemand;
+
+    // A known language with no grammar on disk: fetch it for next time. This
+    // returns immediately — the current file is folded without symbols rather
+    // than blocking a hook on a package install.
+    requestGrammarInstall(language, pkg);
+    return null;
+  }
 
   if (!projectRoot) return null;
 
@@ -296,6 +355,33 @@ const QUERIES: Record<string, string> = {
 (method_definition name: (property_identifier) @name) @method
 (import_statement) @imp
 (export_statement) @exp
+`,
+
+  c_sharp: `
+(class_declaration name: (identifier) @name) @cls
+(record_declaration name: (identifier) @name) @cls
+(struct_declaration name: (identifier) @name) @struct_def
+(interface_declaration name: (identifier) @name) @iface
+(enum_declaration name: (identifier) @name) @enm
+(method_declaration name: (identifier) @name) @method
+(constructor_declaration name: (identifier) @name) @method
+(property_declaration name: (identifier) @name) @prop
+(delegate_declaration name: (identifier) @name) @tdef
+(using_directive) @imp
+`,
+
+  powershell: `
+(function_statement (function_name) @name) @func
+(class_statement (simple_name) @name) @cls
+(enum_statement (simple_name) @name) @enm
+(class_method_definition (simple_name) @name) @method
+`,
+
+  // XML/XAML has no functions to fold — the element tree IS the structure, so
+  // elements map to container kinds and nest the same way classes do.
+  xml: `
+(element (STag (Name) @name)) @cls
+(element (EmptyElemTag (Name) @name)) @cls
 `,
 
   python: `
@@ -451,6 +537,9 @@ function getQueryKey(language: string): string {
     case "typescript":
     case "tsx":
       return "jsts";
+    case "c_sharp": return "c_sharp";
+    case "powershell": return "powershell";
+    case "xml": return "xml";
     case "python": return "python";
     case "go": return "go";
     case "rust": return "rust";
@@ -601,13 +690,16 @@ const KIND_MAP: Record<string, CodeSymbol["kind"]> = {
   trait_def: "trait",
   impl_def: "impl",
   mixin_def: "mixin",
+  prop: "property",
   heading: "section",
   code_block: "code",
   frontmatter: "metadata",
   ref: "reference",
 };
 
-const CONTAINER_KINDS = new Set(["class", "struct", "impl", "trait"]);
+// Interfaces hold members too — a C# or Java interface rendered flat puts its
+// methods at file level, next to the interface rather than inside it.
+const CONTAINER_KINDS = new Set(["class", "struct", "impl", "trait", "interface"]);
 
 function extractSignatureFromLines(lines: string[], startRow: number, endRow: number, maxLen: number = 200): string {
   const firstLine = lines[startRow] || "";
@@ -770,15 +862,24 @@ function buildSymbols(matches: RawMatch[], lines: string[], language: string): {
     }
   }
 
+  // Attach each symbol to its INNERMOST enclosing container. Claiming it from
+  // every enclosing container instead duplicated it at each level: an XML tree
+  // three deep rendered the leaf under its parent AND under its grandparent.
+  // Class-in-class is rare enough that this stayed invisible until XAML.
   const nested = new Set<CodeSymbol>();
-  for (const container of containers) {
-    for (const sym of symbols) {
+  for (const sym of symbols) {
+    let innermost: typeof containers[number] | null = null;
+    for (const container of containers) {
       if (sym === container.sym) continue;
-      if (sym.lineStart > container.startRow && sym.lineEnd <= container.endRow) {
-        if (sym.kind === "function") sym.kind = "method";
-        container.sym.children!.push(sym);
-        nested.add(sym);
+      if (sym.lineStart <= container.startRow || sym.lineEnd > container.endRow) continue;
+      if (!innermost || container.startRow > innermost.startRow) {
+        innermost = container;
       }
+    }
+    if (innermost) {
+      if (sym.kind === "function") sym.kind = "method";
+      innermost.sym.children!.push(sym);
+      nested.add(sym);
     }
   }
 
