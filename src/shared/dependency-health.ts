@@ -2,7 +2,7 @@ export type DependencyStatusKind =
   | 'ok'
   | 'setup_required';
 
-export type DependencyName = 'claude_cli';
+export type DependencyName = 'claude_cli' | 'vector_search';
 
 export interface DependencyStatus {
   dependency: DependencyName;
@@ -42,8 +42,16 @@ export function recordDependencyStatus(
   return status;
 }
 
+export const VECTOR_SEARCH_SETUP_REMEDIATION =
+  'Run `npx keepmind install` to restore the native vector dependencies. ' +
+  'Bun is required for that install — install it first if it is missing (winget install Oven-sh.Bun).';
+
 export function recordClaudeCliSetupRequired(message: string): DependencyStatus {
   return recordDependencyStatus('claude_cli', 'setup_required', message, CLAUDE_CLI_SETUP_REMEDIATION);
+}
+
+export function recordVectorSearchSetupRequired(message: string): DependencyStatus {
+  return recordDependencyStatus('vector_search', 'setup_required', message, VECTOR_SEARCH_SETUP_REMEDIATION);
 }
 
 export function clearDependencyStatus(dependency: DependencyName): void {

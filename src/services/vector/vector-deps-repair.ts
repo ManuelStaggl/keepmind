@@ -42,6 +42,60 @@ export function vectorDepsAvailable(): boolean {
   return true;
 }
 
+export interface VectorDepsProbe {
+  ok: boolean;
+  /** Machine-readable cause: 'deps_missing' | 'load_failed' | 'binary_missing'. */
+  reason: string;
+  message: string;
+}
+
+/**
+ * Verify that vector search can ACTUALLY start — resolve each native dep, load
+ * sqlite-vec, and confirm the loadable binary it points at exists on disk.
+ *
+ * `resolve()` alone is not enough and was the reason the old preflight passed
+ * while the store was broken: a package directory can resolve while its
+ * per-platform binary sibling (sqlite-vec-windows-x64 and friends) is absent, so
+ * the failure only surfaced later, at the first real query. This probe pays the
+ * cost of the actual require once at boot to buy a truthful answer.
+ */
+export function probeVectorDeps(): VectorDepsProbe {
+  for (const dep of NATIVE_VECTOR_DEPS) {
+    try {
+      requireFromWorker.resolve(dep);
+    } catch (error) {
+      return {
+        ok: false,
+        reason: 'deps_missing',
+        message: `${dep} is not installed: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  try {
+    const mod = requireFromWorker('sqlite-vec') as { getLoadablePath?: () => string };
+    if (typeof mod.getLoadablePath !== 'function') {
+      return { ok: false, reason: 'load_failed', message: 'sqlite-vec loaded but exposes no getLoadablePath()' };
+    }
+    const loadablePath = mod.getLoadablePath();
+    if (!existsSync(loadablePath)) {
+      return {
+        ok: false,
+        reason: 'binary_missing',
+        message: `sqlite-vec resolved but its platform binary is missing at ${loadablePath}`,
+      };
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      reason: 'load_failed',
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  return { ok: true, reason: 'ok', message: 'vector deps available' };
+}
+
 /** Locate a usable Bun, or null when none is installed (self-repair is impossible). */
 function findBun(): string | null {
   const candidates = IS_WINDOWS

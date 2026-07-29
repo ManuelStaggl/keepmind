@@ -17,6 +17,7 @@ import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { shouldTrackProject } from '../../shared/should-track-project.js';
 import { readStaleMarker } from '../../shared/oauth-token.js';
 import { readUpdateHint } from '../../shared/update-check.js';
+import { readVectorHealthHint } from '../../shared/vector-health.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { callMcpToolOnce } from '../../shared/mcp-client.js';
 
@@ -132,6 +133,16 @@ export const contextHandler: EventHandler = {
         : hint;
     }
 
+    // Degraded semantic search is the one failure mode with no natural symptom:
+    // search keeps answering, just worse, so nothing prompts the user to look.
+    // Surface it above everything else — it changes how much the rest of this
+    // context can be trusted. Unlike the hints above it also goes to
+    // systemMessage below, because the person, not the model, has to fix it.
+    const vectorHint = readVectorHealthHint();
+    if (vectorHint) {
+      additionalContext = additionalContext ? `${vectorHint}\n\n${additionalContext}` : vectorHint;
+    }
+
     let coloredTimeline = '';
     if (showTerminalOutput) {
       const mcpColorResult = input.platform === 'codex'
@@ -155,9 +166,14 @@ export const contextHandler: EventHandler = {
 
     const displayContent = coloredTimeline || (platform === 'gemini-cli' || platform === 'gemini' ? additionalContext : '');
 
-    const systemMessage = showTerminalOutput && displayContent
+    // The degradation warning must reach the user even when the timeline output
+    // is switched off (the default) — that setting governs cosmetics, not alerts.
+    const timelineMessage = showTerminalOutput && displayContent
       ? `${displayContent}\n\nView Observations Live @ http://localhost:${port}`
       : undefined;
+    const systemMessage = vectorHint
+      ? (timelineMessage ? `${vectorHint}\n\n${timelineMessage}` : vectorHint)
+      : timelineMessage;
 
     return {
       hookSpecificOutput: {

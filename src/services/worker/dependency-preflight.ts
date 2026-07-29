@@ -3,12 +3,15 @@ import { logger } from '../../utils/logger.js';
 import {
   clearDependencyStatus,
   recordClaudeCliSetupRequired,
+  recordVectorSearchSetupRequired,
   snapshotDependencyHealth,
   type DependencyHealthSnapshot,
 } from '../../shared/dependency-health.js';
+import { probeVectorDeps, type VectorDepsProbe } from '../vector/vector-deps-repair.js';
 
 interface DependencyPreflightSettings {
   KEEPMIND_PROVIDER?: string;
+  KEEPMIND_CHROMA_ENABLED?: string;
 }
 
 interface ClassifiedClaudeSetupError {
@@ -20,12 +23,21 @@ export interface WorkerDependencyPreflightOptions {
   settings: DependencyPreflightSettings;
   classifyClaudeError: (error: unknown) => ClassifiedClaudeSetupError;
   findClaudeExecutable?: () => string;
+  /** Injectable for tests; defaults to the real module-load probe. */
+  probeVectorDeps?: () => VectorDepsProbe;
 }
 
 /**
- * Vector search is in-process (sqlite-vec + transformers.js), so the only
- * external dependency the worker can be missing is the Claude CLI — and only
- * when Claude is the selected provider.
+ * Preflight the worker's two runtime dependencies: the Claude CLI (only when
+ * Claude is the selected provider) and the native vector-search modules.
+ *
+ * The vector check used to be absent entirely, on the reasoning that in-process
+ * vector search has no external dependency. It does: sqlite-vec ships a
+ * per-platform native binary that must resolve from node_modules, and it can be
+ * missing. The result was a preflight that reported "passed" four milliseconds
+ * before the vector store failed to load — the check was structurally incapable
+ * of catching the one failure that actually happened, for weeks. So probe the
+ * real module load here, not a proxy for it.
  */
 export function runWorkerDependencyPreflight(options: WorkerDependencyPreflightOptions): DependencyHealthSnapshot {
   const provider = options.settings.KEEPMIND_PROVIDER || 'claude';
@@ -52,6 +64,25 @@ export function runWorkerDependencyPreflight(options: WorkerDependencyPreflightO
   } else {
     clearDependencyStatus('claude_cli');
     logger.debug('SYSTEM', 'Dependency preflight: skipped Claude CLI check', { provider });
+  }
+
+  if (options.settings.KEEPMIND_CHROMA_ENABLED === 'false') {
+    // Vector search is off by configuration — a missing native dep is then not a
+    // degradation, it is the requested state.
+    clearDependencyStatus('vector_search');
+    logger.debug('SYSTEM', 'Dependency preflight: skipped vector check (vector search disabled)');
+  } else {
+    const probe = (options.probeVectorDeps ?? probeVectorDeps)();
+    if (probe.ok) {
+      clearDependencyStatus('vector_search');
+      logger.debug('SYSTEM', 'Dependency preflight: vector deps resolved');
+    } else {
+      recordVectorSearchSetupRequired(probe.message);
+      logger.debug('SYSTEM', 'Dependency preflight: vector deps unavailable', {
+        reason: probe.reason,
+        message: probe.message,
+      });
+    }
   }
 
   return snapshotDependencyHealth();

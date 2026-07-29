@@ -95,10 +95,43 @@ export class SqliteVecManager {
 
   private db: Database | null = null;
   private vecVersion: string | null = null;
+  /**
+   * Sticky first-failure. conn() falls back to load() on EVERY operation, so a
+   * missing native module made each individual observation pay a failed
+   * createRequire + throw, and emit its own ERROR line carrying a multi-line
+   * "Require stack:". That is how one broken install produced 2157 error lines
+   * in a single day. The cause cannot change without a reinstall, so latch it:
+   * re-throw the original error cheaply and let the caller degrade to FTS.
+   * Cleared by resetLoadFailure() after a successful dependency self-repair.
+   */
+  private loadFailure: Error | null = null;
 
   /** Idempotent: open the dedicated vec DB, load sqlite-vec, ensure schema. */
   load(): Database {
     if (this.db) return this.db;
+    if (this.loadFailure) throw this.loadFailure;
+    try {
+      return this.openAndInit();
+    } catch (error) {
+      this.loadFailure = error instanceof Error ? error : new Error(String(error));
+      throw this.loadFailure;
+    }
+  }
+
+  /**
+   * Drop the sticky load failure so the next load() genuinely retries. Called
+   * after the dependency self-repair reinstalls the native modules.
+   */
+  resetLoadFailure(): void {
+    this.loadFailure = null;
+  }
+
+  /** True when a previous load() failed and vector search is degraded. */
+  hasLoadFailed(): boolean {
+    return this.loadFailure !== null;
+  }
+
+  private openAndInit(): Database {
     mkdirSync(VECTOR_DB_DIR, { recursive: true });
     const dbPath = join(VECTOR_DB_DIR, 'vectors.db');
     const db = new Database(dbPath);
