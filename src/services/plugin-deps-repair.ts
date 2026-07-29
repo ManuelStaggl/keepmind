@@ -1,24 +1,24 @@
 
 // Self-heal a plugin install whose node_modules went missing underneath us.
 //
-// The worker bundle lives at <pluginRoot>/scripts/worker-service.cjs and
-// resolves its runtime deps (node:sqlite bindings aside: sqlite-vec, the
-// tree-sitter grammars, @huggingface/transformers) from <pluginRoot>/
-// node_modules. That directory is NOT ours alone: the canonical plugin root is
-// the marketplace install (see worker-utils.resolveWorkerScriptPath), and the
-// host owns that directory. Claude Code tracks it as a git checkout of the
-// marketplace source and restores it from the remote — which deletes every
-// gitignored path, node_modules included. Observed 2026-07-29: a `clone: from
-// github.com/...` reflog entry ~60s after `npx keepmind install` wiped 804 MB
-// of freshly installed dependencies while the running worker (already holding
-// its modules in memory) kept serving, so nothing surfaced until the NEXT
-// spawn — which would have died with an unresolvable require.
+// The dependency tree now lives in the plugin data directory and is resolved
+// through src/shared/plugin-node-modules.ts, precisely so the host cannot delete
+// it. This path remains the backstop, because a data directory can still be
+// absent (a fresh checkout the installer never ran against, a user clearing
+// ~/.claude) and because installs that predate the move still keep their tree
+// beside the bundle.
 //
-// Registering the marketplace with autoUpdate:false removes today's trigger,
-// but not the class of failure: the host owns the directory and may reasonably
-// clean it at any time. So the spawn path repairs instead of dying. A present
-// node_modules costs one existsSync; the repair only runs when the tree is
-// actually gone, and only under the caller's spawn lock (one repair at a time).
+// Why it exists at all: the host tracks the marketplace install as a git
+// checkout and restores it from the remote, which deletes every gitignored path,
+// node_modules included. Observed 2026-07-29 twice — once ~60s after `npx
+// keepmind install` (804 MB), and again at 16:43 during an unrelated session
+// with autoUpdate:false already set (472 MB → 59 MB). The running worker holds
+// its modules in memory and keeps serving, so nothing surfaces until the NEXT
+// spawn, which would die on an unresolvable require. autoUpdate:false removes
+// one trigger, not the class of failure.
+//
+// A present tree costs one existsSync; the repair only runs when nothing
+// resolves, and only under the caller's spawn lock (one repair at a time).
 //
 // A failed repair is latched for REPAIR_COOLDOWN_MS. Without that latch every
 // hook — thousands a day — would launch its own multi-minute install against a
@@ -32,6 +32,8 @@ import { spawnSync } from 'child_process';
 import { logger } from '../utils/logger.js';
 import { toError } from '../utils/to-error.js';
 import { paths } from '../shared/paths.js';
+import { depsInstallRoot, pluginDepsPresent, resetPluginResolution } from '../shared/plugin-node-modules.js';
+import { ensureDepsWorkspace, withDepsInstallLock } from '../shared/plugin-workspace.js';
 
 const REPAIR_TIMEOUT_MS = 180_000;
 const REPAIR_COOLDOWN_MS = 10 * 60_000;
@@ -119,6 +121,10 @@ export interface PluginDepsRepairDeps {
   probe: (cmd: string) => boolean;
   /** Run the install; return null on success or a reason string on failure. */
   runInstall: (cmd: string, args: string[], cwd: string) => string | null;
+  /** Copy manifest, lockfile and local file: deps from the plugin root into the install root. */
+  prepareWorkspace: (sourcePluginRoot: string, installRoot: string) => void;
+  /** Run the install exclusively; null when another process holds the lock. */
+  withInstallLock: <T>(installRoot: string, install: () => T) => T | null;
 }
 
 // windowsHide on both: this runs from the hook-driven spawn path, and an
@@ -139,6 +145,10 @@ const defaultDeps: PluginDepsRepairDeps = {
     if (result.status !== 0) return `exit ${result.status}`;
     return null;
   },
+  prepareWorkspace: (sourcePluginRoot, installRoot) => {
+    ensureDepsWorkspace(sourcePluginRoot, installRoot);
+  },
+  withInstallLock: (installRoot, install) => withDepsInstallLock(installRoot, install),
 };
 
 /**
@@ -153,11 +163,19 @@ export function ensurePluginDependencies(
   deps: PluginDepsRepairDeps = defaultDeps,
 ): boolean {
   const pluginRoot = pluginRootFromWorkerScript(workerScriptPath);
-  const nodeModules = path.join(pluginRoot, 'node_modules');
+  const installRoot = depsInstallRoot();
+  const nodeModules = path.join(installRoot, 'node_modules');
 
-  // The overwhelmingly common case: one stat, then out of the way.
-  if (existsSync(nodeModules)) return true;
+  // The overwhelmingly common case: resolve two sentinel packages, then out of
+  // the way. Named packages rather than a node_modules directory check: this
+  // path runs with the user's project as cwd, and their node_modules would
+  // otherwise pass for ours. An install that has not migrated yet — tree still
+  // beside the bundle — resolves through the legacy candidate and is left alone.
+  if (pluginDepsPresent()) return true;
 
+  // The plugin root is the SOURCE of the manifest and lockfile; the data
+  // directory is the DESTINATION. Without the former there is nothing to
+  // install from.
   if (!existsSync(path.join(pluginRoot, 'package.json'))) {
     logger.error(
       'SYSTEM',
@@ -190,12 +208,35 @@ export function ensurePluginDependencies(
   logger.warn(
     'SYSTEM',
     'Plugin node_modules missing — reinstalling before worker spawn. The host may have restored the marketplace directory from git, which deletes gitignored paths.',
-    { pluginRoot, manager: manager.cmd },
+    { pluginRoot, installRoot, manager: manager.cmd },
   );
 
   const startedAt = Date.now();
   try {
-    const reason = deps.runInstall(manager.cmd, manager.args, pluginRoot);
+    // Stage the manifest, lockfile and any local file: dependency into the data
+    // directory first: bun needs all of them in its cwd, and --frozen-lockfile
+    // fails without the lockfile.
+    //
+    // Under the install lock, because the spawn lock does not cover this: the
+    // installer and the Setup hook write to the same tree and never take it.
+    // A held lock means someone else is already installing — not an error, and
+    // explicitly not latched, so the next hook simply tries again.
+    // Wrapped in an object rather than returned bare: a successful install
+    // reports `null` too, and the lock's "someone else has it" must not be
+    // mistaken for success.
+    const outcome = deps.withInstallLock(installRoot, () => {
+      deps.prepareWorkspace(pluginRoot, installRoot);
+      return { reason: deps.runInstall(manager.cmd, manager.args, installRoot) };
+    });
+    if (outcome === null) {
+      logger.info(
+        'SYSTEM',
+        'Another process is installing the plugin dependencies — skipping this repair and waiting for it',
+        { installRoot },
+      );
+      return false;
+    }
+    const reason = outcome.reason;
     if (reason !== null) {
       logger.error(
         'SYSTEM',
@@ -216,13 +257,16 @@ export function ensurePluginDependencies(
     return false;
   }
 
-  // The install can report success while still leaving nothing behind (wrong
-  // cwd, a lockfile describing an empty closure). Verify what we came for.
-  if (!existsSync(nodeModules)) {
+  // The install can report success while still leaving nothing usable behind (a
+  // lockfile describing an empty closure, a partial tree). Drop the memoized
+  // handles — they answered against the pre-install state — and verify by
+  // resolving what the worker will actually need.
+  resetPluginResolution();
+  if (!pluginDepsPresent()) {
     logger.error(
       'SYSTEM',
-      'Plugin dependency repair reported success but node_modules is still missing. Run `npx keepmind install`.',
-      { pluginRoot, manager: manager.cmd },
+      'Plugin dependency repair reported success but the dependencies still do not resolve. Run `npx keepmind install`.',
+      { pluginRoot, installRoot, nodeModules, manager: manager.cmd },
     );
     recordFailure('no-tree-after-success');
     return false;
@@ -230,6 +274,7 @@ export function ensurePluginDependencies(
 
   logger.info('SYSTEM', 'Plugin dependencies restored — continuing worker spawn', {
     pluginRoot,
+    installRoot,
     manager: manager.cmd,
     ms: Date.now() - startedAt,
   });

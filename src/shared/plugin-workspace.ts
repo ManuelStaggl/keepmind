@@ -19,6 +19,75 @@
 import { existsSync, mkdirSync, cpSync, readFileSync } from 'node:fs';
 import { join, sep, isAbsolute } from 'node:path';
 import { depsInstallRoot } from './plugin-node-modules.js';
+import { acquireFileLock, releaseFileLock } from './file-lock.js';
+
+/**
+ * A dependency install now has ONE destination shared by every path that can
+ * start one: `npx keepmind install`, `npx keepmind repair`, the spawn-time
+ * repair, the worker's vector self-repair, and the Setup hook. Previously they
+ * wrote to different directories (a version cache, the marketplace copy) and
+ * could not corrupt each other; now two concurrent `bun install` runs in the
+ * same tree can. The spawn lock does not cover this — it serialises worker
+ * spawns, not installs, and the installer and the Setup hook never take it.
+ *
+ * 6 minutes: longer than the installer's own install timeout, so a live holder
+ * is never mistaken for a dead one.
+ */
+const DEPS_INSTALL_LOCK_STALE_MS = 6 * 60_000;
+
+function depsInstallLockPath(root: string): string {
+  return join(root, '.deps-install.lock');
+}
+
+/**
+ * Run `install` as the only dependency install on this machine.
+ *
+ * Returns null when another process holds the lock — callers on the hot path
+ * (the spawn repair, the vector repair) must treat that as "not now" and let
+ * the winner finish, NOT as a failure: retrying is what the next hook is for.
+ * Fails open when the filesystem refuses locking, so a lock that cannot be
+ * taken degrades to the previous unlocked behaviour.
+ */
+export function withDepsInstallLock<T>(root: string, install: () => T): T | null {
+  const release = tryAcquireDepsInstallLock(root);
+  if (!release) return null;
+  try {
+    return install();
+  } finally {
+    release();
+  }
+}
+
+/**
+ * Take the install lock without waiting. Returns its release function, or null
+ * when another process holds it.
+ *
+ * For callers whose install is asynchronous and must hold the lock across a
+ * callback (the worker's vector self-repair), where withDepsInstallLock's
+ * synchronous scope would release too early.
+ */
+export function tryAcquireDepsInstallLock(root: string): (() => void) | null {
+  const lockPath = depsInstallLockPath(root);
+  mkdirSync(root, { recursive: true });
+  if (!acquireFileLock(lockPath, DEPS_INSTALL_LOCK_STALE_MS)) return null;
+  return () => releaseFileLock(lockPath);
+}
+
+/**
+ * Wait for the install lock, then return its release function.
+ *
+ * For the user-invoked installer, which must not silently do nothing because a
+ * background repair happened to hold the lock. Polls rather than skipping; the
+ * staleness breaker in acquireFileLock bounds the wait even if a holder dies.
+ */
+export async function awaitDepsInstallLock(root: string): Promise<() => void> {
+  const lockPath = depsInstallLockPath(root);
+  mkdirSync(root, { recursive: true });
+  while (!acquireFileLock(lockPath, DEPS_INSTALL_LOCK_STALE_MS)) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 500));
+  }
+  return () => releaseFileLock(lockPath);
+}
 
 /** Manifest + lockfile. Both required: without either, --frozen-lockfile fails. */
 export const REQUIRED_WORKSPACE_FILES = ['package.json', 'bun.lock'] as const;

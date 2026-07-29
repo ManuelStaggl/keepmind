@@ -16,7 +16,13 @@ import path from 'node:path';
 import { homedir } from 'node:os';
 import { exec, spawnSync } from 'node:child_process';
 import { logger } from '../../utils/logger.js';
-import { pluginRequire, pluginResolve } from '../../shared/plugin-node-modules.js';
+import {
+  pluginRequire,
+  pluginResolve,
+  depsInstallRoot,
+  resetPluginResolution,
+} from '../../shared/plugin-node-modules.js';
+import { ensureDepsWorkspace, tryAcquireDepsInstallLock } from '../../shared/plugin-workspace.js';
 
 const IS_WINDOWS = process.platform === 'win32';
 const NATIVE_VECTOR_DEPS = ['sqlite-vec', '@huggingface/transformers'] as const;
@@ -112,7 +118,11 @@ function findBun(): string | null {
   return null;
 }
 
-/** The plugin dir the worker runs from — worker-service.cjs lives at <plugin>/scripts/. */
+/**
+ * The plugin dir the worker runs from — worker-service.cjs lives at
+ * <plugin>/scripts/. This is the SOURCE of the manifest and lockfile; the
+ * install destination is the plugin data directory (depsInstallRoot).
+ */
 function resolvePluginDir(): string | null {
   const scriptPath = process.argv[1];
   if (!scriptPath) return null;
@@ -145,8 +155,34 @@ export function attemptVectorDepsSelfRepair(onRepaired: () => void): void {
     return;
   }
 
+  // Install into the plugin data directory, never back into the plugin root:
+  // the host restores that directory from git and would delete the tree again.
+  // Staging the manifest, lockfile and local file: deps there first is what
+  // makes --frozen-lockfile possible at all.
+  const installRoot = depsInstallRoot();
+  // Bail out rather than queue when another process is already installing into
+  // this tree: that install produces exactly what this repair wants, and a
+  // second concurrent `bun install` in the same directory corrupts both. The
+  // lock is held across the async exec and released in its callback.
+  const releaseLock = tryAcquireDepsInstallLock(installRoot);
+  if (!releaseLock) {
+    logger.info('VEC', 'Vector deps self-repair skipped: another process is already installing', { installRoot });
+    return;
+  }
+  try {
+    ensureDepsWorkspace(pluginDir, installRoot);
+  } catch (error) {
+    releaseLock();
+    logger.warn('VEC', 'Vector deps self-repair skipped: could not stage the dependency workspace', {
+      pluginDir,
+      installRoot,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+
   const bunCmd = IS_WINDOWS && bun.includes(' ') ? `"${bun}"` : bun;
-  logger.warn('VEC', 'Native vector deps missing — attempting one-time background self-repair via bun install', { pluginDir });
+  logger.warn('VEC', 'Native vector deps missing — attempting one-time background self-repair via bun install', { pluginDir, installRoot });
 
   // --frozen-lockfile: honor the shipped bun.lock. --ignore-scripts: skip
   // untrusted postinstalls; the native binaries (onnxruntime-node, sqlite-vec
@@ -155,20 +191,26 @@ export function attemptVectorDepsSelfRepair(onRepaired: () => void): void {
   exec(
     `${bunCmd} install --frozen-lockfile --ignore-scripts`,
     {
-      cwd: pluginDir,
+      cwd: installRoot,
       timeout: INSTALL_TIMEOUT_MS,
       maxBuffer: 16 * 1024 * 1024,
       ...(IS_WINDOWS ? { shell: process.env.ComSpec ?? 'cmd.exe' } : {}),
     },
     (error) => {
+      // Release on every exit path, before any early return.
+      releaseLock();
       if (error) {
         logger.warn('VEC', 'Vector deps self-repair failed — semantic search stays degraded; run `npx keepmind install`', {
           error: error.message,
         });
         return;
       }
+      // The install just changed what is resolvable, and this worker is
+      // long-lived — drop the memoized handles before asking again, or the
+      // answer would still describe the pre-install state.
+      resetPluginResolution();
       if (!vectorDepsAvailable()) {
-        logger.warn('VEC', 'Vector deps self-repair ran but deps still do not resolve');
+        logger.warn('VEC', 'Vector deps self-repair ran but deps still do not resolve', { installRoot });
         return;
       }
       logger.info('VEC', 'Vector deps self-repair succeeded — enabling semantic search');

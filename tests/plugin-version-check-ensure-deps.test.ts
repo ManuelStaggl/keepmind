@@ -62,7 +62,7 @@ function runVersionCheck(pluginRoot: string, fakeBinDir: string): Promise<{ stde
 
 type BunBehavior = 'success' | 'partial-then-fail';
 
-function makeFreshPlugin(name: string, bunBehavior: BunBehavior = 'success'): { pluginRoot: string; fakeBinDir: string } {
+function makeFreshPlugin(name: string, bunBehavior: BunBehavior = 'success'): { pluginRoot: string; fakeBinDir: string; installRoot: string } {
   const pluginRoot = join(tmpRoot, name);
   mkdirSync(pluginRoot, { recursive: true });
   writeFileSync(join(pluginRoot, 'package.json'), JSON.stringify({
@@ -70,7 +70,15 @@ function makeFreshPlugin(name: string, bunBehavior: BunBehavior = 'success'): { 
     version: '0.0.0',
     dependencies: { zod: '^3.0.0' },
   }));
+  // The install runs --frozen-lockfile, so the workspace staging needs a
+  // lockfile beside the manifest; a plugin root without one is incomplete.
+  writeFileSync(join(pluginRoot, 'bun.lock'), '{ "lockfileVersion": 1 }');
   writeFileSync(join(pluginRoot, '.install-version'), JSON.stringify({ version: '0.0.0' }));
+
+  // Dependencies are installed into the plugin data directory, not back into
+  // the plugin root — the host restores the latter from git. runVersionCheck
+  // points CLAUDE_CONFIG_DIR at the sandbox, so this is where it lands.
+  const installRoot = join(pluginRoot, '.claude', 'plugins', 'data', 'keepmind-keepmind');
 
   const fakeBinDir = join(pluginRoot, '.bin');
   mkdirSync(fakeBinDir, { recursive: true });
@@ -82,15 +90,17 @@ function makeFreshPlugin(name: string, bunBehavior: BunBehavior = 'success'): { 
   //     registry 5xx where node_modules already exists when the failure
   //     surfaces. Required to cover the gh #2650 review-fix path that
   //     cleans up the partial dir so the next Setup run can retry.
+  // Installs relative to $PWD, which is the directory version-check chose as
+  // the install root — so the fake cannot silently disagree with it.
   const fakeBunPath = join(fakeBinDir, 'bun');
   const installBody = bunBehavior === 'success'
     ? [
-        `  mkdir -p "${pluginRoot}/node_modules/zod/v3"`,
-        `  : > "${pluginRoot}/node_modules/zod/v3/index.js"`,
+        '  mkdir -p "$PWD/node_modules/zod/v3"',
+        '  : > "$PWD/node_modules/zod/v3/index.js"',
         '  exit 0',
       ]
     : [
-        `  mkdir -p "${pluginRoot}/node_modules"`,
+        '  mkdir -p "$PWD/node_modules"',
         '  echo "fake bun install failure mid-fetch" 1>&2',
         '  exit 42',
       ];
@@ -104,7 +114,17 @@ function makeFreshPlugin(name: string, bunBehavior: BunBehavior = 'success'): { 
   writeFileSync(fakeBunPath, fakeBunScript);
   chmodSync(fakeBunPath, 0o755);
 
-  return { pluginRoot, fakeBinDir };
+  return { pluginRoot, fakeBinDir, installRoot };
+}
+
+/** Materialise the sentinel packages the skip-guard resolves. */
+function makeInstalledTree(root: string): void {
+  for (const name of ['sqlite-vec', 'zod']) {
+    const dir = join(root, 'node_modules', name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version: '1.0.0', main: 'index.js' }));
+    writeFileSync(join(dir, 'index.js'), 'module.exports = {};');
+  }
 }
 
 beforeAll(() => {
@@ -121,14 +141,20 @@ describe.skipIf(SKIP_NON_UNIX)('version-check Setup-phase ensurePluginDependenci
     // never runs `bun install`. Setup MUST detect the missing node_modules and
     // invoke dependency installation, otherwise the next hook (SessionStart
     // worker spawn) crashes with `Cannot find module 'zod/v3'`.
-    const { pluginRoot, fakeBinDir } = makeFreshPlugin('plugin-fresh');
+    const { pluginRoot, fakeBinDir, installRoot } = makeFreshPlugin('plugin-fresh');
 
     const { stderr, code } = await runVersionCheck(pluginRoot, fakeBinDir);
 
     expect(code).toBe(0);
     expect(stderr).toContain(INSTALL_DIAGNOSTIC);
     expect(stderr).toContain(INSTALL_SUCCESS_DIAGNOSTIC);
-    expect(existsSync(join(pluginRoot, FAKE_INSTALLED_MARKER_REL))).toBe(true);
+    // Installed into the data directory, and NOT back into the plugin root —
+    // the latter is what the host deletes on its next refresh.
+    expect(existsSync(join(installRoot, FAKE_INSTALLED_MARKER_REL))).toBe(true);
+    expect(existsSync(join(pluginRoot, 'node_modules'))).toBe(false);
+    // The manifest and lockfile were staged, or --frozen-lockfile could not run.
+    expect(existsSync(join(installRoot, 'package.json'))).toBe(true);
+    expect(existsSync(join(installRoot, 'bun.lock'))).toBe(true);
   });
 
   test('cleans up partial node_modules after a failed install so next Setup can retry (gh #2650 review)', async () => {
@@ -139,7 +165,7 @@ describe.skipIf(SKIP_NON_UNIX)('version-check Setup-phase ensurePluginDependenci
     // every subsequent Setup run and the user has no recovery path short
     // of a manual `rm -rf node_modules`. Verify that after a failed
     // install the partial dir is removed.
-    const { pluginRoot, fakeBinDir } = makeFreshPlugin('plugin-partial-fail', 'partial-then-fail');
+    const { pluginRoot, fakeBinDir, installRoot } = makeFreshPlugin('plugin-partial-fail', 'partial-then-fail');
 
     // Sanity-check the failure path: node_modules MUST exist before our
     // cleanup runs (otherwise we are not exercising the gh #2650 scenario).
@@ -150,15 +176,15 @@ describe.skipIf(SKIP_NON_UNIX)('version-check Setup-phase ensurePluginDependenci
     expect(code).toBe(0);
     expect(stderr).toContain(INSTALL_FAILURE_DIAGNOSTIC);
     expect(stderr).toContain('exit 42');
-    expect(existsSync(join(pluginRoot, 'node_modules'))).toBe(false);
+    expect(existsSync(join(installRoot, 'node_modules'))).toBe(false);
   });
 
-  test('skips install when node_modules is already present', async () => {
-    // Setup runs on every Claude Code launch. If node_modules already exists,
-    // the install MUST be skipped — otherwise we re-run a 100 MB+ install on
-    // every cold start and burn the user's bandwidth.
-    const { pluginRoot, fakeBinDir } = makeFreshPlugin('plugin-already-installed');
-    mkdirSync(join(pluginRoot, 'node_modules'), { recursive: true });
+  test('skips install when the dependencies are already installed', async () => {
+    // Setup runs on every Claude Code launch. If the tree is usable, the
+    // install MUST be skipped — otherwise we re-run a 100 MB+ install on every
+    // cold start and burn the user's bandwidth.
+    const { pluginRoot, fakeBinDir, installRoot } = makeFreshPlugin('plugin-already-installed');
+    makeInstalledTree(installRoot);
 
     const { stderr, code } = await runVersionCheck(pluginRoot, fakeBinDir);
 
@@ -166,6 +192,33 @@ describe.skipIf(SKIP_NON_UNIX)('version-check Setup-phase ensurePluginDependenci
     expect(stderr).not.toContain(INSTALL_DIAGNOSTIC);
     // The fake bun would have created zod/v3/index.js if invoked — its
     // absence proves the install path was not taken.
-    expect(existsSync(join(pluginRoot, FAKE_INSTALLED_MARKER_REL))).toBe(false);
+    expect(existsSync(join(installRoot, FAKE_INSTALLED_MARKER_REL))).toBe(false);
+  });
+
+  test('skips install for a legacy layout whose tree still sits in the plugin root', async () => {
+    // Installs that predate the move keep their tree beside the bundle. They
+    // must keep working until the next `npx keepmind install` migrates them;
+    // reinstalling here would cost a cold start for nothing.
+    const { pluginRoot, fakeBinDir, installRoot } = makeFreshPlugin('plugin-legacy-layout');
+    makeInstalledTree(pluginRoot);
+
+    const { stderr, code } = await runVersionCheck(pluginRoot, fakeBinDir);
+
+    expect(code).toBe(0);
+    expect(stderr).not.toContain(INSTALL_DIAGNOSTIC);
+    expect(existsSync(join(installRoot, 'node_modules'))).toBe(false);
+  });
+
+  test('does not install from a plugin root without a lockfile', async () => {
+    // A manifest without bun.lock cannot satisfy --frozen-lockfile. Say so,
+    // rather than letting bun fail three steps later with a cryptic error.
+    const { pluginRoot, fakeBinDir, installRoot } = makeFreshPlugin('plugin-no-lockfile');
+    rmSync(join(pluginRoot, 'bun.lock'), { force: true });
+
+    const { stderr, code } = await runVersionCheck(pluginRoot, fakeBinDir);
+
+    expect(code).toBe(0);
+    expect(stderr).toContain('plugin package is incomplete');
+    expect(existsSync(join(installRoot, 'node_modules'))).toBe(false);
   });
 });

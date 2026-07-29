@@ -34,6 +34,7 @@ import {
 import { Database } from '../../storage/db.js';
 import { readVectorHealthMarker } from '../../shared/vector-health.js';
 import { probeVectorDeps } from '../../services/vector/vector-deps-repair.js';
+import { depsInstallRoot, depsRoot, pluginDepsPresent } from '../../shared/plugin-node-modules.js';
 import { spoolDepth } from '../../shared/hook-spool.js';
 
 export type CheckStatus = 'ok' | 'warn' | 'fail' | 'skip';
@@ -387,30 +388,27 @@ function buildRuntimeGroup(dataDir: string): CheckGroup {
     required: true,
   });
 
-  // Runtime deps live in the cache dir (where `repair` installs them and where
-  // Claude Code actually resolves the plugin at runtime), with `install` also
-  // populating the marketplace clone's plugin/ subdir. Check both so the report
-  // stays consistent with whichever remediation the user ran — the marketplace
-  // ROOT never receives node_modules, so checking it there was a false failure.
-  // The cache is versioned (…/cache/keepmind/keepmind/<version>/node_modules);
-  // scan for any version dir that carries deps rather than resolving a version
-  // (version resolution walks the npm bundle layout and is fragile from dev dist).
-  const cacheHasDeps = (() => {
-    const base = join(pluginsDirectory(), 'cache', 'keepmind', 'keepmind');
-    try {
-      return readdirSync(base, { withFileTypes: true }).some(
-        (e) => e.isDirectory() && existsSync(join(base, e.name, 'node_modules')),
-      );
-    } catch {
-      return false;
-    }
-  })();
-  const marketplacePluginDeps = join(marketplaceDirectory(), 'plugin', 'node_modules');
-  const depsPresent = cacheHasDeps || existsSync(marketplacePluginDeps);
+  // Runtime deps live in the plugin data directory, which survives the host
+  // restoring the plugin root from git. Report what actually RESOLVES rather
+  // than whether a node_modules directory exists: a partial tree left by a
+  // failed install passes a directory check while the worker still cannot
+  // start, and that is precisely the state doctor exists to catch.
+  //
+  // The legacy locations (the version cache, the marketplace plugin dir) still
+  // satisfy the resolver, so an install that has not been migrated yet reports
+  // ok — with a hint, because that tree is one host refresh away from deletion.
+  const depsInstalled = depsInstallRoot();
+  const activeDepsRoot = depsRoot();
+  const depsPresent = pluginDepsPresent();
+  const onLegacyLayout = depsPresent && activeDepsRoot !== null && activeDepsRoot !== depsInstalled;
   checks.push({
     name: 'Plugin deps',
-    status: installed ? (depsPresent ? 'ok' : 'fail') : 'warn',
-    detail: depsPresent ? 'node_modules present' : 'missing — run `npx keepmind repair`',
+    status: installed ? (depsPresent ? (onLegacyLayout ? 'warn' : 'ok') : 'fail') : 'warn',
+    detail: !depsPresent
+      ? `not resolvable — run \`npx keepmind repair\` (expected in ${depsInstalled})`
+      : onLegacyLayout
+        ? `at legacy location ${activeDepsRoot} — run \`npx keepmind install\` to migrate`
+        : `resolving from ${activeDepsRoot}`,
     required: installed,
   });
 

@@ -26,10 +26,18 @@ describe('plugin/scripts/version-check.js install marker compatibility', () => {
     );
     mkdirSync(tempDir, { recursive: true });
     writeFileSync(join(tempDir, 'package.json'), JSON.stringify({ version: '12.4.4' }));
-    // Pre-create node_modules so version-check's Setup-phase dependency
+    // Pre-populate the tree so version-check's Setup-phase dependency
     // auto-install (gh #2649) short-circuits — these tests are about
     // .install-version marker compatibility, not dependency materialisation.
-    mkdirSync(join(tempDir, 'node_modules'), { recursive: true });
+    // The guard resolves the sentinel packages rather than checking for a
+    // node_modules directory (a partial tree must not pass for a working one),
+    // so they have to actually be present.
+    for (const name of ['sqlite-vec', 'zod']) {
+      const dir = join(tempDir, 'node_modules', name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version: '1.0.0', main: 'index.js' }));
+      writeFileSync(join(dir, 'index.js'), 'module.exports = {};');
+    }
   });
 
   afterEach(() => {

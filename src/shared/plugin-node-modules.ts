@@ -175,8 +175,17 @@ export function pluginResolve(spec: string): string {
   for (const root of depsRootCandidates()) {
     try {
       const resolved = requireForRoot(root).resolve(spec);
-      resolveCache.set(spec, resolved);
-      return resolved;
+      // Node's resolution walks PARENT directories too, so an anchor at
+      // <root>/noop.js happily returns a hit from a node_modules several levels
+      // above. That is how a candidate like <repo>/src silently served packages
+      // out of <repo>/node_modules — and in production it would let the user's
+      // project tree (the worker inherits their cwd) answer for ours. Accept a
+      // hit only from THIS candidate's own tree; the parent, if it is a
+      // legitimate root, is a candidate in its own right.
+      if (resolved.startsWith(join(root, 'node_modules'))) {
+        resolveCache.set(spec, resolved);
+        return resolved;
+      }
     } catch (error: unknown) {
       lastError = error;
     }
@@ -209,6 +218,30 @@ export function pluginCanResolve(spec: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Packages that stand in for "the dependency tree is usable".
+ *
+ * Both are hard requirements of the worker and neither is inlined: sqlite-vec
+ * carries the vector store's native binary, zod is required transitively by the
+ * MCP SDK (including its zod/v3 subpath, which a partial install is known to
+ * break — #2730).
+ */
+const SENTINEL_DEPS = ['sqlite-vec', 'zod'] as const;
+
+/**
+ * True when the plugin's dependencies are actually resolvable.
+ *
+ * Deliberately NOT `existsSync(<root>/node_modules)`. The lazy-spawn path does
+ * not set a cwd, so the worker inherits the user's project directory — and any
+ * project with its own node_modules would satisfy a directory check while the
+ * plugin's own packages are missing, silently suppressing the repair that was
+ * supposed to fix exactly that. Resolving named packages cannot be fooled that
+ * way: an unrelated tree does not contain sqlite-vec.
+ */
+export function pluginDepsPresent(): boolean {
+  return SENTINEL_DEPS.every((spec) => pluginCanResolve(spec));
 }
 
 /**

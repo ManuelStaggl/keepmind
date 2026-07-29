@@ -1,15 +1,76 @@
 #!/usr/bin/env node
 import { spawnSync } from 'child_process';
-import { existsSync, readFileSync, rmSync } from 'fs';
+import { existsSync, readFileSync, rmSync, mkdirSync, cpSync } from 'fs';
 import { homedir } from 'os';
-import { join, dirname } from 'path';
+import { join, dirname, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 
 const IS_WINDOWS = process.platform === 'win32';
 const VERSION_CHECK_LOG_PREFIX = '[version-check]';
-const BUN_INSTALL_ARGS = Object.freeze(['install', '--production']);
+// Same flags as the installer and the two runtime repair paths. This used to be
+// `install --production`, which honours neither the shipped lockfile nor the
+// script policy and could therefore write a tree that disagrees with what every
+// other path produces.
+const BUN_INSTALL_ARGS = Object.freeze(['install', '--frozen-lockfile', '--ignore-scripts']);
 const BUN_INSTALL_TIMEOUT_MS = 120_000;
 const NODE_MODULES_DIRNAME = 'node_modules';
+const PLUGIN_DATA_ID = 'keepmind-keepmind';
+// Kept in sync with SENTINEL_DEPS in src/shared/plugin-node-modules.ts.
+const SENTINEL_DEPS = Object.freeze(['sqlite-vec', 'zod']);
+
+/**
+ * Where dependencies get installed: the plugin data directory, which survives
+ * the host restoring the plugin root from git. CLAUDE_PLUGIN_DATA is injected
+ * into hook processes, so prefer it and derive the same path otherwise.
+ */
+function depsInstallRoot() {
+  if (process.env.KEEPMIND_NODE_MODULES) return process.env.KEEPMIND_NODE_MODULES;
+  if (process.env.CLAUDE_PLUGIN_DATA) return process.env.CLAUDE_PLUGIN_DATA;
+  const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+  return join(configDir, 'plugins', 'data', PLUGIN_DATA_ID);
+}
+
+/** True when every sentinel resolves from `root`'s own tree (not a parent's). */
+function depsResolveFrom(root) {
+  const tree = join(root, NODE_MODULES_DIRNAME);
+  if (!existsSync(tree)) return false;
+  const req = createRequire(join(root, 'noop.js'));
+  return SENTINEL_DEPS.every((spec) => {
+    try {
+      return req.resolve(`${spec}/package.json`).startsWith(tree);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Stage what `bun install --frozen-lockfile` needs into the install root:
+ * manifest, lockfile, and any directory a local `file:` spec points at (the
+ * onnxruntime-web stub). Mirrors ensureDepsWorkspace in
+ * src/shared/plugin-workspace.ts; this script is plain ESM with no build step,
+ * so it cannot import it.
+ */
+function stageWorkspace(pluginRoot, installRoot) {
+  mkdirSync(installRoot, { recursive: true });
+  for (const file of ['package.json', 'bun.lock']) {
+    if (!existsSync(join(pluginRoot, file))) return false;
+    cpSync(join(pluginRoot, file), join(installRoot, file));
+  }
+  const manifest = JSON.parse(readFileSync(join(pluginRoot, 'package.json'), 'utf-8'));
+  const specs = Object.values({ ...(manifest.dependencies ?? {}), ...(manifest.overrides ?? {}) });
+  for (const spec of specs) {
+    if (typeof spec !== 'string' || !spec.startsWith('file:')) continue;
+    const relative = spec.slice('file:'.length).replace(/^\.\//, '');
+    if (isAbsolute(relative)) continue;
+    const top = relative.split(/[\\/]/)[0];
+    if (!top || top === '.' || top === '..') continue;
+    if (!existsSync(join(pluginRoot, top))) return false;
+    cpSync(join(pluginRoot, top), join(installRoot, top), { recursive: true });
+  }
+  return true;
+}
 
 function findBun() {
   const pathCheck = IS_WINDOWS
@@ -58,13 +119,23 @@ function findBun() {
 function ensurePluginDependencies(pluginRoot) {
   if (!existsSync(join(pluginRoot, 'package.json'))) return;
 
-  // Guard on node_modules (package-manager marker) rather than a specific
-  // package, so the check stays correct if dependencies are later renamed.
-  if (existsSync(join(pluginRoot, NODE_MODULES_DIRNAME))) return;
+  const installRoot = depsInstallRoot();
+
+  // Nothing to do when the dependencies already resolve — from the data
+  // directory, or (for an install that has not migrated yet) from beside the
+  // bundle. Resolving named packages rather than checking for a node_modules
+  // directory: a partial tree left by a failed install would pass the directory
+  // check while the worker still cannot start.
+  if (depsResolveFrom(installRoot) || depsResolveFrom(pluginRoot)) return;
 
   const bunPath = findBun();
   if (!bunPath) {
     console.error(`${VERSION_CHECK_LOG_PREFIX} bun not found on PATH; cannot auto-install plugin dependencies`);
+    return;
+  }
+
+  if (!stageWorkspace(pluginRoot, installRoot)) {
+    console.error(`${VERSION_CHECK_LOG_PREFIX} plugin package is incomplete (missing manifest, lockfile or a local file: dependency); cannot auto-install`);
     return;
   }
 
@@ -74,7 +145,7 @@ function ensurePluginDependencies(pluginRoot) {
   let result;
   try {
     result = spawnSync(bunPath, BUN_INSTALL_ARGS, {
-      cwd: pluginRoot,
+      cwd: installRoot,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: BUN_INSTALL_TIMEOUT_MS,
@@ -112,7 +183,7 @@ function ensurePluginDependencies(pluginRoot) {
     // partial dir so the next Setup invocation can retry automatically
     // (gh #2650 review).
     try {
-      rmSync(join(pluginRoot, NODE_MODULES_DIRNAME), { recursive: true, force: true });
+      rmSync(join(installRoot, NODE_MODULES_DIRNAME), { recursive: true, force: true });
     } catch (rmErr) {
       const rmReason = rmErr && rmErr.message ? rmErr.message : String(rmErr);
       console.error(`${VERSION_CHECK_LOG_PREFIX} failed to clean up partial node_modules (${rmReason}); next Setup run may skip retry`);
