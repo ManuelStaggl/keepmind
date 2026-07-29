@@ -116,6 +116,7 @@ export class SettingsDefaultsManager {
       'BashOutput', 'KillShell',                      // polling/teardown of a shell already observed
       'EnterPlanMode', 'ExitPlanMode',                // mode toggle; the plan itself is observed elsewhere
       'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',  // task-list bookkeeping, like TodoWrite
+      'TaskOutput', 'TaskStop',                       // reading/stopping a task already observed
       'Glob', 'Grep',                                 // navigation; the files they lead to are observed via Read/Edit
     ].join(','),
     KEEPMIND_PROVIDER: 'claude',  // Default to Claude
