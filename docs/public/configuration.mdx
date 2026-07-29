@@ -109,11 +109,25 @@ Configure which Claude model compresses your observations (only applies when `KE
 
 ### Available Models
 
+These are the models `npx keepmind install` offers:
+
 | Value | Notes |
 |-------|-------|
-| `claude-haiku-4-5-20251001` | Default — fast and cheap, ideal for compression |
-| `claude-sonnet-4-6` | Balanced quality and cost |
-| `claude-opus-4-7` | Highest quality, most expensive |
+| `claude-haiku-4-5` | Recommended — fast and cheap, ideal for compression |
+| `claude-sonnet-5` | Balanced quality and cost |
+| `claude-opus-5` | Highest quality, most expensive |
+
+The built-in default if you never choose one is `claude-haiku-4-5-20251001` — the
+dated form of the same Haiku 4.5 model.
+
+Compression is mechanical reformatting, not reasoning, and it runs every time you
+and Claude touch a file — so the cheapest model is the right default, not a
+compromise. Haiku 4.5 costs roughly a third of Sonnet 5 per token.
+
+Older aliases stay accepted so a reinstall never rejects an existing
+`settings.json`; they are simply no longer offered:
+`claude-haiku-4-5-20251001` (the dated form of the current Haiku alias),
+`claude-sonnet-4-6`, and `claude-opus-4-7`.
 
 ### Picking via the Installer
 
@@ -496,9 +510,12 @@ npm run worker:logs
 
 If you specify an invalid Claude model name, the worker logs a warning and uses the default. Valid Claude models for `KEEPMIND_MODEL`:
 
-- `claude-haiku-4-5-20251001` (default)
-- `claude-sonnet-4-6`
-- `claude-opus-4-7`
+- `claude-haiku-4-5` (default)
+- `claude-sonnet-5`
+- `claude-opus-5`
+
+Superseded aliases are still accepted: `claude-haiku-4-5-20251001`,
+`claude-sonnet-4-6`, `claude-opus-4-7`.
 
 ### Port Already in Use
 

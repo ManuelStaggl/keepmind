@@ -920,6 +920,44 @@ sqlite3 ~/.keepmind/keepmind.db "
    ls -la node_modules/
    ```
 
+### Plugin Runtime Dependencies Missing
+
+**Symptoms**: Semantic search silently falls back to keyword/FTS results, the
+worker logs `Cannot find module 'sqlite-vec'`, or `npx keepmind doctor` reports
+`Plugin deps  not resolvable`.
+
+This is about the *installed plugin*, not this repository — the section above is
+for development checkouts.
+
+**Where they live**: `~/.claude/plugins/data/keepmind-keepmind/node_modules`.
+Note this is **not** the marketplace directory: that one holds code only, and the
+absence of `node_modules` there is expected, not a fault.
+
+**Why they go missing**: Claude Code restores the plugin directory from git when
+the plugin updates, which deletes gitignored paths. Dependencies moved to the
+plugin data directory precisely because it survives that; an installation that
+predates the move still keeps its tree beside the bundle and keeps working until
+its next install.
+
+**Solutions**:
+
+1. Check what is actually resolving:
+   ```bash
+   npx keepmind doctor
+   ```
+   A healthy install reports the data directory. `at legacy location …` means it
+   works but has not been migrated yet — reinstall to move it.
+
+2. Reinstall the dependencies:
+   ```bash
+   npx keepmind repair
+   ```
+
+3. The worker also self-heals: if nothing resolves, it reinstalls before its next
+   spawn. A repair that fails is latched for 10 minutes so a broken network does
+   not trigger an install on every hook — run `npx keepmind doctor` for the
+   recorded reason rather than waiting it out.
+
 ## Debugging
 
 ### Enable Verbose Logging

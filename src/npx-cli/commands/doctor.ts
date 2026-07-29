@@ -401,11 +401,31 @@ function buildRuntimeGroup(dataDir: string): CheckGroup {
   const activeDepsRoot = depsRoot();
   const depsPresent = pluginDepsPresent();
   const onLegacyLayout = depsPresent && activeDepsRoot !== null && activeDepsRoot !== depsInstalled;
+
+  // When the deps are gone, the FIRST question is "why didn't the worker just
+  // reinstall them?" — and the answer is usually the repair latch: a failed
+  // repair is recorded so every hook doesn't relaunch a multi-minute install
+  // against a broken network. Without surfacing it here the user sees a worker
+  // that stays down and no reason anywhere. Read-only; the latch is cleared by
+  // the repair path itself, never by doctor.
+  const repairFailure = (() => {
+    if (depsPresent) return null;
+    try {
+      const marker = JSON.parse(readFileSync(join(dataDir, '.deps-repair-failed.json'), 'utf-8'));
+      if (typeof marker?.failedAt !== 'string') return null;
+      return { reason: typeof marker.reason === 'string' ? marker.reason : 'unknown', failedAt: marker.failedAt };
+    } catch {
+      return null;
+    }
+  })();
+
   checks.push({
     name: 'Plugin deps',
     status: installed ? (depsPresent ? (onLegacyLayout ? 'warn' : 'ok') : 'fail') : 'warn',
     detail: !depsPresent
-      ? `not resolvable — run \`npx keepmind repair\` (expected in ${depsInstalled})`
+      ? repairFailure
+        ? `not resolvable — self-repair failed (${repairFailure.reason}) at ${repairFailure.failedAt}; run \`npx keepmind repair\` (expected in ${depsInstalled})`
+        : `not resolvable — run \`npx keepmind repair\` (expected in ${depsInstalled})`
       : onLegacyLayout
         ? `at legacy location ${activeDepsRoot} — run \`npx keepmind install\` to migrate`
         : `resolving from ${activeDepsRoot}`,

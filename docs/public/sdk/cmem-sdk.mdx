@@ -133,7 +133,7 @@ const client = await createCmemClient({
   provider: {
     apiKey: process.env.ANTHROPIC_API_KEY!,
     provider: 'claude',
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-5',
   },
 });
 ```
@@ -288,7 +288,7 @@ privacy-skipped batch, a `<skip_summary />` response). The job is marked
    ```ts
    interface CmemProviderConfig {
      apiKey: string;                                  // required
-     model?: string;                                  // e.g. 'claude-sonnet-4-6'
+     model?: string;                                  // e.g. 'claude-sonnet-5'
      provider?: 'claude' | 'gemini' | 'openrouter';   // defaults to 'claude'
      baseUrl?: string;                                // OpenRouter-only
    }

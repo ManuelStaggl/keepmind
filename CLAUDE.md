@@ -28,9 +28,25 @@ Compilation is Node + esbuild (`build:cli-binary` bundles `--platform=node --ext
 
 - **Source**: `<project-root>/src/`
 - **Built Plugin**: `<project-root>/plugin/`
-- **Installed Plugin**: `~/.claude/plugins/marketplaces/keepmind/`
+- **Installed Plugin**: `~/.claude/plugins/marketplaces/keepmind/` — code only, **no `node_modules`**
+- **Plugin dependencies**: `~/.claude/plugins/data/keepmind-keepmind/` (`${CLAUDE_PLUGIN_DATA}`)
 - **Database**: `~/.keepmind/keepmind.db`
 - **Vector search**: in-process `sqlite-vec` inside the SQLite DB (no separate Chroma service); embeddings via `@huggingface/transformers` (local MiniLM, int8)
+
+There is exactly ONE dependency tree, and it lives in the plugin data directory.
+Never install into the marketplace or cache directories: `${CLAUDE_PLUGIN_ROOT}`
+is documented as ephemeral, and the host restores it from git on update — which
+deletes `node_modules` (observed twice on 2026-07-29, once with `autoUpdate:false`
+already set). `${CLAUDE_PLUGIN_DATA}` survives updates.
+
+The bundles resolve their native deps (sqlite-vec, onnxruntime-node via
+`@huggingface/transformers`, the tree-sitter grammars) through
+`src/shared/plugin-node-modules.ts` — a single ordered candidate chain, not a
+bundle-relative `createRequire`. When adding a runtime dependency that cannot be
+inlined, resolve it with `pluginRequire`/`pluginResolve`; a bare `createRequire`
+anchored at the bundle re-pins the tree to the directory the host deletes.
+Legacy locations stay in the chain so installs that predate the move keep
+working until their next `npx keepmind install`.
 
 ## Requirements
 

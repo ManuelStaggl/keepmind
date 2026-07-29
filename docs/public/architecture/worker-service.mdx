@@ -15,7 +15,40 @@ The worker service is a long-running HTTP API built with Express.js and managed 
 - **Port**: Per-user default `37700 + (uid % 100)` (override with `KEEPMIND_WORKER_PORT`). The active port is stored in `~/.keepmind/settings.json` and reported by `GET /api/health`.
 - **Location**: `src/services/worker-service.ts`
 - **Built Output**: `plugin/scripts/worker-service.cjs`
+- **Runtime dependencies**: `~/.claude/plugins/data/keepmind-keepmind/node_modules` (see below)
 - **Model**: Configurable via `KEEPMIND_MODEL` (default: `claude-haiku-4-5-20251001`)
+
+### Where dependencies live
+
+The worker bundle is self-contained except for packages that cannot be inlined —
+`sqlite-vec` and `onnxruntime-node` ship per-platform binaries, and the
+tree-sitter grammars ship `.node` bindings. Those resolve from a real
+`node_modules` tree at runtime.
+
+That tree lives in the **plugin data directory**
+(`~/.claude/plugins/data/keepmind-keepmind/`), not beside the bundle. Claude Code
+tracks the plugin directory as a git checkout and restores it from the remote on
+update, which deletes every gitignored path — `node_modules` included. The data
+directory is the host's documented location for installed dependencies and
+survives updates.
+
+Resolution walks an ordered chain rather than a single path, because the
+installer, the worker, and the hooks each see a different environment:
+
+1. `KEEPMIND_NODE_MODULES` — escape hatch for tests and air-gapped installs
+2. `CLAUDE_PLUGIN_DATA` — injected by the host into hook and MCP processes
+3. The derived data directory — the normal case, and what the installer uses
+4. The plugin root next to the bundle — legacy, keeps pre-migration installs working
+5. The dev tree, for `npm run build-and-sync` and tests run from the repo
+
+A candidate only counts if the package resolves from *its own* tree; Node's
+resolution otherwise walks parent directories, which would let an unrelated
+`node_modules` (including the user's own project, since the worker inherits its
+working directory) answer for ours.
+
+If the dependencies go missing, the worker reinstalls them into the data
+directory before its next spawn. `npx keepmind doctor` reports which directory
+they are resolving from.
 
 ## REST API Endpoints
 
@@ -649,9 +682,13 @@ export KEEPMIND_MODEL=claude-haiku-4-5-20251001
 ```
 
 Allowed values:
-- `claude-haiku-4-5-20251001` - default, fast and cheap (best for compression)
-- `claude-sonnet-4-6` - balanced quality and cost
-- `claude-opus-4-7` - highest quality, most expensive
+- `claude-haiku-4-5` - recommended, fast and cheap (best for compression)
+- `claude-sonnet-5` - balanced quality and cost
+- `claude-opus-5` - highest quality, most expensive
+
+Superseded aliases still resolve and are accepted, so an existing configuration
+keeps working: `claude-haiku-4-5-20251001` (the dated form of the current Haiku
+alias, and the built-in default), `claude-sonnet-4-6`, `claude-opus-4-7`.
 
 ## Port Allocation
 
