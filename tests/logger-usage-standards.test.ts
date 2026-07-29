@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { readdir } from "fs/promises";
 import { join, relative } from "path";
 import { readFileSync } from "fs";
+import { reportAudit } from "./audit-report.js";
 
 const PROJECT_ROOT = join(import.meta.dirname, "..");
 const SRC_DIR = join(PROJECT_ROOT, "src");
@@ -194,20 +195,23 @@ describe("Logger Usage Standards", () => {
 
     const coverage = ((withLogger.length / relevantFiles.length) * 100).toFixed(1);
 
-    console.log("\n📊 Logger Coverage Report:");
-    console.log(`  Total files analyzed: ${relevantFiles.length}`);
-    console.log(`  Files with logger: ${withLogger.length} (${coverage}%)`);
-    console.log(`  Files without logger: ${withoutLogger.length}`);
-    console.log(`  Total logger calls: ${totalCalls}`);
-    console.log(`  Excluded files: ${allFiles.length - relevantFiles.length}`);
-
-    if (withoutLogger.length > 0) {
-      console.log("\n📝 Files without logger:");
-      withoutLogger.forEach(f => {
-        const priority = f.isHighPriority ? "🔴 HIGH" : "  ";
-        console.log(`  ${priority} ${f.relativePath}`);
-      });
-    }
+    // Gated: see AUDIT_VERBOSE in tests/audit-report.ts. This block printed one
+    // line PER file without a logger — hundreds of writes through the test
+    // runner's serialized IPC channel, which intermittently corrupts a frame and
+    // fails the whole file with "Unable to deserialize cloned data".
+    reportAudit(() => [
+      '\n📊 Logger Coverage Report:',
+      `  Total files analyzed: ${relevantFiles.length}`,
+      `  Files with logger: ${withLogger.length} (${coverage}%)`,
+      `  Files without logger: ${withoutLogger.length}`,
+      `  Total logger calls: ${totalCalls}`,
+      `  Excluded files: ${allFiles.length - relevantFiles.length}`,
+      ...(withoutLogger.length > 0
+        ? ['\n📝 Files without logger:', ...withoutLogger.map(
+            f => `  ${f.isHighPriority ? '🔴 HIGH' : '  '} ${f.relativePath}`,
+          )]
+        : []),
+    ]);
 
     expect(withLogger.length).toBeGreaterThan(0);
   });

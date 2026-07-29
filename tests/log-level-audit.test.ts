@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'bun:test';
 import { readdir, readFile } from 'fs/promises';
 import { join, relative } from 'path';
+import { reportAudit } from './audit-report.js';
 
 const PROJECT_ROOT = join(import.meta.dirname, '..');
 const SRC_DIR = join(PROJECT_ROOT, 'src');
@@ -258,11 +259,16 @@ describe('Log Level Audit', () => {
       }
     }
 
-    console.log('\n📊 Log Level Distribution:');
-    console.log(`  ERROR: ${byLevel['ERROR']} (${((byLevel['ERROR'] / allCalls.length) * 100).toFixed(1)}%)`);
-    console.log(`  WARN:  ${byLevel['WARN']} (${((byLevel['WARN'] / allCalls.length) * 100).toFixed(1)}%)`);
-    console.log(`  INFO:  ${byLevel['INFO']} (${((byLevel['INFO'] / allCalls.length) * 100).toFixed(1)}%)`);
-    console.log(`  DEBUG: ${byLevel['DEBUG']} (${((byLevel['DEBUG'] / allCalls.length) * 100).toFixed(1)}%)`);
+    // Gated: see tests/audit-report.ts for why writing to stdout from an audit
+    // test intermittently fails the whole file in Node's test runner.
+    const pct = (level: string) => ((byLevel[level] / allCalls.length) * 100).toFixed(1);
+    reportAudit(() => [
+      '\n📊 Log Level Distribution:',
+      `  ERROR: ${byLevel['ERROR']} (${pct('ERROR')}%)`,
+      `  WARN:  ${byLevel['WARN']} (${pct('WARN')}%)`,
+      `  INFO:  ${byLevel['INFO']} (${pct('INFO')}%)`,
+      `  DEBUG: ${byLevel['DEBUG']} (${pct('DEBUG')}%)`,
+    ]);
 
     expect(allCalls.length).toBeGreaterThan(0);
   });
