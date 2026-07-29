@@ -11,7 +11,8 @@ import {
   UserPromptRecord,
   LatestPromptResult
 } from '../../types/database.js';
-import type { ObservationSearchResult, SessionSummarySearchResult } from './types.js';
+import type { ObservationSearchResult, SessionSummarySearchResult, UsageChannel } from './types.js';
+import { USAGE_CHANNEL_COLUMNS } from './types.js';
 import { computeObservationContentHash } from './observations/store.js';
 import { parseFileList } from './observations/files.js';
 import { redactSecrets, redactSecretsDeep, type RedactOptions } from '../redaction/redact-secrets.js';
@@ -124,6 +125,42 @@ export class SessionStore {
     this.addObservationImportanceColumn();
     this.addObservationBitemporalColumns();
     this.addObservationLastUsedColumn();
+    this.addObservationUsageChannelColumns();
+  }
+
+  /**
+   * Per-channel usage counters.
+   *
+   * `relevance_count` alone could not answer "is this memory worth keeping".
+   * It was bumped from exactly two places — SessionStart context injection and
+   * an explicit get_observations fetch — while neither FTS nor vector search
+   * touched it. So a 96%-never-used reading was not evidence that 96% of
+   * observations are ballast; it was evidence that two of the four retrieval
+   * paths were instrumented. Worse, the apparent "value" differences between
+   * types tracked the injection ranker's own importance × recency weighting,
+   * which is circular: the counter measured what injection chose to show, and
+   * injection chose by a score the counter had no part in.
+   *
+   * Splitting the channels makes the number interpretable, and is a
+   * precondition for any pruning or retention decision — not an optimisation
+   * of one.
+   */
+  private addObservationUsageChannelColumns(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(39) as SchemaVersion | undefined;
+    const cols = this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[];
+    const has = (n: string) => cols.some(c => c.name === n);
+    const columns = ['injection_count', 'explicit_fetch_count', 'fts_hit_count', 'vector_hit_count'];
+    if (applied && columns.every(has)) return;
+
+    for (const column of columns) {
+      if (!has(column)) {
+        this.db.run(`ALTER TABLE observations ADD COLUMN ${column} INTEGER DEFAULT 0`);
+      }
+    }
+
+    if (!applied) {
+      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(39, new Date().toISOString());
+    }
   }
 
   // Phase 4 / Step 5 — bi-temporal supersession columns. Additive + idempotent.
@@ -2535,22 +2572,34 @@ export class SessionStore {
    * expiry archive rows that are being read every day. Writing them
    * unconditionally is cheap and must precede any retention decision.
    */
-  markObservationsUsed(ids: number[], now: number = Date.now()): void {
+  markObservationsUsed(ids: number[], channel: UsageChannel = 'explicit_fetch', now: number = Date.now()): void {
     if (ids.length === 0) return;
     try {
       const cols = this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[];
-      const hasLastUsed = cols.some(c => c.name === 'last_used_at');
-      const hasRelevance = cols.some(c => c.name === 'relevance_count');
-      if (!hasLastUsed && !hasRelevance) return;
+      const has = (n: string) => cols.some(c => c.name === n);
+      const hasLastUsed = has('last_used_at');
+      const hasRelevance = has('relevance_count');
+      const channelColumn = USAGE_CHANNEL_COLUMNS[channel];
+      const hasChannel = has(channelColumn);
+      if (!hasLastUsed && !hasRelevance && !hasChannel) return;
 
       const assignments: string[] = [];
       const params: SQLQueryBindings[] = [];
       if (hasLastUsed) {
+        // Every channel resets the expiry timer. Only injection and explicit
+        // fetches used to, so an observation that search found every day still
+        // aged out as untouched — a latent data-loss bug that would only have
+        // bitten once expiry was switched on.
         assignments.push('last_used_at = ?');
         params.push(now);
       }
       if (hasRelevance) {
+        // Kept as the total across all channels. Values written before schema
+        // v39 counted injection + explicit fetch only.
         assignments.push('relevance_count = COALESCE(relevance_count, 0) + 1');
+      }
+      if (hasChannel) {
+        assignments.push(`${channelColumn} = COALESCE(${channelColumn}, 0) + 1`);
       }
 
       const placeholders = ids.map(() => '?').join(',');
@@ -2558,7 +2607,7 @@ export class SessionStore {
         .prepare(`UPDATE observations SET ${assignments.join(', ')} WHERE id IN (${placeholders})`)
         .run(...params, ...ids);
     } catch (error) {
-      logger.debug('DB', 'markObservationsUsed failed', { count: ids.length }, error instanceof Error ? error : new Error(String(error)));
+      logger.debug('DB', 'markObservationsUsed failed', { count: ids.length, channel }, error instanceof Error ? error : new Error(String(error)));
     }
   }
 

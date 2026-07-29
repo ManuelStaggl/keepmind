@@ -1,7 +1,7 @@
 
 export interface CorpusFilter {
   project?: string;
-  types?: Array<'decision' | 'bugfix' | 'feature' | 'refactor' | 'discovery' | 'change'>;
+  types?: Array<'decision' | 'bugfix' | 'feature' | 'refactor' | 'discovery' | 'change' | 'security_alert' | 'security_note'>;
   concepts?: string[];
   files?: string[];
   query?: string;

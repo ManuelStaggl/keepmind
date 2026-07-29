@@ -183,12 +183,40 @@ export interface SDKSessionRow {
   prompt_counter?: number;
 }
 
+/**
+ * How an observation reached a model. Each retrieval path counts separately so
+ * "which memories earn their keep" is answerable — a single blended counter
+ * cannot distinguish a record search keeps finding from one the injection
+ * ranker keeps showing.
+ */
+export type UsageChannel = 'injection' | 'explicit_fetch' | 'fts' | 'vector';
+
+/**
+ * Observation types the `code` mode can emit.
+ *
+ * security_alert and security_note were missing from every TypeScript union
+ * describing an observation, while plugin/modes/code.json defines them and
+ * CorpusRoutes accepts them at runtime. Nothing filtered them out of storage or
+ * injection — the types were simply not expressible, so any caller wanting to
+ * ask for them specifically (e.g. a corpus filter) could not say so.
+ */
+export type ObservationType =
+  | 'decision' | 'bugfix' | 'feature' | 'refactor' | 'discovery' | 'change'
+  | 'security_alert' | 'security_note';
+
+export const USAGE_CHANNEL_COLUMNS: Record<UsageChannel, string> = {
+  injection: 'injection_count',
+  explicit_fetch: 'explicit_fetch_count',
+  fts: 'fts_hit_count',
+  vector: 'vector_hit_count',
+};
+
 export interface ObservationRow {
   id: number;
   memory_session_id: string;
   project: string;
   text: string | null;
-  type: 'decision' | 'bugfix' | 'feature' | 'refactor' | 'discovery' | 'change';
+  type: ObservationType;
   title: string | null;
   subtitle: string | null;
   facts: string | null; 

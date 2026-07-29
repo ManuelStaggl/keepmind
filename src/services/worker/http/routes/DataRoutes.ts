@@ -182,7 +182,7 @@ export class DataRoutes extends BaseRouteHandler {
     // signal there is — the model asked for the full record by id. Record it
     // (relevance_count + last_used_at); best-effort, never fails the response.
     if (observations.length > 0) {
-      store.markObservationsUsed(observations.map(o => o.id));
+      store.markObservationsUsed(observations.map(o => o.id), 'explicit_fetch');
     }
 
     res.json(observations);

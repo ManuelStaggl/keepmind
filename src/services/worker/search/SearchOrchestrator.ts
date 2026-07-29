@@ -43,7 +43,34 @@ export class SearchOrchestrator {
   async search(args: any): Promise<StrategySearchResult> {
     const options = this.normalizeParams(args);
 
-    return await this.executeWithFallback(options);
+    return this.recordUsage(await this.executeWithFallback(options));
+  }
+
+  /**
+   * Count a search hit against the observations it returned (C1').
+   *
+   * Search was the one retrieval path with no instrumentation at all: only
+   * SessionStart injection and explicit get_observations fetches ever bumped a
+   * counter. That made the corpus statistics unreadable — a low "used" rate
+   * could not be distinguished from an uncounted one — and it also meant a
+   * record that search surfaced daily never reset its expiry timer.
+   *
+   * Attributed by the strategy that produced the result, so vector and keyword
+   * retrieval stay separable; hybrid counts as vector because that is the leg
+   * that contributes the ranking. Best-effort throughout: search results must
+   * never fail over bookkeeping.
+   */
+  private recordUsage(result: StrategySearchResult): StrategySearchResult {
+    try {
+      const ids = result.results.observations
+        .map((o: ObservationSearchResult) => o.id)
+        .filter((id): id is number => typeof id === 'number');
+      if (ids.length === 0) return result;
+      this.sessionStore.markObservationsUsed(ids, result.usedChroma ? 'vector' : 'fts');
+    } catch (error) {
+      logger.debug('SEARCH', 'Failed to record search usage', {}, error instanceof Error ? error : undefined);
+    }
+    return result;
   }
 
   private async executeWithFallback(
@@ -90,30 +117,30 @@ export class SearchOrchestrator {
     const options = this.normalizeParams(args);
 
     if (this.hybridStrategy) {
-      return await this.hybridStrategy.findByConcept(concept, options);
+      return this.recordUsage(await this.hybridStrategy.findByConcept(concept, options));
     }
 
     const results = this.sqliteStrategy.findByConcept(concept, options);
-    return {
+    return this.recordUsage({
       results: { observations: results, sessions: [], prompts: [] },
       usedChroma: false,
       strategy: 'sqlite'
-    };
+    });
   }
 
   async findByType(type: string | string[], args: any): Promise<StrategySearchResult> {
     const options = this.normalizeParams(args);
 
     if (this.hybridStrategy) {
-      return await this.hybridStrategy.findByType(type, options);
+      return this.recordUsage(await this.hybridStrategy.findByType(type, options));
     }
 
     const results = this.sqliteStrategy.findByType(type, options);
-    return {
+    return this.recordUsage({
       results: { observations: results, sessions: [], prompts: [] },
       usedChroma: false,
       strategy: 'sqlite'
-    };
+    });
   }
 
   async findByFile(filePath: string, args: any): Promise<{
@@ -123,12 +150,16 @@ export class SearchOrchestrator {
   }> {
     const options = this.normalizeParams(args);
 
-    if (this.hybridStrategy) {
-      return await this.hybridStrategy.findByFile(filePath, options);
-    }
+    const found = this.hybridStrategy
+      ? await this.hybridStrategy.findByFile(filePath, options)
+      : { ...this.sqliteStrategy.findByFile(filePath, options), usedChroma: false };
 
-    const results = this.sqliteStrategy.findByFile(filePath, options);
-    return { ...results, usedChroma: false };
+    this.recordUsage({
+      results: { observations: found.observations, sessions: [], prompts: [] },
+      usedChroma: found.usedChroma,
+      strategy: found.usedChroma ? 'chroma' : 'sqlite',
+    });
+    return found;
   }
 
   private normalizeParams(args: any): NormalizedParams {

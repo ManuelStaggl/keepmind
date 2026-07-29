@@ -115,13 +115,17 @@ export interface ContextInjectStats {
   obs_type_discovery: number;
   obs_type_decision: number;
   obs_type_refactor: number;
+  obs_type_security_alert: number;
+  obs_type_security_note: number;
   obs_type_other: number;
   tokens_injected: number;
   tokens_saved_vs_naive: number;
   search_strategy: string;
 }
 
-const STAT_TYPE_BUCKETS = new Set(['bugfix', 'discovery', 'decision', 'refactor']);
+// security_* were absent, so security observations were counted as 'other' and
+// became invisible in the injection telemetry — the same blind spot, one level up.
+const STAT_TYPE_BUCKETS = new Set(['bugfix', 'discovery', 'decision', 'refactor', 'security_alert', 'security_note']);
 
 function buildInjectStats(
   observations: Observation[],
@@ -130,7 +134,8 @@ function buildInjectStats(
 ): ContextInjectStats {
   const economics = calculateTokenEconomics(observations);
   const typeCounts: Record<string, number> = {
-    bugfix: 0, discovery: 0, decision: 0, refactor: 0, other: 0,
+    bugfix: 0, discovery: 0, decision: 0, refactor: 0,
+    security_alert: 0, security_note: 0, other: 0,
   };
   const sessionIds = new Set<string>();
   let oldestEpoch = Number.POSITIVE_INFINITY;
@@ -155,6 +160,8 @@ function buildInjectStats(
     obs_type_discovery: typeCounts.discovery,
     obs_type_decision: typeCounts.decision,
     obs_type_refactor: typeCounts.refactor,
+    obs_type_security_alert: typeCounts.security_alert,
+    obs_type_security_note: typeCounts.security_note,
     obs_type_other: typeCounts.other,
     tokens_injected: economics.totalReadTokens,
     tokens_saved_vs_naive: economics.savings,
@@ -221,7 +228,10 @@ export async function generateContextWithStats(
     // is what tells us whether retention is safe to switch on at all, so it has
     // to accumulate while expiry is still off (see markObservationsUsed).
     if (observations.length > 0) {
-      db.markObservationsUsed(observations.map(o => o.id));
+      // 'injection', not a blended counter: these rows were chosen by the
+      // ranker's importance × recency score, so counting them alongside search
+      // hits measures the ranker's preferences and reads as usefulness.
+      db.markObservationsUsed(observations.map(o => o.id), 'injection');
     }
 
     if (observations.length === 0 && summaries.length === 0) {
