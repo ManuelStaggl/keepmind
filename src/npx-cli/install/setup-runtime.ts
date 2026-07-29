@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, rmSync } from 'fs';
+import { createHash } from 'crypto';
 import { exec, execSync, spawnSync } from 'child_process';
 import { createRequire } from 'module';
 import { join } from 'path';
@@ -32,6 +33,30 @@ interface MarkerSchema {
   version: string;
   bun?: string;
   installedAt?: string;
+  /** Fingerprint of the manifest's dependency set at install time — see pruneIfDependencySetChanged. */
+  deps?: string;
+}
+
+/**
+ * Stable fingerprint of a manifest's declared dependency set (deps + the
+ * overrides that redirect them). Only what we declare, never the resolved
+ * closure — the point is to notice when WE change what should be installed.
+ */
+function dependencyFingerprint(targetDir: string): string | null {
+  try {
+    const pkg = JSON.parse(readFileSync(join(targetDir, 'package.json'), 'utf-8')) as {
+      dependencies?: Record<string, string>;
+      overrides?: Record<string, string>;
+    };
+    const flatten = (obj: Record<string, string> | undefined): string =>
+      Object.entries(obj ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}@${v}`).join(',');
+    return createHash('sha256')
+      .update(`${flatten(pkg.dependencies)}|${flatten(pkg.overrides)}`)
+      .digest('hex')
+      .slice(0, 16);
+  } catch {
+    return null;
+  }
 }
 
 const LEGACY_VERSION_MARKER_RE =
@@ -244,6 +269,8 @@ export async function installPluginDependencies(targetDir: string, bunPath: stri
 
   const bunCmd = IS_WINDOWS && bunPath.includes(' ') ? `"${bunPath}"` : bunPath;
 
+  pruneIfDependencySetChanged(targetDir);
+
   try {
     // Per CHANGELOG v12.6.1 -> v12.6.2: tree-sitter-swift's nested
     // tree-sitter-cli postinstall downloads a Rust binary and can hang the
@@ -266,6 +293,42 @@ export async function installPluginDependencies(targetDir: string, bunPath: stri
   }
 
   verifyCriticalModules(targetDir);
+}
+
+/**
+ * Discard node_modules when the declared dependency set has changed since the
+ * last install.
+ *
+ * `bun install` — including with --frozen-lockfile — ADDS what the manifest asks
+ * for but never REMOVES what it no longer asks for. Verified against a real
+ * install: after trimming the shipped grammar set and stubbing out
+ * onnxruntime-web, a fresh install produced 422 MB while an upgrade of the same
+ * version produced 947 MB, because every dropped package was still sitting
+ * there. Removals only ever reached users who installed from scratch, and an
+ * upgrade could only ever grow.
+ *
+ * So do it ourselves, and only when it matters: a changed fingerprint means
+ * packages may have been dropped, which is exactly when the ~60s clean install
+ * is worth paying. An unchanged one keeps the fast incremental path.
+ */
+function pruneIfDependencySetChanged(targetDir: string): void {
+  const nodeModules = join(targetDir, 'node_modules');
+  if (!existsSync(nodeModules)) return;
+
+  const current = dependencyFingerprint(targetDir);
+  if (!current) return; // unreadable manifest — bun will fail loudly enough
+
+  const marker = readInstallMarker(targetDir);
+  // No recorded fingerprint means the tree predates this check and its contents
+  // are unknown, so it cannot be trusted to match the manifest.
+  if (marker?.deps === current) return;
+
+  try {
+    rmSync(nodeModules, { recursive: true, force: true });
+  } catch {
+    // Locked files (running worker, AV scan) — fall through to a plain install.
+    // Worst case is the old behaviour: stale packages linger.
+  }
 }
 
 export function readInstallMarker(targetDir: string): MarkerSchema | null {
@@ -294,10 +357,12 @@ export function writeInstallMarker(
   version: string,
   bunVersion: string,
 ): void {
+  const deps = dependencyFingerprint(targetDir);
   const payload: MarkerSchema = {
     version,
     bun: bunVersion,
     installedAt: new Date().toISOString(),
+    ...(deps ? { deps } : {}),
   };
   writeFileSync(markerPath(targetDir), JSON.stringify(payload));
 }
@@ -311,5 +376,10 @@ export function isInstallCurrent(targetDir: string, expectedVersion: string): bo
   if (currentBun && !marker.bun) return false;
   if (!currentBun && marker.bun) return false;
   if (currentBun && marker.bun && currentBun !== marker.bun) return false;
+  // A same-version rebuild can still change what should be installed (the
+  // dependency set is generated at build time), and that change is precisely
+  // the case bun cannot reconcile on its own.
+  const deps = dependencyFingerprint(targetDir);
+  if (deps && marker.deps !== deps) return false;
   return true;
 }

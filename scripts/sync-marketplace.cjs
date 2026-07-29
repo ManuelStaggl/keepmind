@@ -157,6 +157,20 @@ try {
   console.log('Running bun install in marketplace...');
   execSync('bun install', { cwd: INSTALLED_PATH, stdio: 'inherit' });
 
+  // The worker resolves its runtime deps from marketplace/plugin/node_modules,
+  // and NOTHING here refreshed it: the install above targets the marketplace
+  // ROOT, and node_modules is a hard-protected dir the mirror never touches. So
+  // marketplace/plugin/package.json was kept current while the tree beside it
+  // aged indefinitely — a dev sync could leave the worker running against
+  // months-old dependencies, silently, with no signal that the two disagreed.
+  // `npx keepmind install` has always done this step (install.ts); only the dev
+  // path was missing it.
+  const marketplacePluginDir = path.join(INSTALLED_PATH, 'plugin');
+  if (existsSync(path.join(marketplacePluginDir, 'package.json'))) {
+    console.log('Running bun install in marketplace plugin...');
+    execSync('bun install', { cwd: marketplacePluginDir, stdio: 'inherit' });
+  }
+
   const version = getPluginVersion();
   const CACHE_VERSION_PATH = path.join(CACHE_BASE_PATH, version);
 
