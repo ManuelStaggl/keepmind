@@ -143,9 +143,23 @@ function ensureGrammarWorkspace(): void {
  * not while a recent failure is still in cooldown. Returns true when an install
  * was actually started — the grammar is NOT available when this returns.
  */
-export function requestGrammarInstall(language: string, pkg: string, version?: string): boolean {
+export interface GrammarInstallDeps {
+  /** Locate Bun, or null when unavailable. Injectable so tests never spawn. */
+  findBun?: () => string | null;
+  /** Run the install command. Injectable so tests never touch the network. */
+  runInstall?: (command: string, cwd: string, done: (error: Error | null) => void) => void;
+}
+
+export function requestGrammarInstall(
+  language: string,
+  pkg: string,
+  version?: string,
+  deps: GrammarInstallDeps = {},
+): boolean {
   // Opt-out for air-gapped machines and CI, where spawning a package install
-  // from a parse is unwanted regardless of how cheap it is.
+  // from a parse is unwanted regardless of how cheap it is. Checked before the
+  // once-per-process guard so that lifting the flag mid-process still works —
+  // an opted-out call must not consume the language's single attempt.
   if (process.env.KEEPMIND_GRAMMAR_AUTOINSTALL === '0') return false;
 
   if (attemptedThisProcess.has(language)) return false;
@@ -156,7 +170,7 @@ export function requestGrammarInstall(language: string, pkg: string, version?: s
     return false;
   }
 
-  const bun = findBun();
+  const bun = (deps.findBun ?? findBun)();
   if (!bun) {
     logger.warn('PARSER', 'Cannot fetch grammar on demand: Bun is not installed', { language, package: pkg });
     recordFailure(language);
@@ -179,14 +193,22 @@ export function requestGrammarInstall(language: string, pkg: string, version?: s
 
   // --ignore-scripts: grammars ship prebuilt binaries, and running untrusted
   // postinstalls to parse a source file would be a poor trade.
-  exec(
+  const runInstall = deps.runInstall ?? ((command, cwd, done) => {
+    exec(
+      command,
+      {
+        cwd,
+        timeout: INSTALL_TIMEOUT_MS,
+        maxBuffer: 16 * 1024 * 1024,
+        ...(IS_WINDOWS ? { shell: process.env.ComSpec ?? 'cmd.exe' } : {}),
+      },
+      (error) => done(error),
+    );
+  });
+
+  runInstall(
     `${bunCmd} add ${spec} --ignore-scripts`,
-    {
-      cwd: GRAMMARS_DIR,
-      timeout: INSTALL_TIMEOUT_MS,
-      maxBuffer: 16 * 1024 * 1024,
-      ...(IS_WINDOWS ? { shell: process.env.ComSpec ?? 'cmd.exe' } : {}),
-    },
+    GRAMMARS_DIR,
     (error) => {
       if (error) {
         logger.warn('PARSER', 'On-demand grammar install failed; that language stays unfolded', {
@@ -209,5 +231,3 @@ export function resetGrammarInstallerForTesting(): void {
   attemptedThisProcess.clear();
   grammarRequire = null;
 }
-
-export const GRAMMARS_DIR_FOR_TESTING = GRAMMARS_DIR;

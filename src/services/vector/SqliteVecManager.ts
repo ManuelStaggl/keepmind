@@ -126,11 +126,6 @@ export class SqliteVecManager {
     this.loadFailure = null;
   }
 
-  /** True when a previous load() failed and vector search is degraded. */
-  hasLoadFailed(): boolean {
-    return this.loadFailure !== null;
-  }
-
   private openAndInit(): Database {
     mkdirSync(VECTOR_DB_DIR, { recursive: true });
     const dbPath = join(VECTOR_DB_DIR, 'vectors.db');
