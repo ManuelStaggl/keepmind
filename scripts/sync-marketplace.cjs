@@ -204,6 +204,22 @@ try {
   console.log(`Running bun install in plugin data dir (${depsRoot})...`);
   execSync('bun install --frozen-lockfile --ignore-scripts', { cwd: depsRoot, stdio: 'inherit' });
 
+  // --ignore-scripts skips tree-sitter-cli's `install` script, which is how its
+  // Rust executable arrives. Without the binary, structural search returns zero
+  // symbols for EVERY language, so the dev sync must fetch it too — otherwise a
+  // local build cannot reproduce or verify structural search at all. Mirrors
+  // ensureTreeSitterCliBinary in src/npx-cli/install/setup-runtime.ts.
+  const tsCliDir = path.join(depsRoot, 'node_modules', 'tree-sitter-cli');
+  const tsExecutable = path.join(tsCliDir, process.platform === 'win32' ? 'tree-sitter.exe' : 'tree-sitter');
+  if (!existsSync(tsExecutable) && existsSync(path.join(tsCliDir, 'install.js'))) {
+    console.log('Downloading tree-sitter CLI executable...');
+    try {
+      execSync(`"${process.execPath}" install.js`, { cwd: tsCliDir, stdio: 'inherit' });
+    } catch (error) {
+      console.warn('\x1b[33m%s\x1b[0m', `Warning: tree-sitter CLI download failed (${error.message}). Structural search will be unavailable.`);
+    }
+  }
+
   console.log('\x1b[32m%s\x1b[0m', 'Sync complete!');
 } catch (error) {
   console.error('\x1b[31m%s\x1b[0m', 'Sync failed:', error.message);

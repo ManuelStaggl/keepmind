@@ -320,6 +320,8 @@ export async function installPluginDependencies(targetDir: string, bunPath: stri
     } catch (error) {
       throw new Error(`bun install failed in ${targetDir}\n${describeExecError(error)}`);
     }
+
+    await ensureTreeSitterCliBinary(targetDir);
   } finally {
     releaseLock();
   }
@@ -343,6 +345,58 @@ export async function installPluginDependencies(targetDir: string, bunPath: stri
  * packages may have been dropped, which is exactly when the ~60s clean install
  * is worth paying. An unchanged one keeps the fast incremental path.
  */
+/**
+ * Download the tree-sitter CLI executable that `--ignore-scripts` skipped.
+ *
+ * `tree-sitter-cli` ships JS only; its Rust executable arrives via its `install`
+ * script, which every keepmind install path suppresses on purpose (a nested
+ * tree-sitter-cli postinstall once hung this very installer). The manifest's
+ * `trustedDependencies` cannot override an explicit CLI flag — so 3.2.0 shipped
+ * a dependency tree with cli.js and no binary, and structural search returned
+ * zero symbols for EVERY language while looking like an unsupported-file error.
+ *
+ * Doing it here, as its own bounded step, keeps the hang-avoidance (no arbitrary
+ * package's postinstall runs) while restoring the one binary we cannot work
+ * without. Only tree-sitter-cli's own downloader is invoked, never a nested one.
+ *
+ * Non-fatal: memory capture, search and injection all work without a parser, so
+ * a blocked download must degrade structural search, not fail the install.
+ */
+async function ensureTreeSitterCliBinary(targetDir: string): Promise<void> {
+  const packageDir = join(targetDir, 'node_modules', 'tree-sitter-cli');
+  const installScript = join(packageDir, 'install.js');
+  const executable = join(packageDir, IS_WINDOWS ? 'tree-sitter.exe' : 'tree-sitter');
+
+  if (existsSync(executable)) return;
+  if (!existsSync(installScript)) {
+    console.warn('  ⚠ tree-sitter-cli is missing its downloader; structural search (smart_outline / smart_search) will be unavailable.');
+    return;
+  }
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      // cwd MUST be the package directory: install.js writes the executable
+      // relative to CWD, not to its own __dirname.
+      exec(`"${process.execPath}" "${installScript}"`, {
+        cwd: packageDir,
+        timeout: INSTALL_TIMEOUT_MS,
+        maxBuffer: 16 * 1024 * 1024,
+        ...(IS_WINDOWS ? { shell: process.env.ComSpec ?? 'cmd.exe' } : {}),
+      }, (error, stdout, stderr) =>
+        error ? reject(Object.assign(error, { stdout, stderr })) : resolve());
+    });
+  } catch (error) {
+    console.warn(`  ⚠ Could not download the tree-sitter CLI; structural search will be unavailable until the next attempt.\n${describeExecError(error)}`);
+    return;
+  }
+
+  // install.js can exit 0 having written a truncated file, so verify rather
+  // than trust the exit code.
+  if (!existsSync(executable)) {
+    console.warn('  ⚠ The tree-sitter CLI downloader reported success but produced no executable; structural search will be unavailable.');
+  }
+}
+
 function pruneIfDependencySetChanged(targetDir: string): void {
   const nodeModules = join(targetDir, 'node_modules');
   if (!existsSync(nodeModules)) return;
