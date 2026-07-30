@@ -223,6 +223,56 @@ export class SqliteVecManager {
         +chunk_key          text,
         +metadata_json      text
       )`);
+
+    // Records which embedder produced the vectors in this store. Without it a
+    // model change is undetectable: old and new rows sit in the same table but
+    // in different vector spaces, and cosine distance between them is noise.
+    // The symptom is "search stopped finding things", with nothing in the log.
+    db.exec(`CREATE TABLE IF NOT EXISTS vec_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+  }
+
+  /** The embedder identity recorded for this store, or null when never stamped. */
+  readIndexIdentity(): string | null {
+    const db = this.conn();
+    const row = db.prepare(`SELECT value FROM vec_meta WHERE key = 'embedder_identity'`).get() as
+      | { value: string }
+      | undefined;
+    return row?.value ?? null;
+  }
+
+  /** Stamp the store with the embedder identity that produced its vectors. */
+  writeIndexIdentity(identity: string): void {
+    const db = this.conn();
+    db.prepare(
+      `INSERT INTO vec_meta (key, value) VALUES ('embedder_identity', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(identity);
+  }
+
+  /** Row count, used to tell an empty store from a populated stale one. */
+  countRows(): number {
+    const db = this.conn();
+    const row = db.prepare('SELECT COUNT(*) AS c FROM vec_documents').get() as { c: number } | undefined;
+    return Number(row?.c ?? 0);
+  }
+
+  /**
+   * Discard every vector so the store can be rebuilt in a new embedding space.
+   * Returns the number of rows dropped. VACUUMs afterwards: the whole point is
+   * to reclaim the space the stale index occupied, and sqlite would otherwise
+   * keep it as free pages.
+   */
+  purgeAllVectors(): number {
+    const db = this.conn();
+    const before = this.countRows();
+    db.exec('DELETE FROM vec_documents');
+    try {
+      db.exec('VACUUM');
+    } catch (error) {
+      // Non-fatal: the index is still correct, it just occupies stale pages.
+      logger.debug('VEC', 'VACUUM after purge failed', {}, error as Error);
+    }
+    return before;
   }
 
   /** Embed `chunks` and upsert them (delete-by-chunk_key then insert). Returns count written. */
@@ -260,39 +310,83 @@ export class SqliteVecManager {
     return chunks.length;
   }
 
-  /** KNN query with metadata pre-filter + JS project-OR resolution + entity dedupe. */
+  /** KNN query with metadata + project pre-filter and entity dedupe. */
   async queryKnn(
     query: string,
     limit: number,
     filters: VecFilter
   ): Promise<{ ids: number[]; distances: number[]; metadatas: any[] }> {
-    const db = this.conn();
-    const qv = await EmbedderService.instance().embedOne(query);
+    // 'query', not the default 'passage': the stored side is embedded as
+    // passages, and an asymmetric model needs the two sides labelled correctly.
+    const qv = await EmbedderService.instance().embedOne(query, 'query');
+    return this.queryKnnWithVector(qv, limit, filters);
+  }
 
-    // Over-fetch: vec0 can't OR project/merged_into_project, so fetch wider and
-    // resolve the project-OR + entity dedupe in JS.
+  /**
+   * The retrieval half of queryKnn, taking an already-embedded query vector.
+   *
+   * Split out so the filter/ranking behaviour can be tested with hand-built
+   * vectors instead of a 120 MB model — the project-scoping bug this guards
+   * against was invisible in unit tests and only showed up against a populated
+   * multi-project store.
+   */
+  async queryKnnWithVector(
+    qv: Float32Array,
+    limit: number,
+    filters: VecFilter,
+  ): Promise<{ ids: number[]; distances: number[]; metadatas: any[] }> {
+    const db = this.conn();
+
     const k = Math.min(Math.max(limit, 1) * 4, 400);
 
-    const where: string[] = ['embedding match ?', 'k = ?'];
-    const params: Array<Uint8Array | bigint | string> = [vecBlob(qv), BigInt(k)];
-    if (filters.doc_type) { where.push('doc_type = ?'); params.push(filters.doc_type); }
-    if (filters.obs_type) { where.push('obs_type = ?'); params.push(filters.obs_type); }
-    if (filters.platform_source) { where.push('platform_source = ?'); params.push(filters.platform_source); }
+    const baseWhere: string[] = ['embedding match ?', 'k = ?'];
+    const baseParams: Array<Uint8Array | bigint | string> = [vecBlob(qv), BigInt(k)];
+    if (filters.doc_type) { baseWhere.push('doc_type = ?'); baseParams.push(filters.doc_type); }
+    if (filters.obs_type) { baseWhere.push('obs_type = ?'); baseParams.push(filters.obs_type); }
+    if (filters.platform_source) { baseWhere.push('platform_source = ?'); baseParams.push(filters.platform_source); }
 
-    // NOTE: vec0 rejects `k = ?` together with LIMIT — k alone bounds the scan.
-    const sql = `
-      SELECT sqlite_id, doc_type, project, merged_into_project, platform_source,
-             obs_type, created_at_epoch, chunk_key, metadata_json, distance
-      FROM vec_documents
-      WHERE ${where.join(' AND ')}
-      ORDER BY distance`;
+    const runKnn = (where: string[], params: Array<Uint8Array | bigint | string>): VecRow[] => {
+      // NOTE: vec0 rejects `k = ?` together with LIMIT — k alone bounds the scan.
+      const sql = `
+        SELECT sqlite_id, doc_type, project, merged_into_project, platform_source,
+               obs_type, created_at_epoch, chunk_key, metadata_json, distance
+        FROM vec_documents
+        WHERE ${where.join(' AND ')}
+        ORDER BY distance`;
+      return db.prepare(sql).all(...(params as never[])) as VecRow[];
+    };
 
-    const rows = db.prepare(sql).all(...(params as never[])) as VecRow[];
-
+    // The project constraint goes INTO the KNN, not after it.
+    //
+    // This used to fetch the global top-k and drop non-matching projects in JS,
+    // which silently made a project-scoped search depend on how the whole corpus
+    // ranks. Measured on an 18-project store: the global top-32 contained ZERO
+    // rows of the requested project for every query tried, in both languages —
+    // the first matching row sat at global rank #55, #103, #299. The search
+    // returned nothing while the documents were present and correctly embedded.
+    //
+    // It survived under a model whose distances spread widely enough for the
+    // true match to dominate globally. Under a model that packs the whole
+    // neighbourhood into a ~0.03 band (measured), rank within that band is
+    // decided by corpus density rather than relevance, and the post-filter
+    // collapses. Constraining the KNN itself makes the result independent of
+    // both — vec0 filters project the same way it already filters doc_type.
+    //
+    // Two queries because vec0 has no OR: a row matches on `project` or on
+    // `merged_into_project` (worktree adoption). Each is a proper in-partition
+    // KNN; merging and re-sorting by distance yields the same ordering a single
+    // OR-capable query would.
+    let rows: VecRow[];
     const project = filters.project;
-    const filtered = project
-      ? rows.filter((r) => r.project === project || r.merged_into_project === project)
-      : rows;
+    if (project) {
+      rows = [
+        ...runKnn([...baseWhere, 'project = ?'], [...baseParams, project]),
+        ...runKnn([...baseWhere, 'merged_into_project = ?'], [...baseParams, project]),
+      ].sort((a, b) => a.distance - b.distance);
+    } else {
+      rows = runKnn(baseWhere, baseParams);
+    }
+    const filtered = rows;
 
     const ids: number[] = [];
     const distances: number[] = [];
