@@ -1,7 +1,7 @@
 
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { parseFilesBatch, formatFoldedView, loadUserGrammars, type FoldedFile } from "./parser.js";
+import { parseFilesBatch, formatFoldedView, loadUserGrammars, type FoldedFile, type FoldFailure } from "./parser.js";
 import { logger } from "../../utils/logger.js";
 
 const CODE_EXTENSIONS = new Set([
@@ -45,6 +45,12 @@ export interface SearchResult {
   totalFilesScanned: number;
   totalSymbolsFound: number;
   tokenEstimate: number;
+  /**
+   * How many scanned files could not be folded, per cause. Without this a total
+   * parser outage was indistinguishable from a genuine miss: the report read
+   * "Scanned 1805 files, found 0 symbols" either way.
+   */
+  unfoldable: Partial<Record<FoldFailure, number>>;
 }
 
 export interface SymbolMatch {
@@ -151,9 +157,13 @@ export async function searchCodebase(
   const foldedFiles: FoldedFile[] = [];
   const matchingSymbols: SymbolMatch[] = [];
   let totalSymbolsFound = 0;
+  const unfoldable: Partial<Record<FoldFailure, number>> = {};
 
   for (const [relPath, parsed] of parsedFiles) {
     totalSymbolsFound += countSymbols(parsed);
+    if (parsed.unavailable) {
+      unfoldable[parsed.unavailable] = (unfoldable[parsed.unavailable] ?? 0) + 1;
+    }
 
     const pathMatch = matchScore(relPath.toLowerCase(), queryParts);
     let fileHasMatch = pathMatch > 0;
@@ -226,6 +236,7 @@ export async function searchCodebase(
     totalFilesScanned: filesToParse.length,
     totalSymbolsFound,
     tokenEstimate,
+    unfoldable,
   };
 }
 
@@ -268,6 +279,18 @@ export function formatSearchResults(result: SearchResult, query: string): string
   parts.push(`🔍 Smart Search: "${query}"`);
   parts.push(`   Scanned ${result.totalFilesScanned} files, found ${result.totalSymbolsFound} symbols`);
   parts.push(`   ${result.matchingSymbols.length} matches across ${result.foldedFiles.length} files (~${result.tokenEstimate} tokens for folded view)`);
+
+  // Report the outage before the result, and never let "0 symbols" stand alone
+  // when the reason is that nothing could be parsed in the first place.
+  const noParser = result.unfoldable["no-parser"] ?? 0;
+  const noGrammar = result.unfoldable["no-grammar"] ?? 0;
+  if (noParser > 0) {
+    parts.push("");
+    parts.push(`   ⚠ ${noParser} of these files could not be parsed AT ALL: keepmind's tree-sitter CLI executable is missing, which disables structural search for every language. This result is not evidence that the symbols are absent. keepmind is fetching the executable in the background — retry shortly, or run \`npx keepmind install\` to repair the dependency tree.`);
+  } else if (noGrammar > 0) {
+    parts.push("");
+    parts.push(`   ⚠ ${noGrammar} scanned files were skipped because their tree-sitter grammar is not installed yet; keepmind has requested it. Retry shortly for complete coverage.`);
+  }
   parts.push("");
 
   if (result.matchingSymbols.length === 0) {

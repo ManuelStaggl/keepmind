@@ -17,7 +17,17 @@ import {
 import { getWorkerPort, workerHttpRequest, resolveWorkerScriptPath } from '../shared/worker-utils.js';
 import { ensureWorkerStarted } from '../services/worker-spawner.js';
 import { searchCodebase, formatSearchResults } from '../services/smart-file-read/search.js';
-import { parseFile, formatFoldedView, unfoldSymbol, findProjectRoot } from '../services/smart-file-read/parser.js';
+import { parseFile, formatFoldedView, unfoldSymbol, findProjectRoot, describeFoldFailure, consumeParserWarning } from '../services/smart-file-read/parser.js';
+
+/**
+ * Prepend the once-per-session parser warning, if it has not been shown yet.
+ * The log alone was not enough: a total structural-search outage ran for a full
+ * day looking exactly like ordinary "unsupported file" responses.
+ */
+function withParserWarning(text: string): string {
+  const warning = consumeParserWarning();
+  return warning ? `${warning}\n\n${text}` : text;
+}
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -904,10 +914,18 @@ NEVER fetch full details without filtering first. 10x token savings.`,
           }]
         };
       }
+      if (parsed.unavailable) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: withParserWarning(describeFoldFailure(parsed.unavailable, args.file_path, parsed.language))
+          }]
+        };
+      }
       return {
         content: [{
           type: 'text' as const,
-          text: `Could not parse ${args.file_path}. File may be unsupported or empty.`
+          text: `${args.file_path} parsed successfully but contains no foldable symbols, so "${args.symbol_name}" cannot be located (${parsed.totalLines} lines, ${parsed.language}).`
         }]
       };
     }
@@ -934,10 +952,18 @@ NEVER fetch full details without filtering first. 10x token savings.`,
           content: [{ type: 'text' as const, text: formatFoldedView(parsed) }]
         };
       }
+      if (parsed.unavailable) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: withParserWarning(describeFoldFailure(parsed.unavailable, args.file_path, parsed.language))
+          }]
+        };
+      }
       return {
         content: [{
           type: 'text' as const,
-          text: `Could not parse ${args.file_path}. File may use an unsupported language or be empty.`
+          text: `${args.file_path} parsed successfully but contains no foldable symbols (${parsed.totalLines} lines, ${parsed.language}).`
         }]
       };
     }

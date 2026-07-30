@@ -153,14 +153,29 @@ export class SessionSearch {
   private buildFilterClause(
     filters: SearchFilters,
     params: any[],
-    tableAlias: string = 'o'
+    tableAlias: string = 'o',
+    // Only `observations` has a `type` column. session_summaries and
+    // user_prompts do not, so every clause naming `type` must be suppressed for
+    // them or the statement is invalid SQL.
+    //
+    // This was implicit, and the project filter emitted `type = 'global'`
+    // unconditionally: a project-scoped session search therefore died with
+    // "no such column: s.type". It stayed hidden because the two callers that
+    // pass 's' only stripped the caller-supplied `type` FILTER, which is a
+    // different clause, and because every other route to session summaries goes
+    // through hydrate-by-id and never builds this clause at all. The one path
+    // that did — a filter-only unified search with a project and no query text —
+    // returned HTTP 500 for every such request.
+    hasTypeColumn: boolean = true,
   ): string {
     const conditions: string[] = [];
 
     if (filters.project) {
       // Phase 4 / Step 2 — default-scope to the project, but keep cross-project
       // user-pinned rows (type='global') eligible unless explicitly excluded.
-      if (filters.includeGlobal === false) {
+      // Tables without a `type` column have no global rows to keep, so they get
+      // the plain project predicate.
+      if (filters.includeGlobal === false || !hasTypeColumn) {
         conditions.push(`${tableAlias}.project = ?`);
         params.push(filters.project);
       } else {
@@ -182,7 +197,7 @@ export class SessionSearch {
       params.push(normalizePlatformSource(filters.platformSource));
     }
 
-    if (filters.type) {
+    if (filters.type && hasTypeColumn) {
       if (Array.isArray(filters.type)) {
         const placeholders = filters.type.map(() => '?').join(',');
         conditions.push(`${tableAlias}.type IN (${placeholders})`);
@@ -309,9 +324,10 @@ export class SessionSearch {
     const { limit = 50, offset = 0, orderBy = 'relevance', ...filters } = options;
 
     if (!query) {
-      const filterOptions = { ...filters };
-      delete filterOptions.type;
-      const filterClause = this.buildFilterClause(filterOptions, params, 's');
+      // hasTypeColumn=false replaces the previous `delete filters.type`: one
+      // mechanism now covers BOTH clauses that name `type`, instead of stripping
+      // the filter while the project predicate still emitted `s.type='global'`.
+      const filterClause = this.buildFilterClause({ ...filters }, params, 's', false);
       if (!filterClause) {
         throw new AppError(SessionSearch.MISSING_SEARCH_INPUT_MESSAGE, 400, 'INVALID_SEARCH_REQUEST');
       }
@@ -333,9 +349,7 @@ export class SessionSearch {
     }
 
     if (this._fts5Available) {
-      const filterOptions = { ...filters };
-      delete filterOptions.type;
-      const filterClause = this.buildFilterClause(filterOptions, params, 's');
+      const filterClause = this.buildFilterClause({ ...filters }, params, 's', false);
 
       const orderClause = orderBy === 'date_asc'
         ? 'ORDER BY s.created_at_epoch ASC'

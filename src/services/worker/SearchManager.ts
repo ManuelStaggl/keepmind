@@ -32,6 +32,18 @@ export interface SearchTelemetryEnvelope {
   fallback_reason?: 'none' | 'chroma_connection' | 'chroma_error' | 'chroma_not_initialized';
 }
 
+/**
+ * The ` matching "…"` fragment of a result header, or a filter-only note.
+ *
+ * Search legitimately runs without query text — filters alone — and every call
+ * site interpolated the absent query anyway, rendering `matching "undefined"`.
+ * One site had been patched individually; the rest had not, so the same defect
+ * kept reappearing under a different heading.
+ */
+function matching(query?: string): string {
+  return query ? ` matching "${query}"` : ' (filters only, no query text)';
+}
+
 export class SearchManager {
   private orchestrator: SearchOrchestrator;
 
@@ -618,7 +630,7 @@ export class SearchManager {
       return {
         content: [{
           type: 'text' as const,
-          text: `No results found matching "${query}"`
+          text: `No results found${matching(query)}`
         }]
       };
     }
@@ -663,7 +675,7 @@ export class SearchManager {
     const resultsByDate = groupByDate(limitedResults, item => item.created_at);
 
     const lines: string[] = [];
-    lines.push(`Found ${totalResults} result(s) matching "${query}" (${observations.length} obs, ${sessions.length} sessions, ${prompts.length} prompts)`);
+    lines.push(`Found ${totalResults} result(s)${matching(query)} (${observations.length} obs, ${sessions.length} sessions, ${prompts.length} prompts)`);
     lines.push('');
 
     for (const [day, dayResults] of resultsByDate) {
@@ -1162,12 +1174,12 @@ export class SearchManager {
       return {
         content: [{
           type: 'text' as const,
-          text: `No observations found matching "${query}"`
+          text: `No observations found${matching(query)}`
         }]
       };
     }
 
-    const header = `Found ${results.length} observation(s) matching "${query}"\n\n${this.formatter.formatTableHeader()}`;
+    const header = `Found ${results.length} observation(s)${matching(query)}\n\n${this.formatter.formatTableHeader()}`;
     const formattedResults = results.map((obs, i) => this.formatter.formatObservationIndex(obs, i));
 
     return {
@@ -1216,12 +1228,12 @@ export class SearchManager {
       return {
         content: [{
           type: 'text' as const,
-          text: `No sessions found matching "${query}"`
+          text: `No sessions found${matching(query)}`
         }]
       };
     }
 
-    const header = `Found ${results.length} session(s) matching "${query}"\n\n${this.formatter.formatTableHeader()}`;
+    const header = `Found ${results.length} session(s)${matching(query)}\n\n${this.formatter.formatTableHeader()}`;
     const formattedResults = results.map((session, i) => this.formatter.formatSessionIndex(session, i));
 
     return {
@@ -1270,12 +1282,12 @@ export class SearchManager {
       return {
         content: [{
           type: 'text' as const,
-          text: query ? `No user prompts found matching "${query}"` : 'No user prompts found'
+          text: `No user prompts found${matching(query)}`
         }]
       };
     }
 
-    const header = `Found ${results.length} user prompt(s) matching "${query}"\n\n${this.formatter.formatTableHeader()}`;
+    const header = `Found ${results.length} user prompt(s)${matching(query)}\n\n${this.formatter.formatTableHeader()}`;
     const formattedResults = results.map((prompt, i) => this.formatter.formatUserPromptIndex(prompt, i));
 
     return {
@@ -1513,6 +1525,18 @@ export class SearchManager {
   async getTimelineByQuery(args: any): Promise<any> {
     const normalized = this.normalizeParams(args);
     const { query, mode = 'auto', depth_before, depth_after, limit = 5, project, platformSource } = normalized;
+
+    // A timeline BY QUERY without a query has nothing to anchor on. Unguarded,
+    // it embedded the absent value and reported back `matching "undefined"`.
+    if (!query) {
+      return {
+        content: [{
+          type: 'text' as const,
+          text: 'Error: Must provide a "query" parameter to build a timeline by query. Use the timeline tool with an "anchor" to build one around a known observation.'
+        }]
+      };
+    }
+
     const depthBefore = depth_before != null ? Number(depth_before) : 10;
     const depthAfter = depth_after != null ? Number(depth_after) : 10;
     const cwd = process.cwd();

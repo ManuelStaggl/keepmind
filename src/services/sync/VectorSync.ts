@@ -26,6 +26,7 @@ import * as SqliteFilesModule from '../sqlite/observations/files.js';
 
 type SessionStoreType = InstanceType<typeof SessionStoreImpl>;
 import { SqliteVecManager, type VecChunk, type VecFilter } from '../vector/SqliteVecManager.js';
+import { EmbedderService } from '../vector/EmbedderService.js';
 import { lastActivityByProject, isProjectInactive } from '../vector/vector-retention.js';
 import { loadMemoryQualityConfig } from '../config/memory-quality.js';
 
@@ -119,6 +120,33 @@ function translateWhere(where?: Record<string, any>): VecFilter {
   };
   visit(where);
   return f;
+}
+
+/** What to do about the recorded embedding space; see decideEmbeddingSpaceAction. */
+export type EmbeddingSpaceAction = 'current' | 'stamp' | 'rebuild';
+
+/**
+ * Decide whether the stored index is usable with the current embedder.
+ *
+ * Split out as a pure function because the cost of getting it wrong is
+ * asymmetric and invisible: deciding 'current' when the space is actually stale
+ * leaves a permanently broken index that still reports success, whereas a
+ * needless 'rebuild' only costs time. The untracked case in particular is easy
+ * to reason about wrongly, so it is asserted directly.
+ */
+export function decideEmbeddingSpaceAction(
+  stored: string | null,
+  current: string,
+  rows: number,
+): EmbeddingSpaceAction {
+  if (stored === current) return 'current';
+  // Untracked and empty: a fresh store. Nothing to invalidate, just stamp it.
+  if (stored === null && rows === 0) return 'stamp';
+  // Untracked and populated: written before identity tracking existed, so its
+  // model is unknown. Tracking arrived in the same release that changed the
+  // default model, so assuming a match would silently keep an English-only
+  // index — the exact failure this mechanism exists to end.
+  return 'rebuild';
 }
 
 export class VectorSync {
@@ -508,6 +536,14 @@ export class VectorSync {
       logger.debug('VECTOR_SYNC', 'Backfill progress', { project: backfillProject, progress: `${Math.min(i + this.BATCH_SIZE, allDocs.length)}/${allDocs.length}` });
     }
 
+    if (hadGap) {
+      logger.warn('VECTOR_SYNC', 'Observation backfill hit a gap; the watermark did NOT advance and this project will retry from the same point on the next run', {
+        project: backfillProject,
+        watermark,
+        pendingObservations: observations.length,
+      });
+    }
+
     return allDocs;
   }
 
@@ -562,6 +598,18 @@ export class VectorSync {
       logger.debug('VECTOR_SYNC', 'Backfill progress', { project: backfillProject, progress: `${Math.min(i + this.BATCH_SIZE, summaryDocs.length)}/${summaryDocs.length}` });
     }
 
+    // A gap freezes this project's summary watermark for the whole run, so every
+    // later batch is skipped and the project stays stuck until the failing batch
+    // succeeds. That was only ever visible at debug level — a stalled project
+    // looked exactly like one that simply has no summaries.
+    if (hadGap) {
+      logger.warn('VECTOR_SYNC', 'Summary backfill hit a gap; the watermark did NOT advance and this project will retry from the same point on the next run', {
+        project: backfillProject,
+        watermark,
+        pendingSummaries: summaries.length,
+      });
+    }
+
     return summaryDocs;
   }
 
@@ -602,6 +650,14 @@ export class VectorSync {
       }
       ChromaSyncState.bump(backfillProject, 'prompts', prompts[upTo - 1].id);
       logger.debug('VECTOR_SYNC', 'Backfill progress', { project: backfillProject, progress: `${upTo}/${promptDocs.length}` });
+    }
+
+    if (hadGap) {
+      logger.warn('VECTOR_SYNC', 'Prompt backfill hit a gap; the watermark did NOT advance and this project will retry from the same point on the next run', {
+        project: backfillProject,
+        watermark,
+        pendingPrompts: prompts.length,
+      });
     }
 
     return promptDocs;
@@ -645,6 +701,67 @@ export class VectorSync {
   private static readonly BACKFILL_CONCURRENCY_LIMIT = 1;
   private static backfillInProgress = false;
 
+  /**
+   * Bring the store's embedding space in line with the configured embedder.
+   *
+   * Vectors from two different models cannot be compared — cosine distance
+   * between them is noise — so a model change makes the existing index worse
+   * than useless while looking perfectly healthy. This detects the change, drops
+   * the stale vectors and clears the watermarks; the backfill that follows
+   * rebuilds from SQLite, which is why a model switch covers the ENTIRE existing
+   * corpus and not just new observations.
+   *
+   * Runs before every backfill and is a no-op in the overwhelming majority of
+   * boots (identity matches, or the store is empty and merely needs stamping).
+   * Returns true when a rebuild was triggered.
+   */
+  static async ensureEmbeddingSpaceCurrent(): Promise<boolean> {
+    const vec = SqliteVecManager.instance();
+    try {
+      vec.load();
+      const current = EmbedderService.instance().identity();
+      const stored = vec.readIndexIdentity();
+      // countRows only matters for the untracked case; reading it unconditionally
+      // would scan the table on every boot.
+      const decision = stored === current
+        ? 'current'
+        : decideEmbeddingSpaceAction(stored, current, vec.countRows());
+
+      if (decision === 'current') return false;
+
+      if (decision === 'stamp') {
+        vec.writeIndexIdentity(current);
+        logger.info('VECTOR_SYNC', 'Stamped empty vector store with embedder identity', { identity: current });
+        return false;
+      }
+
+      const rows = vec.countRows();
+      logger.warn('VECTOR_SYNC', 'Embedder changed — the vector index is in a stale embedding space and will be rebuilt', {
+        stored: stored ?? '(untracked, pre-3.3.0)',
+        current,
+        staleVectors: rows,
+      });
+
+      const dropped = vec.purgeAllVectors();
+      const projects = ChromaSyncState.clearAll();
+      // Stamp only AFTER the purge: a crash in between must leave the mismatch
+      // visible so the next boot retries, rather than marking a half-emptied
+      // index as current.
+      vec.writeIndexIdentity(current);
+
+      logger.info('VECTOR_SYNC', 'Vector index cleared for re-embedding; keyword search stays available while it rebuilds', {
+        droppedVectors: dropped,
+        clearedProjects: projects,
+        identity: current,
+      });
+      return true;
+    } catch (error) {
+      // A degraded vector store (missing native deps) must not stop the worker.
+      logger.warn('VECTOR_SYNC', 'Could not verify the embedding space; leaving the index untouched', {}, error as Error);
+      return false;
+    }
+  }
+
   static async backfillAllProjects(storeOverride?: SessionStore): Promise<void> {
     if (VectorSync.backfillInProgress) {
       logger.info('VECTOR_SYNC', 'Backfill already in progress, skipping duplicate run');
@@ -667,6 +784,14 @@ export class VectorSync {
 
     VectorSync.backfillInProgress = true;
     try {
+      // Before deciding WHAT to backfill, make sure the existing index is even
+      // comparable to what this embedder produces. A model change turns the
+      // whole store stale, and the rebuild below is what repairs it.
+      const rebuilding = await VectorSync.ensureEmbeddingSpaceCurrent();
+      if (rebuilding) {
+        logger.info('VECTOR_SYNC', 'Re-embedding the full corpus after an embedder change — this runs in the background and may take a while');
+      }
+
       const allProjects = db.db.prepare(
         'SELECT DISTINCT project FROM observations WHERE project IS NOT NULL AND project != ?'
       ).all('') as { project: string }[];
