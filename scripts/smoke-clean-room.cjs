@@ -135,6 +135,36 @@ function checkPluginClosure(failures) {
     return;
   }
 
+  // The tree-sitter executable, which --ignore-scripts necessarily skips.
+  //
+  // This is the step that shipped broken: `bun install --ignore-scripts` leaves
+  // tree-sitter-cli with cli.js and no binary, and without the binary NO
+  // language folds — structural search is inert while reporting "unsupported
+  // language" per file. Nothing here caught it, because this test stopped at
+  // `bun install` and never exercised the acquisition the installer performs
+  // afterwards. So assert the same thing a fresh `npx keepmind install` must
+  // produce: the executable, in the freshly installed tree.
+  const tsCliDir = path.join(tmpData, 'node_modules', 'tree-sitter-cli');
+  const tsExecutable = path.join(tsCliDir, process.platform === 'win32' ? 'tree-sitter.exe' : 'tree-sitter');
+  if (!fs.existsSync(path.join(tsCliDir, 'install.js'))) {
+    failures.push('tree-sitter-cli is installed without its downloader; structural search could never be repaired');
+  } else if (!fs.existsSync(tsExecutable)) {
+    log('  Downloading tree-sitter CLI executable (installer parity)...');
+    try {
+      execSync(`"${process.execPath}" install.js`, { cwd: tsCliDir, stdio: 'pipe', timeout: 180000 });
+    } catch (error) {
+      const out = `${error.stdout || ''}${error.stderr || ''}`.trim();
+      failures.push(`tree-sitter CLI download failed in fresh deps temp dir: ${out || error.message}`);
+    }
+    // Verified by probing, not by the exit code: install.js can exit 0 having
+    // written a truncated file.
+    if (!fs.existsSync(tsExecutable)) {
+      failures.push(`tree-sitter CLI produced no executable at ${tsExecutable}; structural search would return zero symbols for every language`);
+      return;
+    }
+    log('  tree-sitter executable present after installer-parity download.');
+  }
+
   // Assert each zod subpath resolves from the freshly installed node_modules.
   const nodeModules = path.join(tmpData, 'node_modules');
   const missing = [];
