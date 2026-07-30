@@ -2,14 +2,15 @@
 //
 // In-process sentence embedder (transformers.js + onnxruntime-node).
 //
-// Replaces the out-of-process chroma-mcp embedder. Loads the int8-quantized
-// all-MiniLM-L6-v2 model once per worker process (lazy), produces 384-dim
-// mean-pooled + L2-normalized float32 embeddings, and unloads the ORT session
-// after an idle window to keep the worker RSS low between bursts.
+// Replaces the out-of-process chroma-mcp embedder. Loads an int8-quantized
+// sentence model once per worker process (lazy), produces 384-dim mean-pooled +
+// L2-normalized float32 embeddings, and unloads the ORT session after an idle
+// window to keep the worker RSS low between bursts.
 //
-// Proven on win32-x64 (Node 24): Xenova/all-MiniLM-L6-v2 + dtype:'int8'
-// resolves the canonical quantized model (~23.7 MB on disk), cold-load ~2 s,
-// per-embed ~15-20 ms, output length 384, L2 norm ≈ 1.0.
+// The default model is multilingual — see DEFAULT_MODEL_ID for why, and for what
+// that costs. Both the former all-MiniLM-L6-v2 and the current
+// multilingual-e5-small are 384-dimensional, so the vec0 schema is unaffected by
+// the switch; only the vectors themselves have to be rebuilt.
 
 import type { FeatureExtractionPipeline } from '@huggingface/transformers';
 import { join } from 'path';
@@ -20,8 +21,32 @@ import { pluginRequire } from '../../shared/plugin-node-modules.js';
 
 export const EMBED_DIM = 384;
 
-const DEFAULT_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
+// Multilingual by default since 3.3.0. all-MiniLM-L6-v2 is English-only, which
+// made the vector path unable to cross a language boundary: observations are
+// titled and summarised in English while the questions asked of them are often
+// not. Measured on one real store, same data, same meaning — "theme switch crash
+// WPF" returned 6 on-point observations, "Warum stürzt die Oberfläche beim
+// Wechsel des Farbschemas ab" returned 0. German queries were silently falling
+// back to keyword hits.
+//
+// multilingual-e5-small is also 384-dimensional, so the vec0 schema
+// (float[384]) is unchanged and no migration is needed — only a re-embed, which
+// works for the entire existing corpus because the source text lives in SQLite.
+// It costs a larger model (~120 MB int8 vs ~24 MB) and slower inference; that
+// buys symmetric retrieval in both directions with no per-query translation.
+const DEFAULT_MODEL_ID = 'Xenova/multilingual-e5-small';
 const DEFAULT_DTYPE = 'int8';
+
+/**
+ * Whether a text is being embedded as a stored document or as a search query.
+ *
+ * The e5 family is trained asymmetrically and REQUIRES these prefixes; omitting
+ * them measurably degrades retrieval, and — worse — mixing them (documents
+ * stored with a prefix, queries sent without) puts the two sides in subtly
+ * different regions of the space. Symmetric models ignore the distinction, so
+ * the prefix is applied only for models that ask for it.
+ */
+export type EmbedKind = 'query' | 'passage';
 const DEFAULT_IDLE_UNLOAD_MS = 5 * 60_000;
 // Inference micro-batch. Attention memory is O(batch · heads · seqLen²), so a
 // large caller batch (e.g. the backfill's 100) padded to ~256 tokens allocates
@@ -91,9 +116,29 @@ export class EmbedderService {
   // at once through this process singleton.
   private inferenceChain: Promise<unknown> = Promise.resolve();
 
+  // Derived from the model id rather than exposed as its own setting: a separate
+  // switch could drift out of sync with the model, and a prefix applied to the
+  // wrong model is silent — it just retrieves worse.
+  private readonly needsPrefix = /(^|[/-])e5([-/]|$)/i.test(this.modelId);
+
+  /**
+   * Identifies the vector space this embedder produces. Stored alongside the
+   * index so a model change is DETECTED instead of silently mixing two spaces —
+   * which looks exactly like "search suddenly finds nothing".
+   */
+  identity(): string {
+    return `${this.modelId}|${this.dtype}|${EMBED_DIM}`;
+  }
+
   /** True when the ORT session is currently resident (model loaded). */
   isWarm(): boolean {
     return this.pipe !== null;
+  }
+
+  private decorate(texts: string[], kind: EmbedKind): string[] {
+    if (!this.needsPrefix) return texts;
+    const prefix = kind === 'query' ? 'query: ' : 'passage: ';
+    return texts.map((t) => prefix + t);
   }
 
   private async getPipe(): Promise<FeatureExtractionPipeline> {
@@ -108,7 +153,7 @@ export class EmbedderService {
       .then((p) => {
         this.pipe = p as FeatureExtractionPipeline;
         this.loading = null;
-        logger.info('EMBEDDER', 'MiniLM pipeline ready', {
+        logger.info('EMBEDDER', 'Embedding pipeline ready', {
           model: this.modelId,
           dtype: this.dtype,
           ms: Date.now() - t0,
@@ -137,10 +182,17 @@ export class EmbedderService {
     }
   }
 
-  /** Embed one or many strings → Float32Array[] of length 384 (mean-pooled, L2-normalized). */
-  async embed(texts: string | string[]): Promise<Float32Array[]> {
-    const list = Array.isArray(texts) ? texts : [texts];
-    if (list.length === 0) return [];
+  /**
+   * Embed one or many strings → Float32Array[] of length 384 (mean-pooled,
+   * L2-normalized).
+   *
+   * `kind` defaults to 'passage' because every stored document goes through
+   * here; search paths must pass 'query' explicitly.
+   */
+  async embed(texts: string | string[], kind: EmbedKind = 'passage'): Promise<Float32Array[]> {
+    const raw = Array.isArray(texts) ? texts : [texts];
+    if (raw.length === 0) return [];
+    const list = this.decorate(raw, kind);
 
     const run = async (): Promise<Float32Array[]> => {
       const pipe = await this.getPipe();
@@ -171,8 +223,8 @@ export class EmbedderService {
     return result;
   }
 
-  async embedOne(text: string): Promise<Float32Array> {
-    return (await this.embed([text]))[0];
+  async embedOne(text: string, kind: EmbedKind = 'passage'): Promise<Float32Array> {
+    return (await this.embed([text], kind))[0];
   }
 
   private touchIdle(): void {

@@ -75,5 +75,22 @@ export const ChromaSyncState = {
     const all = load();
     all[project] = { ...marks };
     persist();
+  },
+
+  /**
+   * Forget every watermark so the next backfill re-embeds the whole corpus.
+   *
+   * Used when the embedding model changes: the vectors are discarded, so the
+   * watermarks that claim they exist must go too — otherwise the backfill skips
+   * everything below them and the store stays permanently empty. Returns the
+   * number of projects cleared.
+   */
+  clearAll(): number {
+    const all = load();
+    const count = Object.keys(all).length;
+    for (const project of Object.keys(all)) delete all[project];
+    persist();
+    logger.info('VECTOR_SYNC', 'Cleared all backfill watermarks', { projects: count });
+    return count;
   }
 };
