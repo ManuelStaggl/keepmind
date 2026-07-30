@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.3.2] - 2026-07-30
+
+A tooling-only release: nothing in the worker, the hooks or the MCP server changed. What changed is the machinery that cuts releases, after 3.3.1 exposed three separate ways for it to go wrong.
+
+### Fixed
+
+- **`fix(changelog)`: order entries by version and fence off the inherited history.** The generator sorted by GitHub publish date, which holds only while releases are published in version order. Backfilling the missing 3.3.0 after 3.3.1 had already shipped filed it *above* 3.3.1. Sorting purely by version is not enough on its own either: `CHANGELOG.md` still carries 290 pre-fork claude-mem entries numbered up to 13.x, which outrank every keepmind release numerically while being older than all of them. An `<!-- inherited-history -->` marker now separates the two numbering schemes — the generator merges and version-sorts only above it, and copies everything below through untouched, including under `--full`.
+
+### Added
+
+- **`feat(release)`: a single guarded release path.** `scripts/release.mjs` refuses to start unless the tree is clean, HEAD is on `main` and in sync with `origin`, the tag is free locally *and* on the remote, the version is not already on npm, `gh` is authenticated, and release notes exist. It then bumps, builds (propagating the version to all eight manifests), tests, tags, pushes the single tag by name, creates the GitHub Release and regenerates the changelog. `--dry-run` stops after the preflight.
+
+  Release notes are mandatory input rather than a follow-up chore: `CHANGELOG.md` is generated from GitHub Releases, so a tag without one is a permanent hole in the file — which is exactly how 3.3.0 reached npm.
+
+  The preflight also fails on any tag unreachable from `main` outside the `upstream/` namespace. The 322 inherited claude-mem tags had silently occupied `v3.3.8`, `v3.5.x` and 43 other future versions; they now live under `refs/tags/upstream/*`, so the history is preserved without holding the version namespace hostage.
+
+### Removed
+
+- **`scripts/publish.js`**, which bumped 2 of the 8 version manifests, committed as `chore: Release vX` — the exact prefix the changelog generator filters out — and ran `git push --tags`, which would have pushed all 322 inherited tags to the remote.
+- **`np`**, which publishes to npm from the developer machine. Publishing happens in CI over OIDC trusted publishing, triggered by the tag push, and there is deliberately no npm token on a developer machine — so that path could only ever fail.
+
 ## [3.3.1] - 2026-07-30
 
 The `npx keepmind install` banner still showed the upstream **claude-mem** wordmark, drawn above a 192-frame ASCII animation of the claude-mem logo. Both are gone.
