@@ -65,7 +65,28 @@ Use [LiteLLM Gateway](configuration/litellm-gateway) when you want `KEEPMIND_PRO
 | `KEEPMIND_LOG_LEVEL`        | `INFO`                          | Log verbosity (DEBUG, INFO, WARN, ERROR, SILENT) |
 | `KEEPMIND_LOG_DEDUP`          | `1`                             | Collapse identical repeated log lines. Set `0` for one line per event when tracing. |
 | `KEEPMIND_GRAMMAR_AUTOINSTALL`| `1`                             | Fetch non-core tree-sitter grammars on first use. Set `0` on air-gapped machines. |
+| `KEEPMIND_PARSER_AUTOINSTALL` | `1`                             | Fetch the tree-sitter CLI executable when it is missing. Set `0` on air-gapped machines — structural search then stays unavailable. |
 | `CLAUDE_CODE_PATH`            | _(auto-detect)_                 | Path to Claude Code CLI (for Windows) |
+
+### Semantic Search
+
+| Setting                  | Default                         | Description                           |
+|--------------------------|---------------------------------|---------------------------------------|
+| `KEEPMIND_EMBED_MODEL`   | `Xenova/multilingual-e5-small`  | Sentence embedding model. Must be 384-dimensional; anything else will not fit the vector schema. |
+| `KEEPMIND_EMBED_DTYPE`   | `int8`                          | Quantization. `fp32` is larger and slower and measured no better on retrieval. |
+| `KEEPMIND_EMBED_BATCH`   | `16`                            | Inference micro-batch. Lower it if embedding peaks too much memory. |
+| `KEEPMIND_EMBED_IDLE_MS` | `300000`                        | Idle time before the model is unloaded to free memory. |
+
+The default model is multilingual on purpose: memories are written in English
+while questions are often asked in another language, and an English-only model
+cannot bridge that — non-English queries silently degrade to keyword hits.
+
+**Changing the model triggers a full rebuild.** Vectors from two different
+models are not comparable, so the store records which embedder filled it and
+re-embeds the entire corpus in the background at the next worker start when that
+changes. The rebuild reads from SQLite, so it covers everything ever captured,
+not just new memories. Keyword search stays available while it runs. Models with
+a dimension other than 384 are not supported without a schema migration.
 
 #### Log deduplication
 
@@ -75,6 +96,19 @@ full; repeats are counted, and the next line after the window carries
 `(repeated N× in the previous Ms)`, so nothing is silently lost. Lines are
 considered repeats only when their level, component, message **and** payload all
 match — two different failures that share a message stay separate.
+
+#### Tree-sitter parser
+
+Structural search (`smart_outline`, `smart_search`, `learn-codebase`) shells out
+to the `tree-sitter` CLI, so that executable is required for *every* language —
+without it no file yields symbols, regardless of which grammars are present.
+
+It does not arrive with the package: `tree-sitter-cli` ships JavaScript only and
+downloads its executable in an install script, which keepmind suppresses along
+with all other install scripts. `npx keepmind install` therefore fetches it as
+its own step, and a parse that finds it missing requests it in the background
+and says so rather than reporting the file as unsupported. Set
+`KEEPMIND_PARSER_AUTOINSTALL=0` to suppress that fetch.
 
 #### Tree-sitter grammars
 
