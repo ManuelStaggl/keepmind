@@ -30,7 +30,7 @@
 This fork strips the cloud/SaaS layer and the Bun/Chroma runtime dependencies so it runs as a self-contained node process on Windows:
 
 - **node-only** — the `bun:sqlite` dependency is shimmed to `node:sqlite`; the worker runs under Node ≥ 22.5.
-- **In-process vector search** — the `chroma-mcp`/`uvx` subprocess is replaced by an in-process store: `@huggingface/transformers` (int8 MiniLM, 384-dim) + `sqlite-vec`. Hybrid RRF (vector + BM25), fully offline.
+- **In-process vector search** — the `chroma-mcp`/`uvx` subprocess is replaced by an in-process store: `@huggingface/transformers` (int8 multilingual-e5-small, 384-dim) + `sqlite-vec`. Hybrid RRF (vector + BM25), fully offline, and multilingual: memories written in English stay findable in the language you actually ask in.
 - **Cloud layer removed** — Postgres, BullMQ, Redis and better-auth are gone. All 23 MCP tools and observation generation stay intact.
 - **Windows-hardened lifecycle** — ephemeral worker port (eliminates the fixed-port orphaned-socket deadlock), session-bound refcount, atomic BOM-free settings.
 - **Secret-safe** — observations are scrubbed of secrets (`ghp_…`, `AKIA…`, high-entropy tokens) before storage; project-scoped by default.

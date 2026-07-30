@@ -31,7 +31,17 @@ Compilation is Node + esbuild (`build:cli-binary` bundles `--platform=node --ext
 - **Installed Plugin**: `~/.claude/plugins/marketplaces/keepmind/` — code only, **no `node_modules`**
 - **Plugin dependencies**: `~/.claude/plugins/data/keepmind-keepmind/` (`${CLAUDE_PLUGIN_DATA}`)
 - **Database**: `~/.keepmind/keepmind.db`
-- **Vector search**: in-process `sqlite-vec` inside the SQLite DB (no separate Chroma service); embeddings via `@huggingface/transformers` (local MiniLM, int8)
+- **Vector search**: in-process `sqlite-vec` inside the SQLite DB (no separate Chroma service); embeddings via `@huggingface/transformers` (local multilingual-e5-small, int8, 384-dim)
+
+The embedder is **multilingual by design**, not by accident: observations are
+written in English while questions are often asked in another language, and an
+English-only model cannot bridge that — German queries silently degraded to
+keyword-only hits. e5 is asymmetric, so stored text must be embedded as
+`passage` and searches as `query`; mixing the two is silent, it only retrieves
+worse. `vec_meta.embedder_identity` stamps the store with the model that filled
+it, and a mismatch triggers a full rebuild at worker start — without that stamp
+a model change mixes two incomparable vector spaces and presents as "search
+stopped finding things".
 
 There is exactly ONE dependency tree, and it lives in the plugin data directory.
 Never install into the marketplace or cache directories: `${CLAUDE_PLUGIN_ROOT}`
