@@ -56,3 +56,8 @@ docker/install-test/
 
 # Local session report artifacts (not part of distribution)
 reports/
+
+# Per-release notes handed to scripts/release.mjs. The notes live on the GitHub
+# Release (which is what CHANGELOG.md is generated from), so a copy in the repo
+# would only ever go stale.
+RELEASE_NOTES.md

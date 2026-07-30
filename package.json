@@ -87,16 +87,10 @@
     "check:postinstall-allowlist": "node scripts/check-postinstall-allowlist.js",
     "smoke:clean-room": "node scripts/smoke-clean-room.cjs",
     "prepublishOnly": "npm run build && node scripts/check-postinstall-allowlist.js",
-    "release": "np",
-    "release:patch": "np patch --no-cleanup",
-    "release:minor": "np minor --no-cleanup",
-    "release:major": "np major --no-cleanup"
-  },
-  "np": {
-    "yarn": false,
-    "contents": ".",
-    "testScript": "test",
-    "2fa": false
+    "release": "node scripts/release.mjs patch",
+    "release:patch": "node scripts/release.mjs patch",
+    "release:minor": "node scripts/release.mjs minor",
+    "release:major": "node scripts/release.mjs major"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
@@ -133,7 +127,6 @@
     "glob": "^13.0.6",
     "handlebars": "^4.7.9",
     "jimp": "^1.6.1",
-    "np": "^11.2.0",
     "parse5": "^8.0.1",
     "picocolors": "^1.1.1",
     "postcss": "^8.5.14",
