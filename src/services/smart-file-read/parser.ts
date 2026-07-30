@@ -5,6 +5,7 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { logger } from "../../utils/logger.js";
 import { resolveOnDemandGrammar, requestGrammarInstall } from "./grammar-installer.js";
+import { resolveTreeSitterBin, requestTreeSitterCliInstall } from "./treesitter-cli.js";
 // Grammars resolve through plugin-node-modules rather than a bundle-relative
 // createRequire: the tree now lives in the plugin data directory, which survives
 // the host restoring the plugin root from git. The separate on-demand chain via
@@ -24,6 +25,25 @@ export interface CodeSymbol {
   children?: CodeSymbol[];
 }
 
+/**
+ * Why a file yielded no symbols. Absent means the parse actually ran: zero
+ * symbols then means the file genuinely has none.
+ *
+ * This distinction is the point. Before it, a missing parser, a missing grammar
+ * and an unreadable file were all reported as "unsupported language or empty",
+ * which is why structural search could be completely inert for a day without
+ * being distinguishable from a file that simply has nothing to fold.
+ */
+export type FoldFailure =
+  /** The extension maps to no known language, and no user grammar covers it. */
+  | "unknown-language"
+  /** Language known, grammar not on disk. A fetch was requested for next time. */
+  | "no-grammar"
+  /** The tree-sitter CLI executable is missing — affects EVERY language. */
+  | "no-parser"
+  /** The parser ran and failed on this input. */
+  | "query-failed";
+
 export interface FoldedFile {
   filePath: string;
   language: string;
@@ -31,6 +51,8 @@ export interface FoldedFile {
   imports: string[];
   totalLines: number;
   foldedTokenEstimate: number;
+  /** Set only when folding could not be performed; see FoldFailure. */
+  unavailable?: FoldFailure;
 }
 
 const LANG_MAP: Record<string, string> = {
@@ -581,24 +603,53 @@ function getQueryFile(queryKey: string): string {
   return filePath;
 }
 
-let cachedBinPath: string | null = null;
+// Resolution moved to treesitter-cli.ts. Two defects lived in the version that
+// stood here: it probed `join(dir, "tree-sitter")` without the .exe suffix, so on
+// Windows it could not see a binary that was present; and when nothing was found
+// it returned the bare string "tree-sitter", turning "no parser installed" into
+// an ENOENT from execFileSync that runBatchQuery swallowed at debug level.
+/** True once the missing-parser condition has been reported to the session. */
+let parserWarningEmitted = false;
+/** True once the missing-parser condition has been written to the log. */
+let missingParserLogged = false;
 
-function getTreeSitterBin(): string {
-  if (cachedBinPath) return cachedBinPath;
+/**
+ * A one-line, user-facing note about the parser being unavailable — returned for
+ * the FIRST affected call in the session only, so the condition is visible where
+ * the user actually looks instead of only in the log.
+ */
+export function consumeParserWarning(): string | null {
+  if (parserWarningEmitted) return null;
+  const bin = resolveTreeSitterBin();
+  if (bin.status === "ok") return null;
+  parserWarningEmitted = true;
+  return bin.status === "no-package"
+    ? "[keepmind] Structural search is UNAVAILABLE for every language: the tree-sitter-cli package is missing from the plugin dependency tree. Run `npx keepmind install` to repair it."
+    : "[keepmind] Structural search is UNAVAILABLE for every language: the tree-sitter CLI executable was never downloaded. keepmind is fetching it now in the background — retry in a moment. Set KEEPMIND_PARSER_AUTOINSTALL=0 to suppress the fetch.";
+}
 
-  try {
-    const pkgPath = pluginResolve("tree-sitter-cli/package.json");
-    const binPath = join(dirname(pkgPath), "tree-sitter");
-    if (existsSync(binPath)) {
-      cachedBinPath = binPath;
-      return binPath;
-    }
-  } catch {
-    // [ANTI-PATTERN IGNORED]: tree-sitter-cli not in node_modules is expected; falls back to PATH
+/** Test hook: allow the once-per-session warning to fire again. */
+export function resetParserWarningForTesting(): void {
+  parserWarningEmitted = false;
+  missingParserLogged = false;
+}
+
+/**
+ * A distinct, actionable message per failure mode. The old single message
+ * ("File may use an unsupported language or be empty") covered four different
+ * causes, three of which are keepmind's own fault and fixable.
+ */
+export function describeFoldFailure(failure: FoldFailure, filePath: string, language?: string): string {
+  switch (failure) {
+    case "no-parser":
+      return `Cannot fold ${filePath}: keepmind's tree-sitter CLI executable is missing, so NO language can be parsed on this machine. This is not a problem with the file. keepmind has started fetching the executable in the background — retry shortly. If it does not resolve, run \`npx keepmind install\` to repair the plugin dependency tree.`;
+    case "no-grammar":
+      return `Cannot fold ${filePath}: the tree-sitter grammar for '${language ?? "this language"}' is not installed. This is not a problem with the file. keepmind has requested the grammar in the background — retry shortly.`;
+    case "unknown-language":
+      return `Cannot fold ${filePath}: its extension maps to no supported language. Add a \`grammars\` entry to .keepmind.json to teach keepmind this file type.`;
+    case "query-failed":
+      return `Cannot fold ${filePath}: the parser ran but failed on this input — the file may be malformed or truncated.`;
   }
-
-  cachedBinPath = "tree-sitter";
-  return cachedBinPath;
 }
 
 interface RawCapture {
@@ -615,26 +666,50 @@ interface RawMatch {
   captures: RawCapture[];
 }
 
-function runQuery(queryFile: string, sourceFile: string, grammarPath: string): RawMatch[] {
-  const result = runBatchQuery(queryFile, [sourceFile], grammarPath);
-  return result.get(sourceFile) || [];
+interface BatchQueryResult {
+  matches: Map<string, RawMatch[]>;
+  /** Set when no query ran at all; distinguishes "no parser" from "no symbols". */
+  failure?: FoldFailure;
 }
 
-function runBatchQuery(queryFile: string, sourceFiles: string[], grammarPath: string): Map<string, RawMatch[]> {
-  if (sourceFiles.length === 0) return new Map();
+function runQuery(queryFile: string, sourceFile: string, grammarPath: string): { matches: RawMatch[]; failure?: FoldFailure } {
+  const result = runBatchQuery(queryFile, [sourceFile], grammarPath);
+  return { matches: result.matches.get(sourceFile) || [], failure: result.failure };
+}
 
-  const bin = getTreeSitterBin();
+function runBatchQuery(queryFile: string, sourceFiles: string[], grammarPath: string): BatchQueryResult {
+  if (sourceFiles.length === 0) return { matches: new Map() };
+
+  // Check the executable BEFORE spawning. A missing parser is a configuration
+  // fault affecting every file, not a per-file parse error, and it must be
+  // reported as such rather than as an empty match set.
+  const bin = resolveTreeSitterBin();
+  if (bin.status !== "ok") {
+    // Log once per process, not once per language group: a single 1805-file scan
+    // fans out into a dozen groups, and this condition is a property of the
+    // install, not of the batch.
+    if (!missingParserLogged) {
+      missingParserLogged = true;
+      logger.warn('WORKER', 'tree-sitter CLI executable unavailable — structural search yields no symbols for ANY language', {
+        status: bin.status,
+      });
+    }
+    // Fire-and-forget; the current batch stays unfolded, the next one parses.
+    requestTreeSitterCliInstall();
+    return { matches: new Map(), failure: "no-parser" };
+  }
+
   const execArgs = ["query", "-p", grammarPath, queryFile, ...sourceFiles];
 
   let output: string;
   try {
-    output = execFileSync(bin, execArgs, { encoding: "utf-8", timeout: 30000, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    output = execFileSync(bin.path, execArgs, { encoding: "utf-8", timeout: 30000, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
   } catch (error) {
     logger.debug('WORKER', `tree-sitter query failed for ${sourceFiles.length} file(s)`, undefined, error instanceof Error ? error : undefined);
-    return new Map();
+    return { matches: new Map(), failure: "query-failed" };
   }
 
-  return parseMultiFileQueryOutput(output);
+  return { matches: parseMultiFileQueryOutput(output) };
 }
 
 function parseMultiFileQueryOutput(output: string): Map<string, RawMatch[]> {
@@ -907,6 +982,7 @@ export function parseFile(content: string, filePath: string, projectRoot?: strin
     return {
       filePath, language, symbols: [], imports: [],
       totalLines: lines.length, foldedTokenEstimate: 50,
+      unavailable: language === "unknown" ? "unknown-language" : "no-grammar",
     };
   }
 
@@ -919,7 +995,7 @@ export function parseFile(content: string, filePath: string, projectRoot?: strin
   writeFileSync(tmpFile, content);
 
   try {
-    const matches = runQuery(queryFile, tmpFile, grammarPath);
+    const { matches, failure } = runQuery(queryFile, tmpFile, grammarPath);
     const result = buildSymbols(matches, lines, language);
 
     const folded = formatFoldedView({
@@ -933,6 +1009,7 @@ export function parseFile(content: string, filePath: string, projectRoot?: strin
       symbols: result.symbols, imports: result.imports,
       totalLines: lines.length,
       foldedTokenEstimate: Math.ceil(folded.length / 4),
+      ...(failure ? { unavailable: failure } : {}),
     };
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
@@ -961,6 +1038,7 @@ export function parseFilesBatch(
         results.set(file.relativePath, {
           filePath: file.relativePath, language, symbols: [], imports: [],
           totalLines: lines.length, foldedTokenEstimate: 50,
+          unavailable: language === "unknown" ? "unknown-language" : "no-grammar",
         });
       }
       continue;
@@ -970,7 +1048,7 @@ export function parseFilesBatch(
     const queryFile = getQueryFile(queryKey);
 
     const absolutePaths = groupFiles.map(f => f.absolutePath);
-    const batchResults = runBatchQuery(queryFile, absolutePaths, grammarPath);
+    const { matches: batchResults, failure } = runBatchQuery(queryFile, absolutePaths, grammarPath);
 
     for (const file of groupFiles) {
       const lines = file.content.split("\n");
@@ -988,6 +1066,7 @@ export function parseFilesBatch(
         symbols: symbolResult.symbols, imports: symbolResult.imports,
         totalLines: lines.length,
         foldedTokenEstimate: Math.ceil(folded.length / 4),
+        ...(failure ? { unavailable: failure } : {}),
       });
     }
   }
