@@ -68,9 +68,41 @@ working until their next `npx keepmind install`.
 
 **Source**: `docs/` — MDX/Markdown files in the repo
 
+## Releases
+
+```bash
+# write the notes first — they are the release
+$EDITOR RELEASE_NOTES.md
+npm run release:patch -- --title="keepmind 3.3.2 — ..."   # or :minor / :major
+```
+
+`scripts/release.mjs` is the only supported path. It runs a preflight, bumps the
+version, builds, tests, tags, pushes, **creates the GitHub Release** and
+regenerates the changelog. `--dry-run` stops after the preflight.
+
+npm publishing happens in CI: pushing a `v*` tag triggers
+`.github/workflows/npm-publish.yml`, which authenticates over OIDC trusted
+publishing. Nothing publishes from a developer machine — there is no token here.
+
+Three rules the script enforces because each was violated in production:
+
+- **A release without notes is not a release.** `CHANGELOG.md` is generated from
+  GitHub Releases, so a tag without one is a permanent hole in the file (v3.3.0
+  shipped to npm that way). The preflight refuses to run on an empty
+  `RELEASE_NOTES.md`.
+- **Never `git push --tags`.** The 322 pre-fork claude-mem tags live under
+  `refs/tags/upstream/*` and must stay local. Push the one tag by name.
+- **Tags outside `upstream/` that are unreachable from `main` are a bug.** They
+  silently occupy future versions — the inherited set held `v3.3.8`, `v3.5.x` and
+  43 others hostage. The preflight fails if any reappear.
+
 ## Important
 
-No need to edit the changelog ever, it's generated automatically.
+No need to edit the changelog ever, it's generated automatically —
+`npm run changelog:generate` merges GitHub Releases into `CHANGELOG.md` sorted by
+version. Everything below the `<!-- inherited-history -->` marker is the pre-fork
+claude-mem changelog (numbered up to 13.x, older than every keepmind release
+despite the higher numbers) and is never rewritten.
 
 ## Daily Maintenance
 
