@@ -4,6 +4,92 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.3.1] - 2026-07-30
+
+The `npx keepmind install` banner still showed the upstream **claude-mem** wordmark, drawn above a 192-frame ASCII animation of the claude-mem logo. Both are gone.
+
+### Changed
+
+- **`fix(cli)`: drop the claude-mem branding from the install banner.** The wordmark now reads `keepmind` (Figlet standard — the descender of the "p" adds a sixth row). The logo animation was removed rather than redrawn: its frames were generated from an upstream webm asset, and there is no keepmind equivalent to re-render them from.
+
+What is left is the wordmark reveal, the tagline and the closing brightness pulse — now centred on the actual terminal width instead of a fixed 128-column frame, so the banner no longer clears your scrollback to make room for itself. Dropping `banner-frames.ts` also removes the compressed frame payload and the zlib decode path from the npx bundle.
+
+`KEEPMIND_NO_BANNER`, `NO_COLOR`, `CI` and the non-TTY check all still suppress it.
+
+## [3.3.0] - 2026-07-30
+
+Two production regressions from 3.2.0, both of which presented as "search stopped finding things".
+
+### Fixed
+
+- **`fix(parser)`: download the tree-sitter CLI executable that `--ignore-scripts` skips.** Structural search returned zero symbols for every language. The plugin dependency closure is installed with `bun install --frozen-lockfile` and no lifecycle scripts, which is what keeps the install deterministic — but it also skips the postinstall step that fetches the tree-sitter CLI binary. Without that executable nothing could be folded. The binary is now fetched on demand.
+- **`fix(parser)`: report why a file could not be folded.** A missing parser installation and a genuinely unsupported file type produced the same silent empty result. They are now distinguishable.
+- **`fix(search)`: constrain vector KNN to the requested project.** The project filter ran *after* the KNN query, so a k-nearest lookup that happened to return only other projects' rows was filtered down to nothing. The constraint moved into the query itself.
+- **`fix(search)`: stop reporting an absent query as matching `"undefined"`.** Filter-only searches interpolated a missing query straight into the result header.
+- **`fix(search)`: stop emitting an observations-only column for session summaries.** `buildFilterClause` assumed a `type` column that the sessions and prompts tables do not have, producing invalid SQL.
+
+### Added
+
+- **`feat(search)`: embed memories in a multilingual space.** Observations are written in English while questions are frequently asked in German, and an English-only embedder cannot bridge that — German queries silently degraded to keyword-only hits. The store now uses multilingual-e5-small (int8, 384-dim). e5 is asymmetric, so stored text is embedded as `passage` and searches as `query`. `vec_meta.embedder_identity` stamps the store with the model that filled it; a mismatch forces a full rebuild at worker start, so a model change can never mix two incomparable vector spaces.
+
+### Documentation
+
+- The tree-sitter parser, the embedding settings and the multilingual embedder's constraints are now documented.
+
+## [3.2.0] - 2026-07-29
+
+3.1.1 is broken for fresh installs: its npm tarball pins onnxruntime-web to file:./stubs/onnxruntime-web but ships no stubs/ directory, so `bun install --frozen-lockfile` fails on a clean machine. That fix is in here, and it is the reason this release exists.  The larger change: the plugin's runtime dependencies now live only in ~/.claude/plugins/data/keepmind-keepmind (${CLAUDE_PLUGIN_DATA}). They used to live in the marketplace checkout, which the host restores by git clone on update — deleting node_modules with it. That was observed twice on 2026-07-29, the second time with autoUpdate:false already set, so disabling auto-update was never the fix.  Resolution runs through one explicit, ordered candidate chain in src/shared/plugin-node-modules.ts: KEEPMIND_NODE_MODULES, CLAUDE_PLUGIN_DATA, the derived data directory, then the old bundle-relative locations so existing installs keep working until their next `npx keepmind install`. A hit only counts if it resolves inside that candidate's own tree — Node's resolver walks parent directories, and without the containment check the worker would quietly serve itself from whatever project it happened to be started in.  Marketplace and cache installs are gone: one tree instead of three, about 1.3 GB less on disk.  Also in this release: self-repair before worker spawn, serialised installs behind a cross-process lock, a health check that probes real packages instead of the existence of a node_modules directory, the current model generation offered for compression, and documentation covering where dependencies live and what to do when they go missing.
+
+## [3.1.1] - 2026-07-29
+
+Published to npm as `keepmind@3.1.1` — v3.1.0's publish aborted in the prepublishOnly guard before `npm publish` ran, so no 3.1.0 artifact exists on the registry. 3.1.1 is this work plus the one-line allowlist fix that unblocked it.
+
+
+Addresses a production audit of a real 34k-observation install.
+
+Fixed
+- Vector-search degradation was invisible. sqlite-vec had failed to load
+  for weeks across two major versions, with the only symptom thousands of
+  log lines a day. The preflight now verifies the actual module load
+  (it previously checked only the Claude CLI and logged "passed" 4ms
+  before the failure), the worker records a marker, and SessionStart
+  reports it to the user, not just the log.
+- Hook calls were discarded when the worker was not ready. Write-path
+  payloads are now buffered to disk and replayed once the worker is idle
+  and ready — but only from states where the worker demonstrably never
+  accepted them, so this does not revive the retry storm that got the old
+  durable queue removed.
+- One recurring cause could write 2157 identical log lines a day. Repeats
+  are collapsed with a count, keyed on the payload so distinct failures
+  stay distinct.
+- Upgrades never shrank. `bun install` adds what the manifest asks for but
+  never removes what it no longer asks for, so dependency removals only
+  reached fresh installs. The installer now prunes when the declared
+  dependency set changes.
+
+Added
+- C#, PowerShell and XML/XAML grammars — the three most common languages
+  in the audited install had no grammar at all, while ~380 MB of unused
+  ones shipped. Non-core grammars are now fetched on first use.
+- Per-channel usage counters (injection, explicit fetch, FTS, vector).
+  The single relevance_count was bumped by only two of four retrieval
+  paths, so corpus statistics could not distinguish an unused memory from
+  an uncounted one. This also fixes a latent bug where a record search
+  found daily still aged out as untouched.
+- Inactivity retention for the vector index, default 90 days. Reversible:
+  the observation stays in SQLite and re-embeds if the project revives.
+
+Performance
+- Cached the git repo-root lookup: 24.68ms -> 0.008ms. Resolving the
+  project key spawned `git rev-parse` on every observation the worker
+  ingested.
+- Plugin dependency closure 865 MB -> 422 MB (grammar split plus dropping
+  onnxruntime-web, which the node build never loads).
+
+## [3.1.0] - 2026-07-29
+
+> **Superseded by [v3.1.1](https://github.com/ManuelStaggl/keepmind/releases/tag/v3.1.1).** This tag was never published to npm: the release aborted in the `prepublishOnly` postinstall-allowlist guard, before `npm publish` ran. Nothing was ever installable as 3.1.0 — use 3.1.1, which is identical plus the one-line allowlist fix.
+
 ## [3.0.0] - 2026-07-29
 
 Hook latency, session startup and package footprint — driven by measurements from a setup audit, not by guesswork.
@@ -342,6 +428,15 @@ keepmind is a node-only, cross-platform fork of claude-mem: persistent memory fo
 ## Requirements
 
 - Node.js ≥ 22.5. Bun and uv are auto-installed by the installer where needed.
+
+<!-- inherited-history -->
+
+# Inherited history: claude-mem
+
+Everything below this line predates the fork and uses the upstream **claude-mem**
+version numbering, which had reached 13.x. keepmind restarted at 1.0.0, so these
+entries are older than every keepmind release above despite the higher numbers.
+`scripts/generate-changelog.js` never rewrites this section.
 
 ## [13.9.1] - 2026-06-29
 

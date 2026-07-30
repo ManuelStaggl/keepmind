@@ -4,6 +4,12 @@ import { execSync } from 'child_process';
 import { writeFileSync, readFileSync, existsSync } from 'fs';
 
 const CHANGELOG_PATH = 'CHANGELOG.md';
+// Everything from this marker down is the pre-fork claude-mem changelog, which
+// numbers up to 13.x. Sorting it together with keepmind's own 1.x–3.x releases
+// would file the whole inherited history above the current release, so the
+// generator treats the marker as the end of its territory and copies the rest
+// through untouched.
+const INHERITED_MARKER = '<!-- inherited-history -->';
 const HEADER_LINES = [
   '# Changelog',
   '',
@@ -51,6 +57,47 @@ function extractVersion(tagName) {
   return tagName.replace(/^v/, '');
 }
 
+/**
+ * Order two versions newest-first. Sorting by publish date instead looks right
+ * until a release is published out of order — backfilling a missing 3.3.0 after
+ * 3.3.1 already shipped filed it above 3.3.1, because it was the more recently
+ * published of the two. Version order is the only order a changelog can mean.
+ */
+function compareVersionsDesc(a, b) {
+  const split = (v) => {
+    const [core, prerelease = ''] = v.split('-');
+    return { parts: core.split('.').map(Number), prerelease };
+  };
+  const x = split(a);
+  const y = split(b);
+  const len = Math.max(x.parts.length, y.parts.length);
+  for (let i = 0; i < len; i++) {
+    const diff = (y.parts[i] ?? 0) - (x.parts[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  // A release outranks its own prereleases: 3.3.0 sorts above 3.3.0-rc.1.
+  if (x.prerelease === y.prerelease) return 0;
+  if (!x.prerelease) return -1;
+  if (!y.prerelease) return 1;
+  return y.prerelease.localeCompare(x.prerelease);
+}
+
+/** Split an existing CHANGELOG body into its per-version blocks, verbatim. */
+function parseExistingEntries(body) {
+  const entries = [];
+  const headerRe = /^## \[([^\]]+)\]/gm;
+  const starts = [];
+  let match;
+  while ((match = headerRe.exec(body)) !== null) {
+    starts.push({ version: match[1], index: match.index });
+  }
+  for (let i = 0; i < starts.length; i++) {
+    const end = i + 1 < starts.length ? starts[i + 1].index : body.length;
+    entries.push({ version: starts[i].version, text: body.slice(starts[i].index, end) });
+  }
+  return entries;
+}
+
 function renderEntry(release) {
   const version = extractVersion(release.tagName);
   const date = formatDate(release.publishedAt);
@@ -69,15 +116,19 @@ function readExistingChangelog() {
     return { knownVersions: new Set(), body: '' };
   }
   const content = readFileSync(CHANGELOG_PATH, 'utf-8');
+  const markerIndex = content.indexOf(INHERITED_MARKER);
+  const own = markerIndex === -1 ? content : content.slice(0, markerIndex);
+  const inherited = markerIndex === -1 ? '' : content.slice(markerIndex);
+
   const knownVersions = new Set();
   const versionHeaderRe = /^## \[([^\]]+)\]/gm;
   let match;
   while ((match = versionHeaderRe.exec(content)) !== null) {
     knownVersions.add(match[1]);
   }
-  const firstEntryIndex = content.search(/^## \[/m);
-  const body = firstEntryIndex === -1 ? '' : content.slice(firstEntryIndex);
-  return { knownVersions, body };
+  const firstEntryIndex = own.search(/^## \[/m);
+  const body = firstEntryIndex === -1 ? '' : own.slice(firstEntryIndex);
+  return { knownVersions, body, inherited };
 }
 
 function main() {
@@ -85,9 +136,13 @@ function main() {
 
   console.log('🔧 Generating CHANGELOG.md from GitHub releases...\n');
 
+  // --full rebuilds keepmind's own entries from GitHub, but the inherited
+  // section has no releases behind it — dropping it would delete it for good.
+  const existing = readExistingChangelog();
   const { knownVersions, body: existingBody } = fullRegen
     ? { knownVersions: new Set(), body: '' }
-    : readExistingChangelog();
+    : existing;
+  const inherited = existing.inherited;
 
   console.log('📋 Fetching release list from GitHub...');
   const allReleases = listReleases();
@@ -115,19 +170,26 @@ function main() {
     release.body = fetchReleaseBody(release.tagName);
   }
 
-  newReleases.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+  // Merge rather than prepend: a backfilled release belongs at its version's
+  // place in the file, not at the top just because it was fetched this run.
+  const entries = [
+    ...parseExistingEntries(existingBody),
+    ...newReleases.map((release) => ({
+      version: extractVersion(release.tagName),
+      text: renderEntry(release),
+    })),
+  ];
+  entries.sort((a, b) => compareVersionsDesc(a.version, b.version));
 
-  const newEntriesBlock = newReleases.map(renderEntry).join('\n');
+  const finalBody =
+    entries.map((entry) => entry.text.trimEnd()).join('\n\n').trimEnd() + '\n';
 
-  const finalBody = existingBody
-    ? `${newEntriesBlock}\n${existingBody}`.trimEnd() + '\n'
-    : `${newEntriesBlock}`.trimEnd() + '\n';
-
-  const changelog = HEADER_LINES.join('\n') + '\n' + finalBody;
+  const changelog =
+    HEADER_LINES.join('\n') + '\n' + finalBody + (inherited ? '\n' + inherited : '');
   writeFileSync(CHANGELOG_PATH, changelog, 'utf-8');
 
   console.log('\n✅ CHANGELOG.md generated successfully!');
-  console.log(`   ${newReleases.length} new release(s) prepended`);
+  console.log(`   ${newReleases.length} new release(s) merged, ${entries.length} total`);
 }
 
 main();
