@@ -18,13 +18,28 @@ export type RedactionType =
   | 'AWS_KEY' | 'GITHUB_PAT' | 'GITHUB_FINE_PAT' | 'GITLAB_PAT'
   | 'SLACK_TOKEN' | 'GOOGLE_API_KEY' | 'STRIPE_KEY' | 'PRIVATE_KEY'
   | 'JWT' | 'BEARER' | 'BCRYPT' | 'CONNECTION_STRING'
-  | 'GENERIC_SECRET' | 'HIGH_ENTROPY';
+  | 'GENERIC_SECRET' | 'HIGH_ENTROPY'
+  | 'CREDENTIAL_ASSIGNMENT' | 'EMAIL' | 'IP_ADDRESS';
+
+/**
+ * Secrets are credentials — masking them can only ever cost readability, never
+ * correctness, so they are always on. PII (email, IP) is a different trade: an
+ * address in a stack trace or a LAN address in a networking error is often the
+ * whole point of the message, and masking it can make a legitimate technical
+ * finding useless. Keeping the categories separate lets PII be switched off
+ * without weakening credential redaction, which must never be optional.
+ */
+type RedactionCategory = 'secret' | 'pii';
 
 interface Rule {
   type: RedactionType;
   re: RegExp;
   /** When set, only this capture group is masked (the rest of the match is preserved). */
   group?: number;
+  /** Defaults to 'secret'. */
+  category?: RedactionCategory;
+  /** Optional veto: return true to keep the match unmasked. */
+  keep?: (match: string) => boolean;
 }
 
 const MASK = (t: RedactionType): string => `«redacted:${t}»`;
@@ -38,7 +53,29 @@ const RULES: Rule[] = [
   },
   {
     type: 'CONNECTION_STRING',
-    re: /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp|https?):\/\/[^\s/@]+:[^\s/@]+@[^\s]{1,200}/gi,
+    re: /\b(?:jdbc:[a-z0-9]{1,20}:)?(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp|sqlserver|oracle|https?):\/\/[^\s/@]+:[^\s/@]+@[^\s]{1,200}/gi,
+  },
+  {
+    // ADO.NET / JDBC / ODBC keyword-value connection strings:
+    //   Server=tcp:db,1433;Initial Catalog=app;User ID=sa;Password=P@ss!w0rd;
+    //   jdbc:sqlserver://db:1433;databaseName=app;user=sa;password=P@ss!w0rd
+    // GENERIC_SECRET below cannot cover these: its value class is
+    // [\w./+=-], so any password containing @ ! # $ % & * ( ) — i.e. most
+    // real ones — terminates the match early and leaks the remainder. It also
+    // requires >= 10 chars, and a short service-account password is still a
+    // password. Here the value runs to the delimiter (; or quote or EOL) and
+    // has no length floor, so the whole credential goes.
+    //
+    // Only the value is masked: Server=, Initial Catalog= and User ID= stay
+    // readable, which is what makes a connection error still diagnosable.
+    //
+    // MUST run before GENERIC_SECRET. If GENERIC_SECRET went first it would
+    // match the leading word-characters only and stop at the first symbol —
+    // `Password=Sup3rS3cret!Passw0rd` would come out as
+    // `Password=«redacted»!Passw0rd`, publishing the tail of the credential.
+    type: 'CREDENTIAL_ASSIGNMENT',
+    re: /\b(?:password|pwd|passwd)\s{0,3}=\s{0,3}(?:"([^"\r\n]{1,200})"|'([^'\r\n]{1,200})'|([^;"'\r\n]{1,200}))/gi,
+    group: 1,
   },
   { type: 'AWS_KEY', re: /\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b/g },
   { type: 'GITHUB_FINE_PAT', re: /\bgithub_pat_\w{82}\b/g },
@@ -60,19 +97,57 @@ const RULES: Rule[] = [
     re: /(?:pass(?:word)?|secret|token|api[_-]?key|client[_-]?secret|auth)\b['"\s]{0,3}[:=>]{1,2}['"\s]{0,3}([\w./+=-]{10,150})/gi,
     group: 1,
   },
+  {
+    // PII, not a credential. Requires a dotted TLD, which keeps npm scopes
+    // (@types/node), SSH user@host and decorators out of the match.
+    type: 'EMAIL',
+    category: 'pii',
+    re: /\b[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63}){1,4}\b/g,
+  },
+  {
+    // IPv4 with real octet bounds. Loopback, unspecified and broadcast carry no
+    // information about a network, so masking them would only cost readability.
+    // A four-part version number is indistinguishable from an address by shape
+    // alone and will be masked — accepted, because a version rarely appears in
+    // dotted-quad form while an address always does.
+    type: 'IP_ADDRESS',
+    category: 'pii',
+    re: /\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b/g,
+    keep: (m) => m === '0.0.0.0' || m === '255.255.255.255' || m.startsWith('127.'),
+  },
 ];
+
+/** True once a run has already been masked — the guard that keeps redaction idempotent. */
+function alreadyMasked(s: string): boolean {
+  return s.includes('redacted:');
+}
 
 function applyRule(text: string, rule: Rule): string {
   // Reset lastIndex defensively (rules are module-level + global).
   rule.re.lastIndex = 0;
   if (rule.group === undefined) {
-    return text.replace(rule.re, MASK(rule.type));
+    return text.replace(rule.re, (match) => {
+      if (alreadyMasked(match)) return match;
+      if (rule.keep?.(match)) return match;
+      return MASK(rule.type);
+    });
   }
   const g = rule.group;
   return text.replace(rule.re, (match, ...groups) => {
-    const captured = groups[g - 1];
-    if (typeof captured !== 'string' || captured.length === 0) return match;
-    return match.replace(captured, MASK(rule.type));
+    if (rule.keep?.(match)) return match;
+    // A rule may offer the value through several alternative capture groups
+    // (quoted / single-quoted / bare); exactly one of them matches. Mask every
+    // defined group from `group` onward so the alternatives behave as one.
+    let out = match;
+    let masked = false;
+    for (let i = g - 1; i < groups.length; i++) {
+      const captured = groups[i];
+      if (typeof captured !== 'string' || captured.length === 0) continue;
+      if (alreadyMasked(captured)) continue;
+      out = out.replace(captured, MASK(rule.type));
+      masked = true;
+    }
+    return masked ? out : match;
   });
 }
 
@@ -128,6 +203,13 @@ export interface RedactOptions {
   entropySweep?: boolean;
   /** Entropy threshold in bits/char for the backstop. Default 4.0. */
   entropyThreshold?: number;
+  /**
+   * Mask email addresses and IPv4 addresses. Default true. Turning this off
+   * leaves every credential rule active — it only trades PII masking for
+   * readability, which matters on machines where LAN addresses are the subject
+   * of the work rather than something to hide.
+   */
+  pii?: boolean;
 }
 
 /**
@@ -147,7 +229,9 @@ export function redactSecrets(
   if (typeof text !== 'string' || text.length === 0) return text;
   try {
     let out = text;
+    const piiEnabled = options.pii !== false;
     for (const rule of RULES) {
+      if (rule.category === 'pii' && !piiEnabled) continue;
       out = applyRule(out, rule);
     }
     if (options.entropySweep !== false) {

@@ -13,7 +13,14 @@ const SAMPLES: Array<{ name: string; raw: string; mask: string; rawNeedle: strin
   { name: 'JWT', raw: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N', mask: '«redacted:JWT»', rawNeedle: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9' },
   { name: 'BEARER', raw: 'Authorization: Bearer abcdef1234567890XYZ', mask: '«redacted:BEARER»', rawNeedle: 'Bearer abcdef1234567890XYZ' },
   { name: 'CONNECTION_STRING', raw: 'db postgres://user:s3cr3tp4ss@db.example.com:5432/app', mask: '«redacted:CONNECTION_STRING»', rawNeedle: 's3cr3tp4ss' },
-  { name: 'GENERIC_SECRET', raw: 'password = hunter2hunter2hunter', mask: '«redacted:GENERIC_SECRET»', rawNeedle: 'hunter2hunter2hunter' },
+  // `password = <value>` is now claimed by the CREDENTIAL_ASSIGNMENT rule, which
+  // runs ahead of GENERIC_SECRET. It has to: GENERIC_SECRET's value class is
+  // [\w./+=-], so it stops at the first symbol and would leave the tail of a
+  // password like `Sup3rS3cret!Passw0rd` in cleartext. Same protection, applied
+  // to more values (symbols allowed, no 10-char floor) — only the label moved.
+  { name: 'CREDENTIAL_ASSIGNMENT', raw: 'password = hunter2hunter2hunter', mask: '«redacted:CREDENTIAL_ASSIGNMENT»', rawNeedle: 'hunter2hunter2hunter' },
+  // GENERIC_SECRET still owns the non-assignment shapes it was written for.
+  { name: 'GENERIC_SECRET', raw: 'client_secret: abcdefghij1234567890', mask: '«redacted:GENERIC_SECRET»', rawNeedle: 'abcdefghij1234567890' },
 ];
 
 describe('redactSecrets', () => {

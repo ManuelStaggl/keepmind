@@ -15,7 +15,14 @@ import { logger } from '../../utils/logger.js';
 import { envValue } from '../../shared/legacy-env.js';
 
 export interface MemoryQualityConfig {
-  redactSecrets: { enabled: boolean; entropyThreshold: number; entropySweep: boolean };
+  /**
+   * `enabled` governs credential redaction on BOTH paths — outbound (before a
+   * prompt leaves the machine) and on write to SQLite. `pii` is scoped to email
+   * and IPv4 masking only, so it can be turned off on a machine where LAN
+   * addresses are the subject of the work without weakening credential
+   * redaction.
+   */
+  redactSecrets: { enabled: boolean; entropyThreshold: number; entropySweep: boolean; pii: boolean };
   scoping: { enabled: boolean; includeGlobal: boolean; defaultSearchScope: 'project' | 'all' | 'global' };
   importance: { enabled: boolean; halfLifeDays: number; llmRefine: boolean };
   injection: { tokenBudget: number; candidateMultiplier: number };
@@ -36,7 +43,7 @@ export interface MemoryQualityConfig {
 }
 
 export const MEMORY_QUALITY_DEFAULTS: MemoryQualityConfig = {
-  redactSecrets: { enabled: true, entropyThreshold: 4.0, entropySweep: true },
+  redactSecrets: { enabled: true, entropyThreshold: 4.0, entropySweep: true, pii: true },
   scoping: { enabled: true, includeGlobal: true, defaultSearchScope: 'project' },
   importance: { enabled: true, halfLifeDays: 14, llmRefine: false },
   // tokenBudget is charged against the RENDERED headline size (see budget.ts), not
@@ -111,9 +118,17 @@ export function loadMemoryQualityConfig(force = false): MemoryQualityConfig {
   };
 
   // Env kill-switch for redaction (emergency disable, highest precedence).
+  // NOTE: since redaction also runs on the OUTBOUND path (see
+  // services/redaction/outbound.ts), setting this to 0 sends raw tool inputs
+  // and outputs to the model provider. It is an emergency switch, not a tuning
+  // knob — prefer KEEPMIND_REDACT_PII=0 if the goal is only readability.
   const redactEnv = envValue('KEEPMIND_REDACT_SECRETS');
   if (redactEnv === '0' || redactEnv === 'false') {
     cfg.redactSecrets.enabled = false;
+  }
+  const piiEnv = envValue('KEEPMIND_REDACT_PII');
+  if (piiEnv === '0' || piiEnv === 'false') {
+    cfg.redactSecrets.pii = false;
   }
 
   cached = cfg;
