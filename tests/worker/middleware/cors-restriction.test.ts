@@ -67,9 +67,28 @@ describe('CORS Restriction', () => {
         res.json({ ok: true });
       });
 
-      testPort = 41000 + Math.floor(Math.random() * 10000);
-      await new Promise<void>((resolve) => {
-        server = app.listen(testPort, '127.0.0.1', resolve);
+      // Port 0 = let the OS assign a free one, then read it back.
+      //
+      // This used to guess: `41000 + random(10000)`, with no handler for a bind
+      // failure. `node --test` runs test files in parallel processes, so two of
+      // them can draw the same number; the loser either never resolves or its
+      // requests reach the winner's server, which does not serve /api/settings
+      // and answers 404. That surfaced as a random failure in an unrelated
+      // suite — it blocked a release run on 2026-08-09 while passing in
+      // isolation. Port 0 makes the collision impossible rather than unlikely.
+      await new Promise<void>((resolve, reject) => {
+        server = app.listen(0, '127.0.0.1', () => {
+          const address = server.address();
+          if (address === null || typeof address === 'string') {
+            reject(new Error(`Expected a TCP address from listen(0), got: ${String(address)}`));
+            return;
+          }
+          testPort = address.port;
+          resolve();
+        });
+        // Without this a bind error is emitted with no listener attached, which
+        // hangs the suite until the runner's timeout instead of failing.
+        server.once('error', reject);
       });
     });
 
