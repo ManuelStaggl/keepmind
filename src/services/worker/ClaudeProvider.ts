@@ -2,12 +2,22 @@
 import { DatabaseManager } from './DatabaseManager.js';
 import { SessionManager } from './SessionManager.js';
 import { logger } from '../../utils/logger.js';
-import { buildInitPrompt, buildBatchedObservationPrompt, buildSummaryPrompt, buildContinuationPrompt, buildObserverSystemPrompt } from '../../sdk/prompts.js';
+import {
+  buildInitPrompt,
+  buildBatchedObservationPrompt,
+  buildStatelessObservationPrompt,
+  buildSummaryPrompt,
+  buildContinuationPrompt,
+  buildObserverSystemPrompt,
+  clampFieldMaxChars,
+} from '../../sdk/prompts.js';
+import { deterministicFieldsForBatch } from '../../sdk/deterministic-fields.js';
+import { shouldCompressBatch, logGateDecision, readCaptureProfile } from './observation-gate.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH, OBSERVER_SESSIONS_DIR, ensureDir, paths } from '../../shared/paths.js';
 import { buildIsolatedEnvWithFreshOAuth, getAuthMethodDescription } from '../../shared/EnvManager.js';
 import { findClaudeExecutable } from '../../shared/find-claude-executable.js';
-import type { ActiveSession, SDKUserMessage } from '../worker-types.js';
+import type { ActiveSession, SDKUserMessage, PendingMessage } from '../worker-types.js';
 import { ModeManager } from '../domain/ModeManager.js';
 import { processAgentResponse, type WorkerRef } from './agents/index.js';
 import {
@@ -195,6 +205,43 @@ export function shouldForceFreshSession(contextTurnCount: number, maxContextTurn
   return maxContextTurns > 0 && contextTurnCount >= maxContextTurns;
 }
 
+/**
+ * Give a stateless observer session an id to group its observations under.
+ *
+ * In the conversational path this came from the SDK's own `session_id`, because
+ * one long-lived SDK conversation existed to name. Statelessly there is a new
+ * SDK session per compression, so that id is neither stable nor meaningful.
+ * Worse, waiting for it fails SILENTLY: `processAgentResponse` finds no
+ * memorySessionId, logs "deferring storage until next round", and every
+ * observation is discarded without an error anywhere.
+ *
+ * So the id is minted up front — the same thing the HTTP providers already do,
+ * for the same reason. It identifies the MEMORY session, not the SDK one.
+ * Exported for the regression test; a session that reaches compression without
+ * an id records nothing at all.
+ */
+export function ensureStatelessMemorySessionId(
+  session: Pick<ActiveSession, 'memorySessionId' | 'contentSessionId' | 'sessionDbId'>,
+  store: { updateMemorySessionId(sessionDbId: number, memorySessionId: string | null): void },
+  now: number = Date.now()
+): string {
+  if (session.memorySessionId) return session.memorySessionId;
+  const synthetic = `stateless-${session.contentSessionId}-${now}`;
+  session.memorySessionId = synthetic;
+  try {
+    store.updateMemorySessionId(session.sessionDbId, synthetic);
+  } catch (error) {
+    logger.error('SESSION', 'Failed to persist the stateless memory session id', {
+      sessionId: session.sessionDbId,
+    }, error instanceof Error ? error : new Error(String(error)));
+  }
+  logger.info('SESSION', `MEMORY_ID_GENERATED | sessionDbId=${session.sessionDbId} | mode=stateless | memorySessionId=${synthetic}`, {
+    sessionId: session.sessionDbId,
+    memorySessionId: synthetic,
+  });
+  return synthetic;
+}
+
 export class ClaudeProvider {
   private dbManager: DatabaseManager;
   private sessionManager: SessionManager;
@@ -219,6 +266,13 @@ export class ClaudeProvider {
         throw classified;
       }
       throw error;
+    }
+
+    // The stateless path does not resume a conversation, so none of the
+    // resume/pin/context-cap bookkeeping below applies to it.
+    if (this.getObserverSessionMode() === 'stateless') {
+      await this.runStatelessSession(session, worker, claudePath, cwdTracker);
+      return;
     }
 
     const hasRealMemorySessionId = !!session.memorySessionId;
@@ -471,6 +525,412 @@ export class ClaudeProvider {
     });
   }
 
+  /**
+   * Run an observer session as a series of INDEPENDENT one-shot compressions.
+   *
+   * The conversational path pushes every observation into the same resumed SDK
+   * session, so turn N re-reads turns 1..N-1. That re-read was 91.7% of all
+   * tokens keepmind billed. Here each batch gets its own `query()` with no
+   * `resume`: the only thing carried across compressions is a fixed-size context
+   * block (see buildStatelessContextBlock), so per-turn input is a function of
+   * the batch, not of session length.
+   *
+   * The system prompt is byte-identical on every call, so it stays a cache hit
+   * across compressions — the part that SHOULD be re-read still is, cheaply.
+   */
+  private async runStatelessSession(
+    session: ActiveSession,
+    worker: WorkerRef | undefined,
+    claudePath: string,
+    cwdTracker: { lastCwd: string | undefined }
+  ): Promise<void> {
+    const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+    const maxConcurrent = parseInt(settings.KEEPMIND_MAX_CONCURRENT_AGENTS, 10) || 2;
+    const observationBatchMax = this.getObservationBatchMax();
+    const observationCoalesceMs = this.getObservationCoalesceMs();
+    const fieldMaxChars = this.getFieldMaxChars();
+    const modelId = session.modelOverride || this.getModelId();
+    session.lastModelId = modelId;
+
+    const mode = ModeManager.getInstance().getActiveMode();
+    const systemPrompt = buildObserverSystemPrompt(mode);
+    ensureDir(OBSERVER_SESSIONS_DIR);
+
+    // memorySessionId groups the observations of one working session. In the
+    // conversational path it was harvested from the SDK's own session_id,
+    // because there WAS one long-lived SDK conversation to name. Statelessly
+    // there is a new SDK session per compression, so that id is neither stable
+    // nor meaningful — and waiting for it means `processAgentResponse` finds no
+    // id and defers storage forever, silently discarding every observation.
+    //
+    // So the id is minted here instead, exactly as the HTTP providers already
+    // do for the same reason. It identifies the memory session, not the SDK one.
+    ensureStatelessMemorySessionId(session, this.dbManager.getSessionStore());
+
+    // 'session-end' defers every compression until the turn stops, so a working
+    // stretch costs one pass instead of one per tool burst. There was no such
+    // mode before: the coalesce window could only ever merge tool uses that
+    // happened within a few seconds of each other, which is why a single working
+    // session still produced dozens of compressions.
+    const trigger = this.getObserveTrigger();
+    const deferred: PendingMessage[] = [];
+    // A hard ceiling so an unusually long stretch cannot grow the buffer without
+    // bound; past it the oldest work is compressed and the buffer drains.
+    const DEFERRED_MAX = 200;
+
+    logger.info('SDK', 'Starting stateless observer session', {
+      sessionDbId: session.sessionDbId,
+      contentSessionId: session.contentSessionId,
+      project: session.project,
+      model: modelId,
+      captureProfile: readCaptureProfile(),
+      trigger,
+    });
+
+    for await (const message of this.sessionManager.getMessageIterator(session.sessionDbId)) {
+      session.pendingAgentId = message.agentId ?? null;
+      session.pendingAgentType = message.agentType ?? null;
+      if (message.cwd) cwdTracker.lastCwd = message.cwd;
+
+      if (message.type === 'observation') {
+        if (message.prompt_number !== undefined) {
+          session.lastPromptNumber = message.prompt_number;
+        }
+
+        if (trigger === 'session-end') {
+          deferred.push(message);
+          if (deferred.length < DEFERRED_MAX) continue;
+          logger.debug('SDK', 'Deferred buffer full, compressing early', {
+            sessionId: session.sessionDbId,
+            buffered: deferred.length,
+          });
+          await this.compressDeferred(session, worker, deferred, {
+            systemPrompt, modelId, claudePath, maxConcurrent,
+            lastCwd: cwdTracker.lastCwd, fieldMaxChars, batchSize: observationBatchMax,
+          });
+          continue;
+        }
+
+        const batch = [message];
+        if (observationBatchMax > 1) {
+          if (observationCoalesceMs > 0) {
+            await this.sessionManager.getMessageBuffer().waitForCoalesceWindow({
+              sessionDbId: session.sessionDbId,
+              target: observationBatchMax - 1,
+              windowMs: observationCoalesceMs,
+              signal: session.abortController.signal,
+            });
+          }
+          const extra = this.sessionManager.drainAdditionalObservations(
+            session.sessionDbId,
+            observationBatchMax - 1
+          );
+          for (const extraMsg of extra) {
+            if (extraMsg.prompt_number !== undefined) {
+              session.lastPromptNumber = extraMsg.prompt_number;
+            }
+            batch.push(extraMsg);
+          }
+        }
+
+        // The cheap decision, made before any network cost is incurred. A gated
+        // batch is NOT a compression turn — nothing was sent — so it must not
+        // be counted as one, or the skip ratio stops being a ratio.
+        const decision = shouldCompressBatch(batch, { userPrompt: session.userPrompt });
+        if (!decision.compress) {
+          session.gatedBatches = (session.gatedBatches ?? 0) + 1;
+          logGateDecision(session.sessionDbId, batch.length, decision);
+          continue;
+        }
+        session.compressionTurns = (session.compressionTurns ?? 0) + 1;
+
+        // Recorded from the hook payload, never from the model.
+        session.pendingDeterministicFiles = deterministicFieldsForBatch(batch);
+
+        const prompt = buildStatelessObservationPrompt(
+          batch.map(m => ({
+            id: 0,
+            tool_name: m.tool_name!,
+            tool_input: JSON.stringify(m.tool_input),
+            tool_output: JSON.stringify(m.tool_response),
+            created_at_epoch: Date.now(),
+            cwd: m.cwd,
+          })),
+          {
+            userPrompt: session.userPrompt,
+            recentTitles: this.getRecentTitles(session),
+          },
+          fieldMaxChars
+        );
+
+        await this.runOneShot(session, worker, {
+          prompt,
+          systemPrompt,
+          modelId,
+          claudePath,
+          maxConcurrent,
+          lastCwd: cwdTracker.lastCwd,
+          source: 'ingest',
+        });
+      } else if (message.type === 'summarize') {
+        // The working stretch has ended — this is the "once per work segment"
+        // point the trigger mode is named after.
+        if (deferred.length > 0) {
+          await this.compressDeferred(session, worker, deferred, {
+            systemPrompt, modelId, claudePath, maxConcurrent,
+            lastCwd: cwdTracker.lastCwd, fieldMaxChars, batchSize: observationBatchMax,
+          });
+        }
+
+        const summaryPrompt = buildSummaryPrompt({
+          id: session.sessionDbId,
+          memory_session_id: session.memorySessionId,
+          project: session.project,
+          user_prompt: session.userPrompt,
+          last_assistant_message: message.last_assistant_message || '',
+        }, mode);
+
+        session.pendingDeterministicFiles = undefined;
+        session.compressionTurns = (session.compressionTurns ?? 0) + 1;
+        await this.runOneShot(session, worker, {
+          prompt: summaryPrompt,
+          systemPrompt,
+          modelId,
+          claudePath,
+          maxConcurrent,
+          lastCwd: cwdTracker.lastCwd,
+          source: 'summarize',
+        });
+      }
+    }
+
+    // The three numbers that make the cost readable: how many model calls were
+    // actually made, how many the gate removed before any request, and how many
+    // of the calls that WERE made came back empty.
+    const turns = session.compressionTurns ?? 0;
+    const gated = session.gatedBatches ?? 0;
+    logger.success('SDK', 'Stateless observer session ended', {
+      sessionId: session.sessionDbId,
+      compressionTurns: turns,
+      gatedBatches: gated,
+      skippedBatches: session.skippedBatches ?? 0,
+      gatedShare: turns + gated > 0 ? `${Math.round((gated / (turns + gated)) * 100)}%` : '0%',
+    });
+  }
+
+  /**
+   * Drain the session-end buffer: chunk it into batches of the configured size,
+   * gate each one, and compress what survives. The buffer is emptied in place so
+   * the caller can keep using the same array.
+   */
+  private async compressDeferred(
+    session: ActiveSession,
+    worker: WorkerRef | undefined,
+    deferred: PendingMessage[],
+    args: {
+      systemPrompt: string;
+      modelId: string;
+      claudePath: string;
+      maxConcurrent: number;
+      lastCwd: string | undefined;
+      fieldMaxChars: number;
+      batchSize: number;
+    }
+  ): Promise<void> {
+    const pending = deferred.splice(0, deferred.length);
+    const size = Math.max(1, args.batchSize);
+
+    for (let i = 0; i < pending.length; i += size) {
+      if (session.abortController.signal.aborted) return;
+      const batch = pending.slice(i, i + size);
+
+      const decision = shouldCompressBatch(batch, { userPrompt: session.userPrompt });
+      if (!decision.compress) {
+        session.gatedBatches = (session.gatedBatches ?? 0) + 1;
+        logGateDecision(session.sessionDbId, batch.length, decision);
+        continue;
+      }
+      session.compressionTurns = (session.compressionTurns ?? 0) + 1;
+
+      session.pendingDeterministicFiles = deterministicFieldsForBatch(batch);
+
+      const prompt = buildStatelessObservationPrompt(
+        batch.map(m => ({
+          id: 0,
+          tool_name: m.tool_name!,
+          tool_input: JSON.stringify(m.tool_input),
+          tool_output: JSON.stringify(m.tool_response),
+          created_at_epoch: Date.now(),
+          cwd: m.cwd,
+        })),
+        { userPrompt: session.userPrompt, recentTitles: this.getRecentTitles(session) },
+        args.fieldMaxChars
+      );
+
+      await this.runOneShot(session, worker, {
+        prompt,
+        systemPrompt: args.systemPrompt,
+        modelId: args.modelId,
+        claudePath: args.claudePath,
+        maxConcurrent: args.maxConcurrent,
+        lastCwd: args.lastCwd,
+        source: 'ingest',
+      });
+    }
+  }
+
+  /** How observation batches are dispatched. */
+  private getObserveTrigger(): 'batched' | 'session-end' {
+    try {
+      const settings = SettingsDefaultsManager.loadFromFile(paths.settings());
+      const raw = String(settings.KEEPMIND_OBSERVE_TRIGGER ?? '').toLowerCase();
+      return raw === 'session-end' ? 'session-end' : 'batched';
+    } catch {
+      return 'batched';
+    }
+  }
+
+  /**
+   * One compression = one `query()` = one SDK conversation with exactly one user
+   * turn. No `resume`, so nothing accumulates between calls.
+   */
+  private async runOneShot(
+    session: ActiveSession,
+    worker: WorkerRef | undefined,
+    args: {
+      prompt: string;
+      systemPrompt: string;
+      modelId: string;
+      claudePath: string;
+      maxConcurrent: number;
+      lastCwd: string | undefined;
+      source: 'ingest' | 'summarize';
+    }
+  ): Promise<void> {
+    await waitForSlot(args.maxConcurrent, session.abortController.signal);
+    if (session.abortController.signal.aborted) return;
+
+    const isolatedEnv = sanitizeEnv(await buildIsolatedEnvWithFreshOAuth());
+    const authMethod = getAuthMethodDescription();
+
+    session.lastPromptSentAt = Date.now();
+    session.lastGeneratorSource = args.source;
+    session.lastResultTotalCostUsd = null;
+
+    const queryResult = query({
+      prompt: args.prompt,
+      options: buildHardenedSdkOptions({
+        source: 'Observer',
+        sessionDbId: session.sessionDbId,
+        contentSessionId: session.contentSessionId,
+        project: session.project,
+        model: args.modelId,
+        env: isolatedEnv,
+        pathToClaudeCodeExecutable: args.claudePath,
+        systemPrompt: args.systemPrompt,
+        abortController: session.abortController,
+        spawnClaudeCodeProcess: createSdkSpawnFactory(session.sessionDbId),
+      }),
+    });
+
+    try {
+      for await (const message of queryResult) {
+        if (
+          (message as any)?.type === 'system' &&
+          (message as any)?.subtype === 'rate_limit'
+        ) {
+          const info = (message as any).rate_limit_info as RateLimitInfo | undefined;
+          if (info) globalRateLimitStore.set(info);
+          const decision = shouldAbortForQuota(authMethod, globalRateLimitStore);
+          if (decision.abort) {
+            logger.warn('SDK', `Aborting session for quota guard: ${decision.reason}`, {
+              sessionDbId: session.sessionDbId,
+              window: decision.window,
+              authMethod,
+            });
+            session.abortReason = `quota:${decision.window ?? 'unknown'}`;
+            try { session.abortController.abort(); } catch { /* best-effort */ }
+            break;
+          }
+        }
+
+        if (message.type === 'assistant') {
+          const content = message.message.content;
+          const textContent = Array.isArray(content)
+            ? content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n')
+            : typeof content === 'string' ? content : '';
+
+          const tokensBefore = session.cumulativeInputTokens + session.cumulativeOutputTokens;
+          const usage = message.message.usage;
+          if (usage) {
+            session.cumulativeInputTokens += usage.input_tokens || 0;
+            session.cumulativeOutputTokens += usage.output_tokens || 0;
+            if (usage.cache_creation_input_tokens) {
+              session.cumulativeInputTokens += usage.cache_creation_input_tokens;
+            }
+            session.lastUsage = {
+              input: (usage.input_tokens || 0) +
+                (usage.cache_creation_input_tokens || 0) +
+                (usage.cache_read_input_tokens || 0),
+              output: usage.output_tokens || 0,
+            };
+            logger.debug('SDK', 'One-shot usage', {
+              sessionId: session.sessionDbId,
+              inputTokens: usage.input_tokens,
+              cacheRead: usage.cache_read_input_tokens || 0,
+              cacheCreation: usage.cache_creation_input_tokens || 0,
+              outputTokens: usage.output_tokens,
+            });
+          }
+
+          if (typeof textContent === 'string' && textContent.includes('Invalid API key')) {
+            throw new Error('Invalid API key: check your API key configuration in ~/.keepmind/settings.json or ~/.keepmind/.env');
+          }
+
+          const discoveryTokens =
+            (session.cumulativeInputTokens + session.cumulativeOutputTokens) - tokensBefore;
+
+          await processAgentResponse(
+            textContent,
+            session,
+            this.dbManager,
+            this.sessionManager,
+            worker,
+            discoveryTokens,
+            session.earliestPendingTimestamp,
+            'SDK',
+            args.lastCwd,
+            args.modelId
+          );
+        }
+      }
+    } finally {
+      const tracked = getSdkProcessForSession(session.sessionDbId);
+      if (tracked && tracked.process.exitCode === null) {
+        await ensureSdkProcessExit(tracked, 5000);
+      }
+    }
+  }
+
+  /**
+   * The "already recorded" hint for the stateless context block. Read from the
+   * database rather than kept in memory so it survives a worker restart and
+   * stays correct when several sessions touch the same project.
+   */
+  private getRecentTitles(session: ActiveSession): string[] {
+    try {
+      const rows = this.dbManager.getSessionStore().getRecentObservations(session.project, 8);
+      return rows
+        .map(r => (typeof r.text === 'string' ? r.text : ''))
+        .filter(t => t.length > 0);
+    } catch (error) {
+      logger.debug('SDK', 'Recent-title lookup failed; sending context block without it', {
+        sessionId: session.sessionDbId,
+      }, error instanceof Error ? error : undefined);
+      return [];
+    }
+  }
+
   private async *createMessageGenerator(
     session: ActiveSession,
     cwdTracker: { lastCwd: string | undefined }
@@ -636,6 +1096,32 @@ export class ClaudeProvider {
           isSynthetic: true
         };
       }
+    }
+  }
+
+  /**
+   * 'stateless' (default) gives each compression its own SDK conversation;
+   * 'conversational' restores the resumed-session behaviour. Kept switchable
+   * because the two differ in cost by an order of magnitude and a regression in
+   * observation quality must be reversible without a rebuild.
+   */
+  private getObserverSessionMode(): 'stateless' | 'conversational' {
+    try {
+      const settings = SettingsDefaultsManager.loadFromFile(paths.settings());
+      const raw = String(settings.KEEPMIND_OBSERVER_SESSION_MODE ?? '').toLowerCase();
+      return raw === 'conversational' ? 'conversational' : 'stateless';
+    } catch {
+      return 'stateless';
+    }
+  }
+
+  /** Per-field character budget for observation prompts (clamped). */
+  private getFieldMaxChars(): number {
+    try {
+      const settings = SettingsDefaultsManager.loadFromFile(paths.settings());
+      return clampFieldMaxChars(parseInt(settings.KEEPMIND_OBS_FIELD_MAX_CHARS, 10));
+    } catch {
+      return clampFieldMaxChars(NaN);
     }
   }
 

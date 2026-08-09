@@ -4,6 +4,7 @@ import type { ActiveSession, PendingMessage, PendingMessageWithId, ObservationDa
 import { SessionMessageBuffer } from './SessionMessageBuffer.js';
 import { getSdkProcessForSession, ensureSdkProcessExit } from '../../supervisor/process-registry.js';
 import { getSupervisor } from '../../supervisor/index.js';
+import { carryOverMemorySessionId } from './memory-session-id.js';
 
 export class SessionManager {
   private dbManager: DatabaseManager;
@@ -79,11 +80,22 @@ export class SessionManager {
       memory_session_id: dbSession.memory_session_id
     });
 
-    if (dbSession.memory_session_id) {
+    // A synthetic id (stateless observer, HTTP providers) is a local grouping
+    // key with no remote state behind it — it cannot go stale, and dropping it
+    // would split one working session across several memory sessions on every
+    // generator restart. Only SDK-issued ids are discarded.
+    const carriedMemorySessionId = carryOverMemorySessionId(dbSession.memory_session_id);
+
+    if (dbSession.memory_session_id && !carriedMemorySessionId) {
       logger.warn('SESSION', `Discarding stale memory_session_id from previous worker instance (Issue #817)`, {
         sessionDbId,
         staleMemorySessionId: dbSession.memory_session_id,
         reason: 'SDK context lost on worker restart - will capture new ID'
+      });
+    } else if (carriedMemorySessionId) {
+      logger.debug('SESSION', 'Carrying over synthetic memory_session_id', {
+        sessionDbId,
+        memorySessionId: carriedMemorySessionId,
       });
     }
 
@@ -106,7 +118,7 @@ export class SessionManager {
     session = {
       sessionDbId,
       contentSessionId: dbSession.content_session_id,
-      memorySessionId: null,  // Always start fresh - SDK will capture new ID
+      memorySessionId: carriedMemorySessionId,  // null for SDK ids (fresh capture); synthetic ids survive
       project: dbSession.project,
       platformSource: dbSession.platform_source,
       userPrompt,

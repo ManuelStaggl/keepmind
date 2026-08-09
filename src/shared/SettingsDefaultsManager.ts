@@ -44,8 +44,30 @@ export interface SettingsDefaults {
   /** Max observations coalesced into ONE compression turn (perf plan L1). Default '3': batching only engages UNDER BACKLOG (a trickle of tool-uses still compresses one-at-a-time), so it cuts turn count / LLM cost exactly when a burst piles up while leaving light sessions unchanged. '1' restores strict one-turn-per-tool-use; clamped to [1,12]. */
   KEEPMIND_OBSERVATION_BATCH_MAX: string;
   KEEPMIND_OBSERVATION_COALESCE_MS: string;
-  /** Max compression turns in ONE resumed Claude SDK conversation before a fresh session is forced (perf plan L3). Bounds the resume/context-window growth (quadratic cost + eventual "prompt is too long"). '0' = unbounded (legacy behavior). */
+  /** Max compression turns in ONE resumed Claude SDK conversation before a fresh session is forced (perf plan L3). Bounds the resume/context-window growth (quadratic cost + eventual "prompt is too long"). '0' = unbounded (legacy behavior). Only consulted by the 'conversational' observer mode. */
   KEEPMIND_MAX_CONTEXT_MESSAGES: string;
+  /** 'stateless' (default): every compression is its own SDK conversation with no resume, so per-turn input does not grow with session length. 'conversational': the legacy resumed session. */
+  KEEPMIND_OBSERVER_SESSION_MODE: string;
+  /** Per-field character budget for the <parameters>/<outcome> blocks of an observation prompt. Clamped to [200, 16000]. */
+  KEEPMIND_OBS_FIELD_MAX_CHARS: string;
+  /** What is worth a model call at all: 'governance' (portfolio-level only), 'balanced' (any change or failure), 'full' (anything with a signal). Empty = derived from KEEPMIND_MODE, since the governance signals are calibrated on software development. */
+  KEEPMIND_CAPTURE_PROFILE: string;
+  /** When observation batches are dispatched: 'batched' (default, coalesced during the session) or 'session-end' (collect everything, compress once when the turn stops). */
+  KEEPMIND_OBSERVE_TRIGGER: string;
+  /** Master switch. 'false' disables capture, injection and the per-Read timeline in one place. */
+  KEEPMIND_ENABLED: string;
+  /** 'false' disables the per-Read file timeline injection entirely. */
+  KEEPMIND_FILE_CONTEXT_ENABLED: string;
+  /** Minimum file size in bytes before a Read gets a timeline injected. */
+  KEEPMIND_FILE_CONTEXT_MIN_BYTES: string;
+  /** Max observations shown per file timeline. */
+  KEEPMIND_FILE_CONTEXT_MAX_ROWS: string;
+  /** Minimum specificity score an observation must reach to be injected on a Read. 0 = no threshold (legacy "always show the top 5"). */
+  KEEPMIND_FILE_CONTEXT_MIN_SCORE: string;
+  /** 'false' disables the SessionStart context injection. */
+  KEEPMIND_SESSION_START_INJECT: string;
+  /** Hard character ceiling for the SessionStart injection, applied after rendering. */
+  KEEPMIND_SESSION_START_MAX_CHARS: string;
   KEEPMIND_CONTEXT_SHOW_LAST_SUMMARY: string;
   KEEPMIND_CONTEXT_SHOW_LAST_MESSAGE: string;
   KEEPMIND_CONTEXT_SHOW_TERMINAL_OUTPUT: string;
@@ -146,7 +168,18 @@ export class SettingsDefaultsManager {
     KEEPMIND_CONTEXT_SESSION_COUNT: '5',
     KEEPMIND_OBSERVATION_BATCH_MAX: '8',  // perf plan L1: coalesce up to N observations per compression turn. Raised 3→8 now that the coalesce window below actually fills a batch; ≥65% of turns previously produced nothing while paying the full conversation prefix. Set '1' for strict one-turn-per-tool-use.
     KEEPMIND_OBSERVATION_COALESCE_MS: '2500',  // perf plan L1b: wait up to this long for sibling observations before compressing. 0 = off (batch only what happens to be buffered — L1 then rarely engages). Compression is background work, so the added latency is not user-visible.
-    KEEPMIND_MAX_CONTEXT_MESSAGES: '40',  // Claude path: force a fresh SDK session after N compression turns (perf plan L3). 0 = unbounded.
+    KEEPMIND_MAX_CONTEXT_MESSAGES: '40',  // Claude path: force a fresh SDK session after N compression turns (perf plan L3). 0 = unbounded. Only used when KEEPMIND_OBSERVER_SESSION_MODE=conversational.
+    KEEPMIND_OBSERVER_SESSION_MODE: 'stateless',  // measured: the resumed conversation was 91.7% of all tokens billed, re-reading its own history. 'conversational' restores it.
+    KEEPMIND_OBS_FIELD_MAX_CHARS: '2000',  // was 16000 per field; a single turn could carry 384k chars for two-sentence observations.
+    KEEPMIND_CAPTURE_PROFILE: '',  // empty = derive from KEEPMIND_MODE: 'governance' for code modes (87.6% of records were never retrieved on any channel — record what only a cross-project memory can), 'balanced' for modes whose domain the governance signals were not written for.
+    KEEPMIND_OBSERVE_TRIGGER: 'batched',
+    KEEPMIND_ENABLED: 'true',
+    KEEPMIND_FILE_CONTEXT_ENABLED: 'true',
+    KEEPMIND_FILE_CONTEXT_MIN_BYTES: '1500',
+    KEEPMIND_FILE_CONTEXT_MAX_ROWS: '3',  // was a hardcoded 5, with no threshold and no way to turn it off.
+    KEEPMIND_FILE_CONTEXT_MIN_SCORE: '2',  // require real specificity: the observation named this file as modified, or touched few files.
+    KEEPMIND_SESSION_START_INJECT: 'true',
+    KEEPMIND_SESSION_START_MAX_CHARS: '4500',  // ~1.1k tokens — the measured size of today's injection, which is the part that demonstrably works.
     KEEPMIND_CONTEXT_SHOW_LAST_SUMMARY: 'true',
     KEEPMIND_CONTEXT_SHOW_LAST_MESSAGE: 'false',
     KEEPMIND_CONTEXT_SHOW_TERMINAL_OUTPUT: 'true',

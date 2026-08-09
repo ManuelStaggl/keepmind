@@ -63,6 +63,17 @@ export interface ActiveSession {
    */
   compressionTurns?: number;
   skippedBatches?: number;
+  /**
+   * Batches dropped by the pre-model gate (observation-gate.ts) — no prompt was
+   * built and no request was sent, so these cost nothing at all.
+   *
+   * Deliberately NOT folded into skippedBatches: that counter means "a turn was
+   * paid for and the model found nothing worth recording", which is a completely
+   * different price. Counting both in one number also broke the documented
+   * `skippedBatches <= compressionTurns` invariant, because a gated batch is not
+   * a turn. The pair (gatedBatches, compressionTurns) is the actual saving.
+   */
+  gatedBatches?: number;
   observationsProduced?: number;
   lastSummaryStored?: boolean;
   pendingAgentId?: string | null;
@@ -81,6 +92,14 @@ export interface ActiveSession {
   endpointClass?: 'openrouter' | 'custom';
   /** Cumulative total_cost_usd from the SDK's latest result message — per-compression cost is the delta between results. */
   lastResultTotalCostUsd?: number | null;
+  /**
+   * File lists derived from the hook payload for the batch currently being
+   * compressed. These REPLACE whatever the model returns for files_read /
+   * files_modified: the hook has the exact path, the model only ever had a
+   * possibly-truncated copy of it. Cleared between batches so a stale list can
+   * never be attributed to the wrong observation.
+   */
+  pendingDeterministicFiles?: { files_read: string[]; files_modified: string[] };
 }
 
 export interface PendingMessage {
