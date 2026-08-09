@@ -4,12 +4,17 @@ import { join } from 'path';
 
 const SCRIPTS_DIR = join(import.meta.dirname, '..', 'plugin', 'scripts');
 
+// worker-cli.js was removed in 3.4.1: it was a checked-in build artefact from
+// before the claude-mem fork that nothing rebuilt and nothing referenced. It
+// still pointed at ~/.claude-mem, claude-mem.db and
+// marketplaces/thedotmack/, so `worker-cli.js restart` failed with a path that
+// has not existed since the rename. `npx keepmind restart` is the supported
+// route. This test was the only thing keeping the file alive.
 const SHEBANG_SCRIPTS = [
   'mcp-server.cjs',
   'worker-service.cjs',
   'context-generator.cjs',
   'bun-runner.js',
-  'worker-cli.js',
 ];
 
 describe('plugin/scripts line endings (#1342)', () => {
