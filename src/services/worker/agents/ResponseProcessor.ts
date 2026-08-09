@@ -117,8 +117,17 @@ export async function processAgentResponse(
     memorySessionId: session.memorySessionId
   });
 
+  // File lists come from the hook payload, not from the model. The observer only
+  // ever saw a truncated copy of the tool input, so anything it echoed back was
+  // at best a re-transcription and at worst invented; the hook has the exact
+  // path. When no deterministic list is available (summaries, the conversational
+  // path, other providers) the parsed values stand, so this is additive.
+  const deterministic = session.pendingDeterministicFiles;
   const labeledObservations = observations.map(obs => ({
     ...obs,
+    ...(deterministic
+      ? { files_read: deterministic.files_read, files_modified: deterministic.files_modified }
+      : {}),
     agent_type: session.pendingAgentType ?? null,
     agent_id: session.pendingAgentId ?? null
   }));
