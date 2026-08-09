@@ -10,13 +10,42 @@ import { statSync } from 'fs';
 import path from 'path';
 import { shouldTrackProject } from '../../shared/should-track-project.js';
 import { getProjectContext } from '../../utils/project-name.js';
+import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
+import { paths } from '../../shared/paths.js';
 
-const FILE_READ_GATE_MIN_BYTES = 1_500;
-
+// These were hardcoded, which meant the per-Read injection could be neither
+// tuned nor switched off: the only filter was mechanical (skip subagents, skip
+// files under 1.5 KB, skip files newer than the newest observation) and whatever
+// survived got the top 5 rows unconditionally — regardless of whether those rows
+// had anything to do with the file. It fires on nearly every Read, so a weak row
+// is not free.
+//
+// Now: an explicit enable switch, a real specificity threshold, and both limits
+// configurable.
 const FETCH_LOOKAHEAD_LIMIT = 40;
-
-const DISPLAY_LIMIT = 5;
 const MAX_FILE_CONTEXT_PATHS = 10;
+
+interface FileContextConfig {
+  enabled: boolean;
+  minBytes: number;
+  maxRows: number;
+  minScore: number;
+}
+
+function readFileContextConfig(): FileContextConfig {
+  const settings = SettingsDefaultsManager.loadFromFile(paths.settings());
+  const num = (value: unknown, fallback: number): number => {
+    const parsed = parseInt(String(value ?? ''), 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+  };
+  const isOff = (value: unknown): boolean => String(value ?? '').toLowerCase() === 'false';
+  return {
+    enabled: !isOff(settings.KEEPMIND_ENABLED) && !isOff(settings.KEEPMIND_FILE_CONTEXT_ENABLED),
+    minBytes: num(settings.KEEPMIND_FILE_CONTEXT_MIN_BYTES, 1_500),
+    maxRows: Math.max(1, num(settings.KEEPMIND_FILE_CONTEXT_MAX_ROWS, 3)),
+    minScore: num(settings.KEEPMIND_FILE_CONTEXT_MIN_SCORE, 2),
+  };
+}
 
 const TYPE_ICONS: Record<string, string> = {
   decision: '\u2696\uFE0F',
@@ -54,7 +83,8 @@ interface ObservationRow {
 function deduplicateObservations(
   observations: ObservationRow[],
   targetPath: string,
-  displayLimit: number
+  displayLimit: number,
+  minScore: number
 ): ObservationRow[] {
   const seenSessions = new Set<string>();
   const dedupedBySession: ObservationRow[] = [];
@@ -83,7 +113,14 @@ function deduplicateObservations(
 
   scored.sort((a, b) => b.specificityScore - a.specificityScore);
 
-  return scored.slice(0, displayLimit).map(s => s.obs);
+  // The threshold is the point of this function now. Previously every surviving
+  // row was shown, so an observation that merely happened to touch this file
+  // among twenty others was injected with the same weight as one that changed
+  // it. Below minScore a row costs tokens on every Read and says nothing.
+  return scored
+    .filter(s => s.specificityScore >= minScore)
+    .slice(0, displayLimit)
+    .map(s => s.obs);
 }
 
 function formatFileTimeline(
@@ -148,6 +185,19 @@ export const fileContextHandler: EventHandler = {
       return { continue: true, suppressOutput: true };
     }
 
+    let config: FileContextConfig;
+    try {
+      config = readFileContextConfig();
+    } catch (error) {
+      logger.debug('HOOK', 'File context config read failed, using defaults', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      config = { enabled: true, minBytes: 1_500, maxRows: 3, minScore: 2 };
+    }
+    if (!config.enabled) {
+      return { continue: true, suppressOutput: true };
+    }
+
     const toolInput = input.toolInput as Record<string, unknown> | undefined;
     const filePaths = Array.isArray(toolInput?.filePaths)
       ? (toolInput.filePaths as unknown[]).filter((p): p is string => typeof p === 'string').slice(0, MAX_FILE_CONTEXT_PATHS)
@@ -165,7 +215,7 @@ export const fileContextHandler: EventHandler = {
     }
 
     const timelineResults = await Promise.allSettled(
-      candidatePaths.map(candidatePath => buildFileContextTimeline(input, candidatePath))
+      candidatePaths.map(candidatePath => buildFileContextTimeline(input, candidatePath, config))
     );
     const timelines: string[] = [];
 
@@ -194,14 +244,18 @@ export const fileContextHandler: EventHandler = {
   },
 };
 
-async function buildFileContextTimeline(input: NormalizedHookInput, filePath: string): Promise<string | null> {
+async function buildFileContextTimeline(
+  input: NormalizedHookInput,
+  filePath: string,
+  config: FileContextConfig
+): Promise<string | null> {
   let fileMtimeMs = 0;
   try {
     const statPath = path.isAbsolute(filePath)
       ? filePath
       : path.resolve(input.cwd || process.cwd(), filePath);
     const stat = statSync(statPath);
-    if (!stat.isFile() || stat.size < FILE_READ_GATE_MIN_BYTES) {
+    if (!stat.isFile() || stat.size < config.minBytes) {
       return null;
     }
     fileMtimeMs = stat.mtimeMs;
@@ -265,8 +319,18 @@ async function buildFileContextTimeline(input: NormalizedHookInput, filePath: st
     }
   }
 
-  const dedupedObservations = deduplicateObservations(data.observations, relativePath, DISPLAY_LIMIT);
+  const dedupedObservations = deduplicateObservations(
+    data.observations,
+    relativePath,
+    config.maxRows,
+    config.minScore
+  );
   if (dedupedObservations.length === 0) {
+    logger.debug('HOOK', 'No observation cleared the specificity threshold, skipping injection', {
+      filePath: relativePath,
+      candidates: data.observations.length,
+      minScore: config.minScore,
+    });
     return null;
   }
 

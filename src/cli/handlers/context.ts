@@ -47,6 +47,29 @@ async function fetchSessionStartContextViaMcp(args: {
   }
 }
 
+/**
+ * Cap the injected timeline at a hard character ceiling.
+ *
+ * The SessionStart injection is the one part of keepmind with a demonstrated
+ * payoff — it is measured at ~4.2k chars (~1k tokens) and it is why the session
+ * does not have to be re-explained. But nothing enforced that size: it is
+ * rendered from a token budget that is itself an estimate, so a busy project
+ * could quietly push it well past the figure it was tuned for. The ceiling
+ * makes the cost of a session start knowable rather than typical.
+ *
+ * Trimmed on a line boundary so a row is never half-shown, and the truncation
+ * is announced — an unmarked cut would read as "there was nothing more".
+ */
+export function capInjectedContext(text: string, maxChars: number): string {
+  if (maxChars <= 0 || text.length <= maxChars) return text;
+  const notice = '\n… (trimmed by KEEPMIND_SESSION_START_MAX_CHARS)';
+  const room = Math.max(0, maxChars - notice.length);
+  const cut = text.slice(0, room);
+  const lastBreak = cut.lastIndexOf('\n');
+  const body = lastBreak > room * 0.5 ? cut.slice(0, lastBreak) : cut;
+  return `${body}${notice}`;
+}
+
 export const contextHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
     const cwd = input.cwd ?? process.cwd();
@@ -68,6 +91,20 @@ export const contextHandler: EventHandler = {
 
     const settings = loadFromFileOnce();
     const showTerminalOutput = settings.KEEPMIND_CONTEXT_SHOW_TERMINAL_OUTPUT === 'true';
+
+    const emptyContext: HookResult = {
+      hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: '' },
+      exitCode: HOOK_EXIT_CODES.SUCCESS,
+    };
+    const off = (value: unknown) => String(value ?? '').toLowerCase() === 'false';
+    if (off(settings.KEEPMIND_ENABLED) || off(settings.KEEPMIND_SESSION_START_INJECT)) {
+      logger.debug('HOOK', 'Session start injection disabled by settings', { cwd });
+      return emptyContext;
+    }
+    const maxInjectChars = (() => {
+      const parsed = parseInt(String(settings.KEEPMIND_SESSION_START_MAX_CHARS ?? ''), 10);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 4_500;
+    })();
 
     const projectsParam = context.allProjects.join(',');
     const normalizedPlatformSource = input.platform
@@ -108,6 +145,18 @@ export const contextHandler: EventHandler = {
         logger.warn('HOOK', 'Context response was not a string', { type: typeof contextResult });
         return emptyResult;
       }
+    }
+
+    // Apply the ceiling to the timeline BEFORE the hints are prepended: the
+    // hints are short, urgent and must never be the thing that gets trimmed.
+    const beforeCap = additionalContext.length;
+    additionalContext = capInjectedContext(additionalContext, maxInjectChars);
+    if (additionalContext.length < beforeCap) {
+      logger.debug('HOOK', 'Session start context trimmed to ceiling', {
+        beforeCap,
+        afterCap: additionalContext.length,
+        maxInjectChars,
+      });
     }
 
     // Proactive update notice: a one-line hint when a newer keepmind is on npm.

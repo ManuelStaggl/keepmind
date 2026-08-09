@@ -10,6 +10,7 @@ import { shouldTrackProject } from '../../shared/should-track-project.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { resolveRuntimeContext, logServerFallback } from '../../services/hooks/runtime-selector.js';
 import { isServerClientError } from '../../services/hooks/server-client.js';
+import { loadFromFileOnce } from '../../shared/hook-settings.js';
 
 async function dispatchToWorker(
   input: NormalizedHookInput,
@@ -57,6 +58,12 @@ export const observationHandler: EventHandler = {
 
     if (!shouldTrackProject(cwd)) {
       logger.debug('HOOK', 'Project excluded from tracking, skipping observation', { cwd, toolName });
+      return { continue: true, suppressOutput: true };
+    }
+
+    // Master switch. Checked here rather than only in the worker so a disabled
+    // keepmind does no network call per tool use either.
+    if (String(loadFromFileOnce().KEEPMIND_ENABLED ?? 'true').toLowerCase() === 'false') {
       return { continue: true, suppressOutput: true };
     }
 
