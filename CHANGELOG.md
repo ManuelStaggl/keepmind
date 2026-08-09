@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.4.2] - 2026-08-09
+
+3.4.1 made the observer's cost record impossible to suppress. The first day of using it showed that the record itself was wrong, that the way to read it was wrong twice over, and that it was not written at all when it was needed most. All four findings come from the field.
+
+### Fixed
+
+- **`fix(metrics)`: the token count left out cache reads, so it understated the bill by roughly its own size.** `inputTokens` was fresh input plus cache *writes*. Cache *reads* were tracked only for the context-window calculation and never reached the record — while the pre-3.4.0 figure it was meant to be compared against (21,398 tokens per unit of work) came from the observer sessions' own accounting, which included them.
+
+  Comparing the two showed a saving that had not been made. And the gap is not a rounding matter: statelessly, the cached system prompt is re-read on *every single call*, which makes cache reads the largest of the three line items.
+
+  The record now carries all three separately — `inputTokens` (fresh + cache writes), `cacheReadInputTokens`, `outputTokens` — plus `billedTokens` as their sum, and `tokensPerTurn` is computed from the billed total. `inputTokens` keeps its old meaning, deliberately: it feeds the discovery-token accounting, where a re-read cached prefix is not new information. Two figures, two names, neither pretending to be the other.
+
+  Records written by 3.4.1 carry `schema: 1` and are left out of any aggregation rather than silently folded in.
+
+- **`fix(metrics)`: the balance is written on every session end, not just the successful stateless ones.** The record was written at the end of the stateless observer loop — a line that is skipped whenever that loop throws or is aborted, and that the conversational path never reaches at all. So the documented fallback (`KEEPMIND_OBSERVER_SESSION_MODE=conversational`) produced no cost record whatsoever, and an aborted session produced none either.
+
+  That is the same failure the metrics channel exists to prevent, one layer down: the measurement goes quiet exactly when something has gone wrong, and an absence reads as "nothing happened". It now lives in the generator exit handler, which runs on every non-quota exit, successful or not. Quota exits still write nothing — that session is paused, not finished, and its counters keep accruing.
+
+  This also removes the last copy of the 3.4.0 `Compression economics` INFO line, which was the second, quieter balance competing with the first.
+
+### Added
+
+- **`feat(cli)`: `npx keepmind metrics` — one definition of what the observer costs.** 3.4.1 documented reading the metrics file with `Measure-Object -Property tokensPerTurn -Average`. Both halves of that are wrong, and both were caught within a day:
+
+  `tokensPerTurn` is `null` when a session dispatched nothing — deliberately, because `0` would drag the result toward a figure nobody was charged. `Measure-Object` counts the null as zero anyway. Reproduced on three records reporting 12000 / null / 10000: it answers **7333**.
+
+  Filtering the nulls leaves the second mistake. Averaging per-session values weights a session with two compressions the same as one with two hundred, and the observed spread is exactly that — many very short runs, a few long ones. The same three records give **11000** that way and **10200** as `Σ billed ÷ Σ turns`, which is the only one of the three that is a cost per unit of work.
+
+  A measurement people assemble by hand gets assembled differently every time. The command does the sums, filters nothing into zero, skips pre-3.4.2 records, and takes `--json`, `--day` and `--days`.
+
+- **`feat(doctor)`: report when the installed sources are older than the running bundle.** The marketplace directory is a git clone of the repository, refreshed by the host's plugin manager. The runtime is the bundle, replaced by `npx keepmind install` from the npm package — which ships no `src/` at all. They move independently.
+
+  That is harmless to run and expensive to audit: reading `src/` in the installed tree turned up the 3.4.0 code path and reported a shipped fix as missing, when the bundle had it. The check now names the drift and says which tree to trust. It is a warning, never a failure — a stale clone is confusing, not broken.
+
+- Each record now carries `contentSessionId`, and `npx keepmind metrics` reports records and host sessions as separate counts. One record is written per generator run, not per session you sat through: a generator that pauses on quota and resumes, or a host restart, produces several for one stretch of work. Per-turn figures are unaffected; anything phrased "per session" was not, and the difference is now visible instead of assumed.
+
+### Documentation
+
+- `configuration.mdx` documents the three token fields and which one is a cost figure, replaces the aggregation snippet with the command, spells out both ways of reading the file wrongly and what each one answers, and states plainly that one record is not one working session.
+
 ## [3.4.1] - 2026-08-09
 
 Four findings from the first operating day of 3.4.0, all reported from the field. Three of them share one shape: output that is technically true and practically misleading.
