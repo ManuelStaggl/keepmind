@@ -30,10 +30,24 @@ import { join } from 'path';
 import { LOGS_DIR, ensureDir } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
 
+/**
+ * Bumped whenever a field changes meaning. Schema 1 (3.4.1) reported a
+ * tokensPerTurn that left cache reads out, so it read far below the token bill
+ * it was meant to be compared against; aggregation must not mix the two.
+ */
+export const METRICS_SCHEMA_VERSION = 2;
+
 export interface SessionMetrics {
   /** Epoch millis when the session ended. */
   endedAt: number;
   sessionDbId: number;
+  /**
+   * The host's session id. One working session can produce several records —
+   * a generator that exits on quota and restarts, or a host restart that opens
+   * a new sessionDbId — so "per record" is not "per session". Grouping by this
+   * makes the difference visible instead of assumed.
+   */
+  contentSessionId?: string;
   project: string;
   /** Compression turns actually dispatched to the model. */
   compressionTurns: number;
@@ -42,8 +56,14 @@ export interface SessionMetrics {
   /** Dispatched turns the model answered with "nothing worth recording". */
   skippedBatches: number;
   observationsProduced: number;
-  /** Cumulative token usage for the session, as reported by the provider. */
+  /** Fresh input plus cache writes — NOT the billed total, see below. */
   inputTokens: number;
+  /**
+   * Cache reads. Billed in full, and on the stateless path the cached system
+   * prompt is re-read on every call, which makes this the largest line item of
+   * the three. Leaving it out understated the cost by roughly its own size.
+   */
+  cacheReadInputTokens: number;
   outputTokens: number;
   durationMs: number;
   model?: string;
@@ -59,13 +79,23 @@ export function gatedShare(m: Pick<SessionMetrics, 'compressionTurns' | 'gatedBa
 }
 
 /**
- * Mean tokens per dispatched compression — the figure that compares directly
- * against the pre-3.4.0 measurements. Null when nothing was dispatched, which
- * is meaningfully different from zero.
+ * Everything the provider charges for on the input side: fresh tokens, cache
+ * writes and cache reads. This is the figure that is comparable to a measured
+ * token bill; `inputTokens` alone is not.
+ */
+export function billedInputTokens(m: Pick<SessionMetrics, 'inputTokens' | 'cacheReadInputTokens'>): number {
+  return m.inputTokens + (m.cacheReadInputTokens || 0);
+}
+
+/**
+ * Mean billed tokens per dispatched compression — the figure that compares
+ * directly against the pre-3.4.0 measurements, which were taken from the
+ * observer sessions' own records and included cache reads. Null when nothing
+ * was dispatched, which is meaningfully different from zero.
  */
 export function tokensPerTurn(m: SessionMetrics): number | null {
   if (m.compressionTurns <= 0) return null;
-  return Math.round((m.inputTokens + m.outputTokens) / m.compressionTurns);
+  return Math.round((billedInputTokens(m) + m.outputTokens) / m.compressionTurns);
 }
 
 function metricsFilePath(endedAt: number): string {
@@ -82,8 +112,11 @@ export function recordSessionMetrics(metrics: SessionMetrics): void {
   try {
     ensureDir(LOGS_DIR);
     const line = JSON.stringify({
+      schema: METRICS_SCHEMA_VERSION,
       ...metrics,
       endedAtIso: new Date(metrics.endedAt).toISOString(),
+      billedInputTokens: billedInputTokens(metrics),
+      billedTokens: billedInputTokens(metrics) + metrics.outputTokens,
       gatedShare: Number(gatedShare(metrics).toFixed(4)),
       tokensPerTurn: tokensPerTurn(metrics),
     });

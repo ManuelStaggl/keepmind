@@ -129,6 +129,7 @@ export class SessionManager {
       startTime: Date.now(),
       cumulativeInputTokens: 0,
       cumulativeOutputTokens: 0,
+      cumulativeCacheReadTokens: 0,
       earliestPendingTimestamp: null,
       claimedMessageIds: [],
       conversationHistory: [],  // Initialize empty - will be populated by agents

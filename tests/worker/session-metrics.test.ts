@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'bun:test';
-import { gatedShare, tokensPerTurn, type SessionMetrics } from '../../src/services/worker/session-metrics.js';
+import {
+  billedInputTokens,
+  gatedShare,
+  tokensPerTurn,
+  type SessionMetrics,
+} from '../../src/services/worker/session-metrics.js';
 
 /**
  * The end-of-session balance used to exist only as a `logger.success` line,
@@ -10,18 +15,23 @@ import { gatedShare, tokensPerTurn, type SessionMetrics } from '../../src/servic
  * Zero matches is indistinguishable from "the observer did nothing" — the same
  * trap as the search counters reading 0 while merely uninstrumented. The record
  * now goes to metrics-<date>.jsonl, which no log level can suppress.
+ *
+ * 3.4.2 fixes what that record said and how it is read: it left cache reads out
+ * of the token count, and the aggregation it documented was wrong twice over.
  */
 
 function metrics(overrides: Partial<SessionMetrics> = {}): SessionMetrics {
   return {
     endedAt: 1_754_700_000_000,
     sessionDbId: 1,
+    contentSessionId: 'session-a',
     project: 'proj',
     compressionTurns: 4,
     gatedBatches: 6,
     skippedBatches: 1,
     observationsProduced: 3,
     inputTokens: 40_000,
+    cacheReadInputTokens: 0,
     outputTokens: 2_000,
     durationMs: 60_000,
     ...overrides,
@@ -49,5 +59,21 @@ describe('session metrics', () => {
     // null, not 0: a session that made no model call has no per-turn cost, and
     // reporting 0 would drag any average toward a number nobody paid.
     expect(tokensPerTurn(metrics({ compressionTurns: 0, gatedBatches: 5 }))).toBeNull();
+  });
+
+  it('counts cache reads as billed input', () => {
+    // The cost side must include them. Statelessly the cached system prompt is
+    // re-read on every call, which made this the largest of the three line
+    // items — leaving it out understated the bill by roughly its own size and
+    // produced a saving against pre-3.4.0 that had not actually been made.
+    const m = metrics({ inputTokens: 10_000, cacheReadInputTokens: 30_000 });
+    expect(billedInputTokens(m)).toBe(40_000);
+    expect(tokensPerTurn(m)).toBe(10_500);
+  });
+
+  it('keeps inputTokens free of cache reads so it stays a "new information" figure', () => {
+    const m = metrics({ inputTokens: 10_000, cacheReadInputTokens: 30_000 });
+    expect(m.inputTokens).toBe(10_000);
+    expect(billedInputTokens(m) - m.inputTokens).toBe(30_000);
   });
 });

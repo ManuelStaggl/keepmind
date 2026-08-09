@@ -18,8 +18,25 @@ export interface ActiveSession {
   generatorPromise: Promise<void> | null;
   lastPromptNumber: number;
   startTime: number;
-  cumulativeInputTokens: number;   
-  cumulativeOutputTokens: number;  
+  /**
+   * Fresh input plus cache WRITES. Deliberately excludes cache reads: this is
+   * the number the discovery-token accounting is built on, where a cached
+   * prefix that was re-read is not new information.
+   *
+   * It is therefore NOT a cost figure. Billing counts cache reads too, and on
+   * the stateless path the cached system prompt is re-read on every single
+   * call, so they are the largest line item. Anything comparing against a
+   * measured token bill must use cumulativeCacheReadTokens as well — see
+   * billedInputTokens in session-metrics.ts.
+   */
+  cumulativeInputTokens: number;
+  cumulativeOutputTokens: number;
+  /**
+   * Cache reads, tracked separately so the cost side can add them back without
+   * changing what cumulativeInputTokens means. Reported field-side as 0 until
+   * 3.4.2; a metrics line without it is not comparable to a token bill.
+   */
+  cumulativeCacheReadTokens: number;
   earliestPendingTimestamp: number | null;  
   claimedMessageIds: number[];
   conversationHistory: ConversationMessage[];  
@@ -75,6 +92,19 @@ export interface ActiveSession {
    */
   gatedBatches?: number;
   observationsProduced?: number;
+  /**
+   * Descriptive context for the end-of-session cost record, stamped by whichever
+   * provider path ran. The record itself is written once, in the generator exit
+   * handler, because that is the only place guaranteed to run: writing it at the
+   * end of the stateless loop skipped the balance entirely whenever the loop
+   * threw or was aborted, and never wrote one at all on the conversational path.
+   */
+  metricsContext?: {
+    model?: string;
+    captureProfile?: string;
+    trigger?: string;
+    observerMode?: string;
+  };
   lastSummaryStored?: boolean;
   pendingAgentId?: string | null;
   pendingAgentType?: string | null;

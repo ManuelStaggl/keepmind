@@ -13,7 +13,6 @@ import {
 } from '../../sdk/prompts.js';
 import { deterministicFieldsForBatch } from '../../sdk/deterministic-fields.js';
 import { shouldCompressBatch, logGateDecision, readCaptureProfile } from './observation-gate.js';
-import { recordSessionMetrics } from './session-metrics.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH, OBSERVER_SESSIONS_DIR, ensureDir, paths } from '../../shared/paths.js';
 import { buildIsolatedEnvWithFreshOAuth, getAuthMethodDescription } from '../../shared/EnvManager.js';
@@ -300,6 +299,17 @@ export class ClaudeProvider {
     // accumulator starts from zero — reset the per-turn cost baseline with it.
     session.lastResultTotalCostUsd = null;
 
+    // The conversational path wrote no cost record at all until 3.4.2, only the
+    // INFO line the metrics channel was created to replace — so the documented
+    // fallback (KEEPMIND_OBSERVER_SESSION_MODE=conversational) could not be
+    // measured against the mode it is a fallback from.
+    session.metricsContext = {
+      model: typeof modelId === 'string' ? modelId : undefined,
+      captureProfile: readCaptureProfile(),
+      trigger: this.getObserveTrigger(),
+      observerMode: 'conversational',
+    };
+
     const messageGenerator = this.createMessageGenerator(session, cwdTracker);
 
     if (session.forceInit) {
@@ -435,6 +445,11 @@ export class ClaudeProvider {
             if (usage.cache_creation_input_tokens) {
               session.cumulativeInputTokens += usage.cache_creation_input_tokens;
             }
+
+            // Cache reads are billed but are NOT new information, so they are
+            // kept out of cumulativeInputTokens (which feeds discovery-token
+            // accounting) and totalled separately for the cost record.
+            session.cumulativeCacheReadTokens += usage.cache_read_input_tokens || 0;
 
             // Real per-response usage for telemetry (tokens_input includes the
             // full context the model read: fresh + cache writes + cache reads).
@@ -579,6 +594,18 @@ export class ClaudeProvider {
     // bound; past it the oldest work is compressed and the buffer drains.
     const DEFERRED_MAX = 200;
 
+    // Stamped up front, not at the end of the loop: the cost record is written
+    // by the generator exit handler, which also runs when this loop throws or
+    // is aborted. Writing the record here meant an aborted session produced no
+    // balance at all — the same silent absence the metrics channel exists to
+    // prevent.
+    session.metricsContext = {
+      model: modelId,
+      captureProfile: readCaptureProfile(),
+      trigger,
+      observerMode: 'stateless',
+    };
+
     logger.info('SDK', 'Starting stateless observer session', {
       sessionDbId: session.sessionDbId,
       contentSessionId: session.contentSessionId,
@@ -705,39 +732,10 @@ export class ClaudeProvider {
       }
     }
 
-    // The three numbers that make the cost readable: how many model calls were
-    // actually made, how many the gate removed before any request, and how many
-    // of the calls that WERE made came back empty.
-    const turns = session.compressionTurns ?? 0;
-    const gated = session.gatedBatches ?? 0;
-
-    // Written to its own file, NOT only to the log: this line is an operating
-    // result, and logger.success delegates to info, so KEEPMIND_LOG_LEVEL=WARN
-    // silently dropped it — making the documented measurement return zero
-    // matches, which reads as "the observer did nothing".
-    recordSessionMetrics({
-      endedAt: Date.now(),
-      sessionDbId: session.sessionDbId,
-      project: session.project,
-      compressionTurns: turns,
-      gatedBatches: gated,
-      skippedBatches: session.skippedBatches ?? 0,
-      observationsProduced: session.observationsProduced ?? 0,
-      inputTokens: session.cumulativeInputTokens,
-      outputTokens: session.cumulativeOutputTokens,
-      durationMs: Date.now() - session.startTime,
-      model: modelId,
-      captureProfile: readCaptureProfile(),
-      trigger,
-      observerMode: 'stateless',
-    });
-
-    logger.success('SDK', 'Stateless observer session ended', {
+    logger.debug('SDK', 'Stateless observer loop ended', {
       sessionId: session.sessionDbId,
-      compressionTurns: turns,
-      gatedBatches: gated,
-      skippedBatches: session.skippedBatches ?? 0,
-      gatedShare: turns + gated > 0 ? `${Math.round((gated / (turns + gated)) * 100)}%` : '0%',
+      compressionTurns: session.compressionTurns ?? 0,
+      gatedBatches: session.gatedBatches ?? 0,
     });
   }
 
@@ -891,6 +889,8 @@ export class ClaudeProvider {
             if (usage.cache_creation_input_tokens) {
               session.cumulativeInputTokens += usage.cache_creation_input_tokens;
             }
+            // Billed but not new information — see the ingest path above.
+            session.cumulativeCacheReadTokens += usage.cache_read_input_tokens || 0;
             session.lastUsage = {
               input: (usage.input_tokens || 0) +
                 (usage.cache_creation_input_tokens || 0) +
