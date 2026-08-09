@@ -4,6 +4,43 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.4.1] - 2026-08-09
+
+Four findings from the first operating day of 3.4.0, all reported from the field. Three of them share one shape: output that is technically true and practically misleading.
+
+### Added
+
+- **`feat(observer)`: the session cost balance is written where a log level cannot hide it.** The end-of-session balance existed only as a `logger.success` line, and `success` delegates to `info`. At `KEEPMIND_LOG_LEVEL=WARN` — a reasonable setting for a background service — the line is dropped, so the way 3.4.0 documented measuring itself ("grep the log for `Stateless observer session ended`") returned **zero matches on a machine that was working perfectly**.
+
+  Zero matches is indistinguishable from "the observer did nothing". That is the same trap that made the search counters read as "search is unused" when they were merely uninstrumented, and the same shape as the two silent faults 3.4.0 fixed: no error, no warning, just an absence that looks like data. A measurement that goes quiet when a setting is inconvenient is worse than no measurement, because it gets believed.
+
+  The balance is an operating result, not chatter, so it now has its own channel: one JSON object per session in `~/.keepmind/logs/metrics-<date>.jsonl`, **independent of `KEEPMIND_LOG_LEVEL`**. It carries the counters plus tokens and duration, so `tokensPerTurn` — the figure that compares directly against pre-3.4.0 measurements — can be aggregated instead of grepped out of prose:
+
+  ```powershell
+  Get-Content "$env:USERPROFILE\.keepmind\logs\metrics-*.jsonl" |
+    ForEach-Object { $_ | ConvertFrom-Json } |
+    Measure-Object -Property tokensPerTurn -Average
+  ```
+
+  `tokensPerTurn` is `null` rather than `0` when nothing was dispatched: a session that made no model call has no per-turn cost, and `0` would drag an average toward a number nobody paid. The prose log line stays as a convenience copy.
+
+### Fixed
+
+- **`fix(doctor)`: report measurability, and stop two checks reading as faults.**
+  - A new **Cost metrics** check reports whether the balance is being written, and says explicitly when `KEEPMIND_LOG_LEVEL` is hiding the log copy. It runs whether or not the worker answers — "can I even measure this?" matters most when something else already looks wrong.
+  - **Last compression** said *"no compression has run yet — end a session to generate the first observation"*. Accurate, but it reads as a defect when it is the expected state right after an install or update. Now phrased as such.
+  - **Bun runtime** implied that semantic search needs bun present. It does not: bun *installs* those native dependencies, it does not run them. Observed in the field on a machine with no bun where vector search reported `ready` in 7 ms. The text now points at the Vector search check for the state that actually matters.
+
+### Removed
+
+- **`worker-cli.js`**, a dead pre-fork artefact. `worker-cli.js restart` failed with a path under `marketplaces/thedotmack/` — and that was only the visible part. The whole file predates the fork: `CLAUDE_MEM_*` settings, `~/.claude-mem` as the data directory, `claude-mem.db`, a `claude-sonnet-4-5` default, links to `docs.claude-mem.ai`. It was never regenerated after the rename because **nothing rebuilds it**: no source in `src/`, no reference anywhere in the codebase. The only thing keeping it alive was a line-endings test asserting the file exists.
+
+  A shipped, broken entry point promising a command that cannot work. `npx keepmind restart` is the supported route.
+
+### Documentation
+
+- `configuration.mdx` documents the metrics file, its fields, how to aggregate a day of it, and the caveat that `KEEPMIND_LOG_LEVEL` is read **once per process** — a change takes effect after `npx keepmind restart`, not immediately.
+
 ## [3.4.0] - 2026-08-09
 
 This release rewrites how the observer works, after measuring what it actually cost. Two findings drove it: tool content was reaching the model provider unredacted, and 91.7% of every token keepmind billed was the observer re-reading its own conversation history.
