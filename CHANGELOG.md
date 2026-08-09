@@ -4,13 +4,75 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.4.0] - 2026-08-09
+
+This release rewrites how the observer works, after measuring what it actually cost. Two findings drove it: tool content was reaching the model provider unredacted, and 91.7% of every token keepmind billed was the observer re-reading its own conversation history.
+
+**If you run an earlier version, read the security section first.**
+
+### Security
+
+- **`feat(security)`: redact tool content before it reaches the provider.** Redaction ran from exactly two places — `SessionStore` (on write to SQLite) and `MaintenanceLoop`. Both sit *downstream* of the model call, so what was protected was the local database, not the network. Raw tool inputs and outputs — whole file contents, shell commands and their output, verbatim user prompts — were sent to the configured model provider unredacted; only the model's *reply* was scrubbed on its way to disk. `SECURITY.md` described the privacy tags in a way that implied pre-send filtering, which was not the case.
+
+  This was not theoretical: the entropy backstop had 4,147 matches in the local database, and every one of them was masked *on write* — meaning the cleartext had already travelled through a prompt.
+
+  Redaction now runs in `src/sdk/prompts.ts`, the single place any provider builds a prompt, so one chokepoint covers Claude, Gemini and OpenRouter alike. The rule set gains ADO.NET/JDBC connection strings, email addresses and IPv4 addresses, plus a guard that withholds the content of files that are credentials in their entirety (`.env`, `id_rsa`, `*.pem`, `.ssh/`, `.aws/`) while still reporting the access.
+
+  The connection-string rule deliberately runs ahead of the generic one: `GENERIC_SECRET` accepts only `[\w./+=-]` as a value, so it stops at the first symbol and would have turned `Password=Sup3rS3cret!Passw0rd` into `Password=«redacted»!Passw0rd` — publishing the tail of the credential.
+
+  `tests/redaction/outbound.test.ts` asserts against the prompt string actually handed to the provider, so removing redaction from the prompt builders fails the test. Verified by disabling it: five tests fail, and the "no unnecessary cleartext loss" cases stay green — a stack trace keeps its paths, line numbers and identifiers.
+
+  **What to do:** upgrade. If you ran an earlier version against a provider you would not want holding that content, treat it accordingly. `KEEPMIND_REDACT_SECRETS=0` still disables everything, and now that includes the outbound path — it is an emergency switch, not a tuning knob.
+
+### Changed
+
+- **`perf(observer)`: compression is stateless.** Every observation used to be pushed as another user turn into the same resumed SDK session, so turn N re-read turns 1..N-1. Across 1,046 observer sessions over seven days that re-read was **91.7% of every token billed** — 1.21bn of 1.32bn — growing from 14k to 50k cache-read tokens by turn 12 of a single session. 19,113 compression turns carried 204.7M characters of genuinely new content and were billed 1.32bn tokens: a ratio of **25.8 to 1**.
+
+  Each compression is now its own request with no `resume`. A fixed-size context block replaces the history, so per-turn input depends on the batch rather than on session length. The system prompt is byte-identical across calls and stays a cache hit, so the part that *should* be re-read still is. `KEEPMIND_OBSERVER_SESSION_MODE=conversational` restores the old path.
+
+- **`perf(observer)`: recordability is decided before the model call.** The observer used to be asked "is this worth recording?" — and the judging was the expensive part. Measured over one day: ~4.8k compression turns for ~3.4k tool uses, at least 65% returning "nothing worth recording" while still paying the full conversation prefix.
+
+  A gate now decides from the hook payload in microseconds. Three profiles: `governance` (default for code modes) keeps what only a cross-project memory can hold — decisions with their rationale, migrations, releases, conventions, security findings, recurring problems; `balanced` keeps any change or failure; `full` is closest to the old behaviour. First measurement on the development machine: **60% of batches dropped without any model call**.
+
+  The rationale for `governance` being the default: 87.6% of the 51,355 stored observations had never been retrieved on any channel, and across 919 working sessions the MCP memory tools were called 139 times in total. Recording everything was not paying for itself.
+
+  If the session-start injection feels thin afterwards, `KEEPMIND_CAPTURE_PROFILE=balanced` is the step back. That injection is the part with a demonstrated payoff and is not worth trading for the saving.
+
+- **`feat(observer)`: file fields come from the hook payload.** `files_read` and `files_modified` were produced by the model, which had to copy them out of a `<parameters>` block that had already been truncated. They are now derived from the hook data and the two elements are gone from the output schema entirely.
+
+- **Per-field prompt budget is configurable and much smaller.** `KEEPMIND_OBS_FIELD_MAX_CHARS` replaces a hardcoded 16,000 characters per field with a default of 2,000. At the old value a single coalesced turn could carry 384k characters (~96k tokens) to produce an observation two or three sentences long; the largest actually measured was 158k.
+
+### Added
+
+- **`KEEPMIND_ENABLED`** — the master switch that was missing. `false` disables capture, session-start injection and the per-Read timeline, and is checked in the hook so a disabled keepmind does not even make the per-tool-use network call.
+- **`KEEPMIND_OBSERVE_TRIGGER=session-end`** — compress once when the working stretch ends instead of during it. This mode did not exist; the coalesce window could only ever merge tool uses seconds apart.
+- **Thresholds and a switch for the per-Read file timeline.** It fires on nearly every `Read` (113 times in one measured session) and previously injected the top 5 observations unconditionally, regardless of whether they had anything to do with the file. Now: `KEEPMIND_FILE_CONTEXT_ENABLED`, `_MIN_BYTES`, `_MAX_ROWS` and a real specificity threshold `_MIN_SCORE`.
+- **A ceiling on the session-start injection.** `KEEPMIND_SESSION_START_MAX_CHARS` (default 4500, ~1.1k tokens — the size it was measured at). Applied before the hints are prepended, so an urgent notice is never what gets trimmed, and announced rather than silent.
+- **`KEEPMIND_REDACT_PII`** — email and IPv4 masking as a separately switchable category, for machines where LAN addresses are the subject of the work rather than something to hide. Credential rules stay active either way.
+
+### Fixed
+
+- **`fix(search)`: usage counters were on the wrong code path.** `fts_hit_count` and `vector_hit_count` read 0 across all 51,355 observations, which looked like "search is unused". `SearchOrchestrator.recordUsage` had been correct all along — but the orchestrator only serves the corpus path, while the MCP search tools call `SearchManager.search()`, which touched no counter. Beyond the wrong statistic: `last_used_at` was never written either, so expiry — once enabled — would have archived records that search surfaces daily.
+- **Observations were silently discarded on the stateless path.** With no long-lived SDK session there is no `session_id` to harvest, so `processAgentResponse` found no memory session id, logged "deferring storage until next round" and dropped every observation — with nothing in the log reading as an error. The id is now minted locally, as the HTTP providers already did.
+- **Working sessions were split across several memory sessions.** `SessionManager` clears the memory session id on every rebuild so a dead SDK conversation is never resumed (#817). That is right for an SDK id and wrong for a synthetic one, which has no remote state to go stale; clearing it fragmented both the session summary and its start-of-session injection.
+- **The capture profile is derived from the mode.** The governance signals look for commits, migrations and CI config. Under `law-study`, `meme-tokens` or `email-investigation` none of them can fire, so the profile would have suppressed nearly everything those modes exist to record. Non-code modes fall back to `balanced`.
+- **The gate's text matcher is bilingual (DE/EN).** An English-only matcher classifies every German request as "not portfolio relevant" — the same failure mode the embedder had before it was made multilingual.
+
+### Documentation
+
+- `SECURITY.md` now describes what is actually redacted, on which path, and where the limits are — including that `KEEPMIND_REDACT_SECRETS=0` disables outbound redaction too. The security finding above is recorded in the audit history with its evidence.
+- Gemini and OpenRouter are marked **unmaintained**. They keep working and redaction covers them fully, but they did not receive the observer rework: they still re-send their whole history each turn, compress every tool use, and take file lists from the model. Both pages previously advertised cost savings; that basis is gone, and a capability table now says so.
+- `SESSION_ID_ARCHITECTURE.md` described resume as *the* mechanism — it is no longer used by default.
+
 ## [3.3.2] - 2026-07-30
 
 A tooling-only release: nothing in the worker, the hooks or the MCP server changed. What changed is the machinery that cuts releases, after 3.3.1 exposed three separate ways for it to go wrong.
 
 ### Fixed
 
-- **`fix(changelog)`: order entries by version and fence off the inherited history.** The generator sorted by GitHub publish date, which holds only while releases are published in version order. Backfilling the missing 3.3.0 after 3.3.1 had already shipped filed it *above* 3.3.1. Sorting purely by version is not enough on its own either: `CHANGELOG.md` still carries 290 pre-fork claude-mem entries numbered up to 13.x, which outrank every keepmind release numerically while being older than all of them. An `<!-- inherited-history -->` marker now separates the two numbering schemes — the generator merges and version-sorts only above it, and copies everything below through untouched, including under `--full`.
+- **`fix(changelog)`: order entries by version and fence off the inherited history.** The generator sorted by GitHub publish date, which holds only while releases are published in version order. Backfilling the missing 3.3.0 after 3.3.1 had already shipped filed it *above* 3.3.1. Sorting purely by version is not enough on its own either: `CHANGELOG.md` still carries 290 pre-fork claude-mem entries numbered up to 13.x, which outrank every keepmind release numerically while being older than all of them. An `
+
+<!-- inherited-history -->` marker now separates the two numbering schemes — the generator merges and version-sorts only above it, and copies everything below through untouched, including under `--full`.
 
 ### Added
 
