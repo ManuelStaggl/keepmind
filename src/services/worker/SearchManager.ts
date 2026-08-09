@@ -576,6 +576,34 @@ export class SearchManager {
 
     const totalResults = observations.length + sessions.length + prompts.length;
 
+    // Count the hit against the observations it returned.
+    //
+    // SearchOrchestrator.recordUsage has done this correctly since the channel
+    // columns were added — but the orchestrator only serves the corpus path.
+    // THIS method is what the MCP search tools call, and it never touched a
+    // counter, which is why fts_hit_count and vector_hit_count read 0 across all
+    // 51,355 rows. That was read as "search is unused"; what it actually showed
+    // was that the instrumentation sat on a different code path. Without it the
+    // corpus statistics cannot answer whether search earns its keep, and expiry
+    // (once enabled) would archive rows that search surfaces daily.
+    if (observations.length > 0) {
+      try {
+        const ids = observations
+          .map(o => (o as { id?: number }).id)
+          .filter((id): id is number => typeof id === 'number');
+        if (ids.length > 0) {
+          // Attributed to the leg that actually produced the ranking: 'vector'
+          // when the semantic path served the result, 'fts' when keyword search
+          // did — including when it served as the fallback.
+          const usedVector = !!query && this.chromaSync !== null && !chromaFailed && !platformScopedChromaZeroFallback;
+          this.sessionStore.markObservationsUsed(ids, usedVector ? 'vector' : 'fts');
+        }
+      } catch (error) {
+        // Bookkeeping must never fail a search.
+        logger.debug('SEARCH', 'Failed to record search usage', {}, error instanceof Error ? error : undefined);
+      }
+    }
+
     // Telemetry envelope (search_performed): derive the strategy from the
     // three paths above. Enum/count values only — never the Chroma error
     // message, query text, or result content.
