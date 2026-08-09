@@ -4,7 +4,7 @@ keepmind is a Claude Code plugin providing persistent memory across sessions. It
 
 ## Observer cost and safety invariants
 
-Four properties were each paid for with a measured regression. Changing any of
+Five properties were each paid for with a measured regression. Changing any of
 them changes the cost or the safety of the system, not just its structure.
 
 - **Redaction happens on the OUTBOUND path.** `src/sdk/prompts.ts` is the only
@@ -30,6 +30,17 @@ them changes the cost or the safety of the system, not just its structure.
   `files_modified`, tool name and timestamp are derived in
   `src/sdk/deterministic-fields.ts` from the hook payload and overwrite whatever
   the model returned. The model only ever saw a truncated copy of the tool input.
+- **The cost balance is written in one place and read in one place.** Written by
+  `handleGeneratorExit` — the only point that runs on every non-quota session
+  end, however it ended — into `metrics-<date>.jsonl`, never gated by a log
+  level. Read by `npx keepmind metrics`, which divides sums by sums. Three
+  variants of "measure it yourself" have each gone quiet or lied so far: an INFO
+  line dropped at `WARN`; a record written at the end of a loop that aborts; and
+  a documented `Measure-Object -Average` that counts `null` as zero and averages
+  averages. A measurement that is assembled by hand gets assembled differently
+  each time, and one that goes quiet when a setting is inconvenient gets
+  believed. Bump `METRICS_SCHEMA_VERSION` when a field changes meaning —
+  aggregation drops older records rather than mixing them.
 
 ### Provider scope
 

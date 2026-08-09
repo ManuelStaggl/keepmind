@@ -181,37 +181,88 @@ worth trading for the saving.
 
 ### Measuring what it costs
 
-Every observer session appends one JSON object to
+Read the balance with:
+
+```bash
+npx keepmind metrics            # one line per day, plus a total
+npx keepmind metrics --json     # the same figures, machine-readable
+npx keepmind metrics --days 7   # only the last seven days
+```
+
+```
+keepmind observer cost  C:\Users\you\.keepmind\logs
+
+  2026-08-08      41 turns   62% gated     4,301,880 billed    104,924 /turn     29 obs
+  2026-08-09      18 turns   58% gated     1,806,442 billed    100,358 /turn     11 obs
+  ────────────────────────────────────────────────────────────────────────
+  total           59 turns   61% gated     6,108,322 billed    103,531 /turn     40 obs
+```
+
+Behind it, every observer session appends one JSON object to
 `~/.keepmind/logs/metrics-<date>.jsonl`:
 
 ```json
-{"endedAtIso":"2026-08-09T09:50:17.001Z","project":"keepmind","compressionTurns":4,
- "gatedBatches":6,"skippedBatches":4,"observationsProduced":3,"inputTokens":41230,
- "outputTokens":1875,"gatedShare":0.6,"tokensPerTurn":10776}
+{"schema":2,"endedAtIso":"2026-08-09T09:50:17.001Z","project":"keepmind",
+ "contentSessionId":"c1f0…","compressionTurns":4,"gatedBatches":6,"skippedBatches":4,
+ "observationsProduced":3,"inputTokens":41230,"cacheReadInputTokens":389540,
+ "outputTokens":1875,"billedTokens":432645,"gatedShare":0.6,"tokensPerTurn":108161}
 ```
 
 - `compressionTurns` — model calls actually made
 - `gatedBatches` — batches dropped before any request; these cost nothing
 - `skippedBatches` — calls that were made and came back empty
 - `gatedShare` — the fraction the gate removed
-- `tokensPerTurn` — total tokens ÷ dispatched turns, `null` if none were
+- `inputTokens` — fresh input plus cache **writes**. Not a cost figure.
+- `cacheReadInputTokens` — cache **reads**. Billed in full, and usually the
+  largest of the three: the cached system prompt is re-read on every call.
+- `billedTokens` — everything the provider charges for. This is the figure that
+  compares against a measured token bill.
+- `tokensPerTurn` — `billedTokens` ÷ dispatched turns, `null` if none were
 
 This file is **independent of `KEEPMIND_LOG_LEVEL`**. The same balance is also
-written to the ordinary log, but through `logger.success` → `info`, so at
-`WARN` or above that copy disappears — grepping the prose log then returns
-nothing, which looks exactly like "the observer did no work". Use the metrics
-file for measurement; `npx keepmind doctor` reports whether it is being written.
-
-Aggregate a day with PowerShell:
-
-```powershell
-Get-Content "$env:USERPROFILE\.keepmind\logs\metrics-*.jsonl" |
-  ForEach-Object { $_ | ConvertFrom-Json } |
-  Measure-Object -Property tokensPerTurn -Average -Sum
-```
+written to the ordinary log at `INFO`, so at `WARN` or above that copy
+disappears — grepping the prose log then returns nothing, which looks exactly
+like "the observer did no work". `npx keepmind doctor` reports whether the file
+is being written.
 
 Note that `KEEPMIND_LOG_LEVEL` is read **once per process**. Changing it takes
 effect after `npx keepmind restart`, not immediately.
+
+#### Why not just read the file
+
+Two ways of aggregating it by hand give wrong answers, and both were reached
+independently within a day of the file shipping:
+
+```powershell
+# WRONG — counts a null tokensPerTurn as 0
+… | Measure-Object -Property tokensPerTurn -Average
+```
+
+A session that dispatched nothing has `tokensPerTurn: null`, deliberately: it
+has no cost per turn, and `0` would drag the result toward a number nobody was
+charged. `Measure-Object` treats the null as zero. On three records reporting
+12000 / null / 10000 it reports **7333**.
+
+Filtering the nulls out still leaves the second mistake: averaging per-session
+values weights a session with two compressions the same as one with two hundred.
+With the observed spread — many very short runs, a few long ones — that moves
+the answer materially. The same three records give **11000** that way and
+**10200** as `Σ billed ÷ Σ turns`, which is the only one of the three that is a
+cost per unit of work. `npx keepmind metrics` does the last one.
+
+Records are also skipped if they predate the current `schema` — version 1
+(3.4.1) reported an `inputTokens` that excluded cache reads under the same name,
+so folding those rows in would understate the bill by roughly the size of the
+missing figure.
+
+#### One record is not one working session
+
+A record is written per **generator run**, not per session you sat through. A
+generator that pauses on a quota limit and resumes later, or a host restart that
+opens a new session row, produces more than one record for one stretch of work.
+That is why each record carries `contentSessionId` and why `npx keepmind
+metrics` reports records and host sessions as two separate counts. Per-turn
+figures are unaffected; anything phrased "per session" is not.
 
 ### Session-start injection
 
