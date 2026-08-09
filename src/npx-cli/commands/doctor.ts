@@ -36,6 +36,7 @@ import { readVectorHealthMarker } from '../../shared/vector-health.js';
 import { probeVectorDeps } from '../../services/vector/vector-deps-repair.js';
 import { depsInstallRoot, depsRoot, pluginDepsPresent } from '../../shared/plugin-node-modules.js';
 import { spoolDepth } from '../../shared/hook-spool.js';
+import { checkSourceTreeDrift } from '../utils/source-tree-drift.js';
 
 export type CheckStatus = 'ok' | 'warn' | 'fail' | 'skip';
 
@@ -326,8 +327,8 @@ export function checkProviderReadiness(ctx: ProviderContext): CheckResult {
  * Report whether the per-session cost balance is actually observable.
  *
  * The balance is written to ~/.keepmind/logs/metrics-<date>.jsonl, which no log
- * level can suppress. The prose log line is a convenience copy and goes through
- * `logger.success` -> `info`, so KEEPMIND_LOG_LEVEL=WARN or ERROR drops it.
+ * level can suppress. The prose log line is a convenience copy at INFO, so
+ * KEEPMIND_LOG_LEVEL=WARN or ERROR drops it.
  *
  * That combination burned a real measurement: the documented "grep the log for
  * 'Stateless observer session ended'" returned zero matches on a WARN machine,
@@ -349,12 +350,16 @@ export function checkMetricsVisibility(dataDir: string, logLevel: string): Check
 
   const where = `${join(dataDir, 'logs')}${sep}metrics-<date>.jsonl`;
   if (metricsFiles > 0) {
+    // Point at the command rather than the file: read by hand, the file invites
+    // two aggregation mistakes (nulls counted as zero, per-session values
+    // averaged) that both understate or distort the result.
+    const read = 'read with `npx keepmind metrics`';
     return {
       name,
       status: 'ok',
       detail: logLineHidden
-        ? `${metricsFiles} file(s) in ${where} (the log copy is hidden at KEEPMIND_LOG_LEVEL=${level}; the metrics file is not)`
-        : `${metricsFiles} file(s) in ${where}`,
+        ? `${metricsFiles} file(s) in ${where} — ${read} (the log copy is hidden at KEEPMIND_LOG_LEVEL=${level}; the metrics file is not)`
+        : `${metricsFiles} file(s) in ${where} — ${read}`,
       required: false,
     };
   }
@@ -571,6 +576,8 @@ function buildWorkerGroup(probe: WorkerProbe): CheckGroup {
       required: false, // worker can be intentionally stopped; don't hard-fail
     });
   }
+
+  checks.push(checkSourceTreeDrift(marketplaceDirectory(), probe.health?.version));
 
   // PID file health: a stale worker.pid (pointing at a dead process) is a
   // classic cause of "worker won't start" and confusing status output.
