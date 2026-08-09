@@ -7,8 +7,22 @@ description: "Access 100+ AI models through OpenRouter's unified API, including 
 
 keepmind supports [OpenRouter](https://openrouter.ai) as an alternative provider for observation extraction. OpenRouter provides a unified API to access 100+ models from different providers including Google, Meta, Mistral, DeepSeek, and many others—often with generous free tiers.
 
+<Warning>
+**Unmaintained since 3.4.0.** `claude` is the provider keepmind is developed and
+measured against. This path still works, but the 3.4.0 observer rework was not
+ported to it: it still re-sends its whole conversation history on every turn,
+compresses every tool use instead of gating cheap ones out first, and takes file
+lists from the model rather than from the hook payload. Expect materially more
+requests and more input tokens per session than on the Claude path. See
+[Configuration → Alternate providers](../configuration) for the capability
+table.
+
+Secret redaction is **not** weaker here: it runs in the shared prompt builder
+that every provider uses.
+</Warning>
+
 <Tip>
-**Free Models Available**: OpenRouter offers several completely free models, making it an excellent choice for reducing observation extraction costs to zero while maintaining quality.
+**Free Models Available**: OpenRouter offers several completely free models. Note that "free" caps requests rather than tokens, and this path issues more of them than the Claude path does.
 </Tip>
 
 ## Why Use OpenRouter?

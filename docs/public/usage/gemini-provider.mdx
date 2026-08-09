@@ -5,7 +5,24 @@ description: "Use Google's Gemini API as an alternative to Claude for observatio
 
 # Gemini Provider
 
-keepmind supports Google's Gemini API as an alternative to the Claude Agent SDK for extracting observations from your sessions. This can significantly reduce costs since Gemini offers a generous free tier.
+keepmind supports Google's Gemini API as an alternative to the Claude Agent SDK for extracting observations from your sessions.
+
+<Warning>
+**Unmaintained since 3.4.0.** `claude` is the provider keepmind is developed and
+measured against. This path still works, but the 3.4.0 observer rework was not
+ported to it: it still re-sends its whole conversation history on every turn,
+compresses every tool use instead of gating cheap ones out first, and takes file
+lists from the model rather than from the hook payload.
+
+That inverts the usual reason for choosing it. Per session it now issues far
+more requests, and each carries far more input, than the Claude path — a free
+tier does not necessarily come out ahead once rate limits and retries are
+counted. See [Configuration → Alternate providers](../configuration) for the
+capability table.
+
+Secret redaction is **not** weaker here: it runs in the shared prompt builder
+that every provider uses.
+</Warning>
 
 <Warning>
 **Free Tier Rate Limits**: Without billing enabled, Gemini has strict rate limits (5-10 RPM). Enable billing on your Google Cloud project to unlock 1000-4000 RPM while still using the free quota.

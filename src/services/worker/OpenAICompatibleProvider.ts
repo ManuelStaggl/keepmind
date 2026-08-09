@@ -35,6 +35,31 @@ export interface ProviderQueryResult {
  * truncation — is identical between them. Per-provider differences (config
  * resolution, request shape, token estimation, usage/cost reporting) are
  * supplied by abstract members.
+ *
+ * MAINTENANCE STATUS — read before extending this file.
+ * ------------------------------------------------------
+ * `claude` is the provider keepmind is developed and measured against. These
+ * HTTP providers are kept working but are deliberately NOT kept at parity, and
+ * the 3.4.0 observer work was not ported here. What that means concretely:
+ *
+ *   - This path is still CONVERSATIONAL: `session.conversationHistory` grows
+ *     and is re-sent every turn (bounded only by truncateHistory). On the
+ *     Claude path that pattern was measured at 91.7% of all tokens billed and
+ *     was the reason for the rewrite.
+ *   - There is no pre-model gate here: every observation message becomes a
+ *     request, including the ones observation-gate.ts would drop for free.
+ *   - files_read / files_modified still come from the model, not from
+ *     deterministic-fields.ts.
+ *   - The per-field prompt budget is not read from settings.
+ *
+ * Redaction is the deliberate exception and MUST stay that way: it is applied
+ * inside src/sdk/prompts.ts, which every provider calls, so this path is fully
+ * covered. Never build a prompt here without going through those builders.
+ *
+ * If you are porting an observer change: doing it is welcome, but it is not
+ * required, and leaving this path behind is a decision rather than an oversight.
+ * If you are removing these providers instead, note that they are published on
+ * npm — that is a breaking change for external users, not just a cleanup.
  */
 export abstract class OpenAICompatibleProvider<TConfig extends { apiKey: string; model: string }> {
   protected dbManager: DatabaseManager;
