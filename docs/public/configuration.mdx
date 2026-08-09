@@ -179,6 +179,40 @@ If the session-start injection feels thin after the change, `balanced` is the
 step back. That injection is the part with a demonstrated payoff; it is not
 worth trading for the saving.
 
+### Measuring what it costs
+
+Every observer session appends one JSON object to
+`~/.keepmind/logs/metrics-<date>.jsonl`:
+
+```json
+{"endedAtIso":"2026-08-09T09:50:17.001Z","project":"keepmind","compressionTurns":4,
+ "gatedBatches":6,"skippedBatches":4,"observationsProduced":3,"inputTokens":41230,
+ "outputTokens":1875,"gatedShare":0.6,"tokensPerTurn":10776}
+```
+
+- `compressionTurns` — model calls actually made
+- `gatedBatches` — batches dropped before any request; these cost nothing
+- `skippedBatches` — calls that were made and came back empty
+- `gatedShare` — the fraction the gate removed
+- `tokensPerTurn` — total tokens ÷ dispatched turns, `null` if none were
+
+This file is **independent of `KEEPMIND_LOG_LEVEL`**. The same balance is also
+written to the ordinary log, but through `logger.success` → `info`, so at
+`WARN` or above that copy disappears — grepping the prose log then returns
+nothing, which looks exactly like "the observer did no work". Use the metrics
+file for measurement; `npx keepmind doctor` reports whether it is being written.
+
+Aggregate a day with PowerShell:
+
+```powershell
+Get-Content "$env:USERPROFILE\.keepmind\logs\metrics-*.jsonl" |
+  ForEach-Object { $_ | ConvertFrom-Json } |
+  Measure-Object -Property tokensPerTurn -Average -Sum
+```
+
+Note that `KEEPMIND_LOG_LEVEL` is read **once per process**. Changing it takes
+effect after `npx keepmind restart`, not immediately.
+
 ### Session-start injection
 
 | Key                                | Default | Description                                              |

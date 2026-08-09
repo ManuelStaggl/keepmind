@@ -13,6 +13,7 @@ import {
 } from '../../sdk/prompts.js';
 import { deterministicFieldsForBatch } from '../../sdk/deterministic-fields.js';
 import { shouldCompressBatch, logGateDecision, readCaptureProfile } from './observation-gate.js';
+import { recordSessionMetrics } from './session-metrics.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH, OBSERVER_SESSIONS_DIR, ensureDir, paths } from '../../shared/paths.js';
 import { buildIsolatedEnvWithFreshOAuth, getAuthMethodDescription } from '../../shared/EnvManager.js';
@@ -709,6 +710,28 @@ export class ClaudeProvider {
     // of the calls that WERE made came back empty.
     const turns = session.compressionTurns ?? 0;
     const gated = session.gatedBatches ?? 0;
+
+    // Written to its own file, NOT only to the log: this line is an operating
+    // result, and logger.success delegates to info, so KEEPMIND_LOG_LEVEL=WARN
+    // silently dropped it — making the documented measurement return zero
+    // matches, which reads as "the observer did nothing".
+    recordSessionMetrics({
+      endedAt: Date.now(),
+      sessionDbId: session.sessionDbId,
+      project: session.project,
+      compressionTurns: turns,
+      gatedBatches: gated,
+      skippedBatches: session.skippedBatches ?? 0,
+      observationsProduced: session.observationsProduced ?? 0,
+      inputTokens: session.cumulativeInputTokens,
+      outputTokens: session.cumulativeOutputTokens,
+      durationMs: Date.now() - session.startTime,
+      model: modelId,
+      captureProfile: readCaptureProfile(),
+      trigger,
+      observerMode: 'stateless',
+    });
+
     logger.success('SDK', 'Stateless observer session ended', {
       sessionId: session.sessionDbId,
       compressionTurns: turns,
