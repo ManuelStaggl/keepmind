@@ -38,6 +38,7 @@ ${pc.bold('Runtime Commands')} (requires Bun, delegates to installed plugin):
   ${pc.cyan('npx keepmind restart')}              Restart worker service
   ${pc.cyan('npx keepmind status')}               Show worker status
   ${pc.cyan('npx keepmind doctor')}               Onboarding & health check (runtime, provider, worker, memory) — add ${pc.dim('--json')}
+  ${pc.cyan('npx keepmind metrics')}              Observer cost per day: billed tokens, tokens/turn, gated share — add ${pc.dim('--json --day <date> --days <n>')}
   ${pc.cyan('npx keepmind server api-key create|list|revoke')}   Manage local SQLite API keys (for the local v1 routes)
   ${pc.cyan('npx keepmind worker start|stop|restart|status')}    Worker compatibility aliases
   ${pc.cyan('npx keepmind search <query>')}       Search observations
@@ -156,6 +157,18 @@ async function main(): Promise<void> {
     case 'doctor': {
       const { runDoctorCommand } = await import('./commands/doctor.js');
       await runDoctorCommand(args.slice(1));
+      break;
+    }
+
+    case 'metrics': {
+      const rest = args.slice(1);
+      const daysFlag = readFlag(rest, '--days');
+      const { runMetricsCommand } = await import('./commands/metrics.js');
+      await runMetricsCommand({
+        json: rest.includes('--json'),
+        day: rest.includes('--day') ? readFlag(rest, '--day') : undefined,
+        days: daysFlag ? parseInt(daysFlag, 10) : undefined,
+      });
       break;
     }
 

@@ -47,6 +47,7 @@ const EXCLUDED_PATTERNS = [
   /build\/hook-shell-template\.ts$/,  // Pure build-time shell-string generator (no runtime/observability surface); drift is enforced by build-hooks.js + plugin-distribution.test.ts
   /worker\/model-aliases\.ts$/,  // Pure $TIER alias resolver (#2289); side-effect-free passthrough, logging happens at the request-time call site
   /worker\/memory-session-id\.ts$/,  // Pure synthetic-vs-SDK id predicate; both call sites (SessionManager rebuild, ClaudeProvider mint) already log the decision with session context
+  /worker\/metrics-aggregate\.ts$/,  // Read side of the cost records, consumed only by `npx keepmind metrics`: it reports skipped and unreadable lines in its own output, where the person asking the question will see them — a worker log line would not reach them
   /services\/sync\/ChromaSync\.ts$/,  // Pure compatibility re-export of VectorSync (no logic; mirrors index.ts re-export exclusion)
   /worker\/http\/routes\/ChromaRoutes\.ts$/,  // Thin /api/chroma/status health route; surfaces errors in the HTTP response, error logging centralized in BaseRouteHandler.wrapHandler
 ];
