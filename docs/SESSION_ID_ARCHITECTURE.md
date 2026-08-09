@@ -1,11 +1,26 @@
 # Session ID Architecture
 
+> **Scope note (3.4.0).** The default observer mode is now `stateless`: each
+> compression is its own SDK conversation and **`resume` is not used at all**.
+> The resume flow described below applies to
+> `KEEPMIND_OBSERVER_SESSION_MODE=conversational`, which is kept as a fallback.
+>
+> `memorySessionId` is still captured and still identifies the memory session
+> that observations are stored against — that part is unchanged, and the
+> resume-safety rule below (never resume `contentSessionId`) still holds
+> wherever resume is used at all.
+>
+> The reason for the change: in the resumed path every compression turn re-read
+> the whole prior conversation. Measured over 1,046 observer sessions that
+> re-read was 91.7% of all tokens keepmind billed.
+
 ## Overview
 
 keepmind uses **two distinct session IDs** to track conversations and memory:
 
 1. **`contentSessionId`** - The user's Claude Code conversation session ID
-2. **`memorySessionId`** - The SDK agent's internal session ID for resume functionality
+2. **`memorySessionId`** - The SDK agent's internal session ID, used to group
+   stored observations (and, in `conversational` mode, to resume)
 
 ## Critical Architecture
 

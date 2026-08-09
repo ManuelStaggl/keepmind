@@ -2,6 +2,54 @@
 
 keepmind is a Claude Code plugin providing persistent memory across sessions. It captures tool usage, compresses observations using the Claude Agent SDK, and injects relevant context into future sessions.
 
+## Observer cost and safety invariants
+
+Four properties were each paid for with a measured regression. Changing any of
+them changes the cost or the safety of the system, not just its structure.
+
+- **Redaction happens on the OUTBOUND path.** `src/sdk/prompts.ts` is the only
+  place any provider builds a prompt, and every variable part of it goes through
+  `src/services/redaction/outbound.ts` first. Before 3.4.0 redaction ran only on
+  write to SQLite, so raw tool content — file contents, shell output, verbatim
+  user prompts — reached the provider unredacted. Do not add a prompt-building
+  path that bypasses `prompts.ts`, and do not move redaction back downstream.
+  `tests/redaction/outbound.test.ts` fails if you do.
+- **Compression is stateless.** Each compression is its own `query()` with no
+  `resume`. The resumed conversation re-read its own history every turn: 91.7%
+  of all tokens billed, growing 14k → 50k cache-read within one session. The
+  fixed-size `buildStatelessContextBlock` replaces that history — keep it capped
+  by BOTH count and characters.
+- **The "is this worth recording?" decision is made before the model call.**
+  `src/services/worker/observation-gate.ts` decides from the hook payload. It
+  used to be the model's job, which meant paying a full turn to be told
+  "nothing worth recording" — at least 65% of turns. Its governance heuristics
+  are calibrated on software development, so the default profile is derived from
+  `KEEPMIND_MODE`; a mode observing another domain falls back to `balanced`.
+  Its text matcher is bilingual (DE/EN) for the same reason the embedder is.
+- **Deterministic fields never come from the model.** `files_read`,
+  `files_modified`, tool name and timestamp are derived in
+  `src/sdk/deterministic-fields.ts` from the hook payload and overwrite whatever
+  the model returned. The model only ever saw a truncated copy of the tool input.
+
+### Provider scope
+
+`claude` is the only provider this project is developed and measured against.
+The Gemini/OpenRouter path (`OpenAICompatibleProvider` and its two subclasses)
+is kept working but is deliberately **not** kept at parity — the three cost
+invariants above were not ported there, and porting them is optional, not owed.
+Do not treat the gap as a bug to fix by default, and do not spend a change
+budget on it without being asked.
+
+The one thing that is NOT optional there: redaction. It lives in
+`src/sdk/prompts.ts`, which every provider goes through, so any new
+prompt-building code — for any provider — must go through those builders.
+
+Removing those providers is a breaking change, not a cleanup: keepmind is
+published to npm (`private: false`, CI publishes on every `v*` tag). Note also
+that `GeminiCliHooksInstaller` and `cli/adapters/gemini-cli.ts` are **Gemini CLI
+as a host environment**, unrelated to the Gemini provider — a grep for "gemini"
+hits both, and deleting the wrong one breaks client support.
+
 keepmind is a **local-only hard fork** of thedotmack/claude-mem (independent git history). Compared to upstream it removed Chroma and the cloud-sync layer — all vector search runs in-process. Do NOT reintroduce Chroma or assume a shared history with upstream.
 
 "node-only" describes the **runtime**: the worker, hooks and MCP server run under Node, with no Bun or Python process in the loop. It does not describe the toolchain — see Requirements.

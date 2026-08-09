@@ -14,7 +14,7 @@ Settings are managed in `~/.keepmind/settings.json`. The file is auto-created wi
 | Setting                       | Default                         | Description                           |
 |-------------------------------|---------------------------------|---------------------------------------|
 | `KEEPMIND_MODEL`            | `claude-haiku-4-5-20251001`     | Claude model used to compress observations (when using the Claude provider) |
-| `KEEPMIND_PROVIDER`         | `claude`                        | AI provider: `claude`, `gemini`, or `openrouter` |
+| `KEEPMIND_PROVIDER`         | `claude`                        | AI provider. `claude` is the supported path; `gemini` and `openrouter` still work but are unmaintained — see below |
 | `KEEPMIND_CLAUDE_AUTH_METHOD` | `subscription`                | Claude provider auth mode: `subscription`, `api-key`, or `gateway` |
 | `KEEPMIND_MODE`             | `code`                          | Active mode profile (e.g., `code--es`, `email-investigation`) |
 | `KEEPMIND_CONTEXT_OBSERVATIONS` | `50`                        | Number of observations to inject      |
@@ -22,6 +22,31 @@ Settings are managed in `~/.keepmind/settings.json`. The file is auto-created wi
 | `KEEPMIND_WORKER_HOST`      | `127.0.0.1`                     | Worker service host address           |
 | `KEEPMIND_DATA_DIR`         | `~/.keepmind`                 | Data root — every other path (database, chroma, logs, settings.json, worker.pid) derives from this |
 | `KEEPMIND_SKIP_TOOLS`       | `ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion` | Comma-separated tools to exclude from observations |
+
+### Alternate providers: maintenance status
+
+`claude` is the provider keepmind is developed and measured against. `gemini`
+and `openrouter` still function, but as of **3.4.0 they no longer receive the
+observer work**, and the gap is not cosmetic:
+
+| Capability                                             | `claude` | `gemini` / `openrouter` |
+|--------------------------------------------------------|----------|--------------------------|
+| Outbound secret redaction                               | yes      | **yes** — it lives in the shared prompt builder |
+| Stateless compression (no growing conversation)         | yes      | no — full history per turn |
+| Pre-model capture gate (`KEEPMIND_CAPTURE_PROFILE`)     | yes      | no — every tool use is compressed |
+| Deterministic `files_read` / `files_modified`           | yes      | no — taken from the model |
+| `KEEPMIND_OBS_FIELD_MAX_CHARS` budget                   | yes      | no — fixed 2000-char default |
+
+In practice that means an alternate provider costs substantially more per
+session for the same memory, because it pays for the two things the 3.4.0 work
+removed: re-reading its own history every turn, and asking the model to judge
+tool uses that can be judged for free.
+
+Redaction is the one thing that is NOT weaker there — it is applied in
+`src/sdk/prompts.ts`, which every provider goes through.
+
+Use them if you need them; do not expect parity. Bug reports are welcome,
+feature parity is not planned.
 
 ### Gemini Provider Settings
 
@@ -119,6 +144,84 @@ does not carry hundreds of megabytes of grammars for languages the machine never
 sees. The fetch never blocks: the file that triggered it is folded without
 symbols, and the grammar is in place for the next one.
 
+### What gets observed, and what it costs
+
+These settings govern how much work reaches the compression model at all. They
+exist because the observer's cost was measured, and almost none of it was
+buying anything: the resumed observer conversation re-read its own history on
+every turn (91.7% of all tokens billed), and 87.6% of the resulting records were
+never retrieved again on any channel.
+
+| Key                              | Default      | Description                                              |
+|----------------------------------|--------------|----------------------------------------------------------|
+| `KEEPMIND_ENABLED`               | `true`       | Master switch. `false` disables capture, session-start injection and the per-Read timeline |
+| `KEEPMIND_CAPTURE_PROFILE`       | *(from mode)*| `governance`, `balanced` or `full` — see below           |
+| `KEEPMIND_OBSERVER_SESSION_MODE` | `stateless`  | `stateless`: each compression is its own request. `conversational`: the legacy resumed session |
+| `KEEPMIND_OBSERVE_TRIGGER`       | `batched`    | `batched`: compress during the session. `session-end`: collect everything and compress once when the turn stops |
+| `KEEPMIND_OBS_FIELD_MAX_CHARS`   | `2000`       | Per-field budget for tool input/output in a prompt. Clamped to 200–16000 |
+
+**Capture profiles.** The profile decides what is worth a model call *before* any
+prompt is built, from the hook payload alone — so a skipped batch costs nothing
+rather than costing a full turn to be told "nothing worth recording".
+
+- `governance` — portfolio-level only: decisions and their rationale, migrations,
+  releases, conventions, security findings, recurring problems. This is the
+  memory a per-project tool cannot give you.
+- `balanced` — anything that changed a file, failed, or decided something.
+- `full` — anything with any signal at all (closest to pre-3.4 behaviour).
+
+The default is derived from `KEEPMIND_MODE`: `governance` for the `code` modes
+and their language overlays, `balanced` for every other mode — the governance
+signals look for commits, migrations and CI config, which mean nothing in a mode
+that observes something else. Setting the key explicitly always wins.
+
+If the session-start injection feels thin after the change, `balanced` is the
+step back. That injection is the part with a demonstrated payoff; it is not
+worth trading for the saving.
+
+### Session-start injection
+
+| Key                                | Default | Description                                              |
+|------------------------------------|---------|----------------------------------------------------------|
+| `KEEPMIND_SESSION_START_INJECT`    | `true`  | Inject recent context when a session starts              |
+| `KEEPMIND_SESSION_START_MAX_CHARS` | `4500`  | Hard ceiling, applied after rendering (~1.1k tokens)      |
+
+The ceiling is trimmed on a line boundary and announced in the output, so a cut
+never reads as "there was nothing more". Urgent hints (stale OAuth token,
+degraded vector search, update notice) are added *after* the trim and are never
+what gets dropped.
+
+### Per-Read file timeline
+
+Injected before a `Read` when earlier observations touched that file.
+
+| Key                                | Default | Description                                              |
+|------------------------------------|---------|----------------------------------------------------------|
+| `KEEPMIND_FILE_CONTEXT_ENABLED`    | `true`  | Turn the per-Read injection off entirely                 |
+| `KEEPMIND_FILE_CONTEXT_MIN_BYTES`  | `1500`  | Skip files smaller than this                             |
+| `KEEPMIND_FILE_CONTEXT_MAX_ROWS`   | `3`     | Rows shown per file                                      |
+| `KEEPMIND_FILE_CONTEXT_MIN_SCORE`  | `2`     | Specificity an observation must reach. `0` = no threshold |
+
+Specificity scores +2 when the observation names this file as *modified*, and +2
+(or +1) when it touched few files overall. At the default of `2` an observation
+that merely happened to touch this file among twenty others no longer qualifies.
+This hook fires on nearly every `Read`, so a weak row is not free.
+
+### Redaction
+
+| Key                        | Default | Description                                                    |
+|----------------------------|---------|-----------------------------------------------------------------|
+| `KEEPMIND_REDACT_SECRETS`  | `1`     | Emergency kill-switch. `0` disables redaction on **both** the outbound and the write path |
+| `KEEPMIND_REDACT_PII`      | `1`     | `0` disables email/IPv4 masking only; credential rules stay active |
+
+Redaction runs before a prompt leaves the machine and again before anything is
+written to SQLite. See [SECURITY.md](https://github.com/ManuelStaggl/keepmind/blob/main/SECURITY.md)
+for the rule set, the sensitive-file guard, and the limits.
+
+`KEEPMIND_REDACT_PII=0` is the setting to reach for when masking hurts more than
+it helps — on a machine where LAN addresses are the subject of the work rather
+than something to hide.
+
 ### Memory Quality
 
 A nested `memoryQuality` object in `settings.json`. Every field is optional.
@@ -128,6 +231,9 @@ A nested `memoryQuality` object in `settings.json`. Every field is optional.
 | `vectorRetention.enabled`        | `true`  | Drop vectors for projects with no activity in the window |
 | `vectorRetention.inactiveDays`   | `90`    | How long a project may be dormant before eviction        |
 | `expiry.enabled`                 | `false` | Archive stale, low-importance, never-recalled observations |
+| `redactSecrets.enabled`          | `true`  | Credential redaction, outbound and on write              |
+| `redactSecrets.pii`              | `true`  | Email and IPv4 masking (separable from the above)        |
+| `redactSecrets.entropyThreshold` | `4.0`   | Bits/char before the entropy backstop masks a token      |
 
 `vectorRetention` defaults on because it is reversible: only the vector index is
 touched. The observation stays in SQLite, keyword search still finds it, and a
