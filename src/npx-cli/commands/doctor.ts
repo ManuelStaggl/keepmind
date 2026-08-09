@@ -15,7 +15,7 @@
  */
 
 import { existsSync, readFileSync, readdirSync } from 'fs';
-import { join } from 'path';
+import { join, sep } from 'path';
 import { spawnSync } from 'child_process';
 import pc from 'picocolors';
 import {
@@ -322,6 +322,50 @@ export function checkProviderReadiness(ctx: ProviderContext): CheckResult {
   }
 }
 
+/**
+ * Report whether the per-session cost balance is actually observable.
+ *
+ * The balance is written to ~/.keepmind/logs/metrics-<date>.jsonl, which no log
+ * level can suppress. The prose log line is a convenience copy and goes through
+ * `logger.success` -> `info`, so KEEPMIND_LOG_LEVEL=WARN or ERROR drops it.
+ *
+ * That combination burned a real measurement: the documented "grep the log for
+ * 'Stateless observer session ended'" returned zero matches on a WARN machine,
+ * which is indistinguishable from "the observer did nothing". Surfacing it here
+ * is cheap and catches exactly that case before it is mistaken for data.
+ */
+export function checkMetricsVisibility(dataDir: string, logLevel: string): CheckResult {
+  const name = 'Cost metrics';
+  const level = (logLevel || 'INFO').toUpperCase();
+  const logLineHidden = level === 'WARN' || level === 'ERROR' || level === 'SILENT';
+
+  let metricsFiles = 0;
+  try {
+    metricsFiles = readdirSync(join(dataDir, 'logs'))
+      .filter(f => f.startsWith('metrics-') && f.endsWith('.jsonl')).length;
+  } catch {
+    // logs dir may not exist yet on a fresh install
+  }
+
+  const where = `${join(dataDir, 'logs')}${sep}metrics-<date>.jsonl`;
+  if (metricsFiles > 0) {
+    return {
+      name,
+      status: 'ok',
+      detail: logLineHidden
+        ? `${metricsFiles} file(s) in ${where} (the log copy is hidden at KEEPMIND_LOG_LEVEL=${level}; the metrics file is not)`
+        : `${metricsFiles} file(s) in ${where}`,
+      required: false,
+    };
+  }
+  return {
+    name,
+    status: 'skip',
+    detail: `none yet — written when a session ends, to ${where}`,
+    required: false,
+  };
+}
+
 /** Interpret /api/health ai.lastInteraction into a "did compression actually work" check. */
 export function checkLastInteraction(
   ai: HealthResponse['ai'] | undefined,
@@ -332,7 +376,10 @@ export function checkLastInteraction(
     return {
       name,
       status: 'skip',
-      detail: 'no compression has run yet — end a session to generate the first observation',
+      // Phrased as the expected state, not as a defect. After an install or an
+      // update this is what a healthy system looks like, and reading it as a
+      // fault sends people looking for a problem that is not there.
+      detail: 'none yet — expected after an install or update; the first one runs when a session ends',
       required: false,
     };
   }
@@ -376,7 +423,14 @@ function buildRuntimeGroup(dataDir: string): CheckGroup {
     status: bunVersion ? 'ok' : 'warn',
     detail: bunVersion
       ? `v${bunVersion.replace(/^v/, '')}`
-      : 'not found — optional; core memory works without it, but it installs the native deps for semantic vector search. Install: `winget install Oven-sh.Bun` (Windows) or https://bun.sh, then `npx keepmind install`.',
+      // Bun INSTALLS the native deps; it does not run them. Once they are in
+      // place semantic search keeps working without bun on PATH — reported from
+      // the field on 2026-08-09, where vector search was `ready` on a machine
+      // with no bun. Saying "needed for semantic search" flatly is therefore
+      // wrong in the common case and sends people installing something they do
+      // not need. Check "Vector search" below for the state that actually
+      // matters.
+      : 'not found — optional. It installs the native deps for semantic search; if those are already present (see Vector search), everything keeps working without it. Only needed to install or update them: `winget install Oven-sh.Bun` (Windows) or https://bun.sh, then `npx keepmind install`.',
     required: false,
   });
 
@@ -481,6 +535,13 @@ function buildProviderGroup(probe: WorkerProbe): CheckGroup {
   if (probe.reachable) {
     checks.push(checkLastInteraction(probe.health?.ai));
   }
+
+  // Reported whether or not the worker answers: the metrics files are on disk,
+  // and "can I even measure this?" is most worth answering when something else
+  // already looks wrong.
+  checks.push(
+    checkMetricsVisibility(resolveDataDir(), SettingsDefaultsManager.get('KEEPMIND_LOG_LEVEL')),
+  );
 
   return { title: 'AI Provider', checks };
 }
