@@ -4,6 +4,90 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [4.0.0] - 2026-08-14
+
+Three changes that were measured before they were made. The tool listing was costing 13,003 characters of context on every turn to describe tools that could not run; curated decision records had no way into the store that did not pass a compressor; and the reconciler's text normalization deleted every non-ASCII letter instead of ignoring it. The first is a breaking change, and the version number says so.
+
+### ⚠ Breaking
+
+- **`feat(mcp)!`: the tool listing is bound to the runtime, and two tool groups now ship OFF.** Every entry in `tools/list` is billed on every turn — name, description and full `inputSchema` — whether or not anything calls it. A default worker install now sends **3,954 characters** instead of 13,003: 9,049 fewer, about **2,510 tokens per session** at the ratio these figures were costed with.
+
+  | Configuration | Tools | Characters |
+  | --- | ---: | ---: |
+  | before | 23 | 13,003 |
+  | **both groups off (default)** | **5** | **3,954** |
+  | `smart` on | 8 | 5,480 |
+  | `corpus` on | 11 | 6,674 |
+  | both on | 14 | 8,200 |
+  | server runtime | 8 | 4,729 |
+
+  Three cuts with three different justifications. **Runtime binding**: only one backend is ever selected, so tools bound to the other can do nothing but explain that they are unavailable — `observation_*`/`memory_*` (4,729 chars) are dead under the worker runtime, and the worker-backed tools are dead under the server runtime, where `docs/server-parity-map.md` already lists their routes as `unsupported`. **Optional groups**: `KEEPMIND_MCP_SMART_TOOLS` gates the tree-sitter tools (1,526 chars), `KEEPMIND_MCP_CORPUS_TOOLS` the knowledge-corpus tools (2,720 chars); neither does anything until someone deliberately reaches for it, and a corpus has to be built by hand before its five sibling tools mean anything. **`important_workflow` is removed**, its three-layer sequence folded into the description of `search`, where the sequence starts — as its own entry it spent 396 characters to carry 298 characters of text.
+
+  Only the literal string `true` switches a group on. `1`, `yes` and `on` do not, so a typo in `settings.json` fails visibly instead of half-working.
+
+  What breaks: `smart_*` and the six corpus tools no longer appear in `tools/list` unless the matching setting is `true`, and `important_workflow` is gone. Calling any of the gated tools **by name still works** — dispatch is deliberately not filtered, so a client holding a stale listing gets the handler's own diagnosis, which names the setting to change, rather than a bare `Unknown tool`. Verified end to end against the built server: a group-hidden tool still executes, a runtime-hidden tool returns its diagnostic, an unknown name is still rejected.
+
+- **The `smart-explore` skill is gated on the same setting it depends on.** It now opens with a precondition that disqualifies it when `smart_search` is absent. A shipped instruction sheet that points at tools which were never registered fails at the missing *result* rather than the missing tool — strictly worse than shipping no skill at all. That failure mode is the entire reason the skill and the tools hang on one switch.
+
+### Added
+
+- **`feat(curated)`: verbatim decision records, a declared-relation graph, and structural contradiction checks.** One store, two source kinds, one edge table — not a second database, and not a `KEEPMIND_MODE`, because a mode swaps prompts and vocabulary while leaving the processing chain intact, so records built that way would still reach the compressor.
+
+  Measured end to end against a 130-file German decision corpus: **126** records imported (the other four are index and template files), every one carrying its source path and line; **197** declared relations extracted, 96 stated by a verb and 101 inferred from a field label; the assured seven-link supersession chain resolved **7/7** from headers alone; **3** structural contradictions surfaced; the second import run idempotent.
+
+  **No model ever sees a curated record, and that is enforced by the write path rather than by where the bytes live.** The importer calls `storeObservation` directly and never enqueues anything, and the observation queue is the only thing in keepmind that calls a provider. It is handed a store with three methods; a test wraps that store in a `Proxy` so any other call fails by name.
+
+  Curated rows also skip the near-duplicate reconciler. It decides supersession from trigram and token similarity — it *guesses* the relation — while a curated corpus states its relations outright. The bi-temporal columns are worth reusing; the decider behind them is not.
+
+  Field names are harvested, relations are a closed set of fourteen. A fixed `Vermerk:` lookup recovers 61% of the known chains; the corpus also uses `Wirkung:`, puts the verb in the field *name* (`**Schränkt ein:** 0042, 0043`), and hides relations inside `Stand:` values in roughly fifteen records. Labels are open — records invent new ones — and that asymmetry is what makes a deterministic graph possible at all.
+
+- **`feat(cli)`: `keepmind akten:import` and `keepmind akten:check`.** Import is verbatim and model-free (`--project`, `--dry-run`, `--json`); check reports structural findings and exits non-zero (`--json`).
+
+  `akten:check` is built for a pre-commit hook rather than a save hook: keepmind has no hook at save time, and a system that claims to report "on save" but only manages it sometimes is worse than one that reports on demand — you would start trusting its silence. It prints `No structural contradictions found` out loud, because a silence you cannot tell apart from "did not run" is worth nothing.
+
+  Both commands take **several directories** and say why in their help: relation notes routinely live outside the records folder, so an importer pointed at a single directory builds a graph that provably misses edges.
+
+- **`feat(context)`: `KEEPMIND_INJECT_SOURCE_KIND` — `all` (default) | `curated` | `observed`.** Once curated content is its own source kind, separating the two is a `WHERE` clause. The expensive version of this idea — asking per observation whether a curated equivalent exists — needs a similarity comparison at injection time, which is precisely the fuzzy matching the decision graph exists to avoid. Rows written before this release have `source_kind` NULL and read as `observed`, so they do not fall out of filtered queries. An unknown value falls back to `all`, because a typo would otherwise empty the injection block, and an empty block looks exactly like "there was nothing to say".
+
+### Fixed
+
+- **`fix(reconcile)`: text normalization was Unicode-blind, so it deleted letters instead of ignoring them.** `normalizeText` stripped everything outside `[a-z0-9\s]`, which did not skip non-ASCII letters — it removed them and left the surrounding fragments standing:
+
+  ```
+  "Der Zurückknopf in der Anwendungstitelleiste (größer)"
+    ->  "der zur ckknopf in der anwendungstitelleiste gr er"
+  ```
+
+  German compounds shattered at every umlaut, and the debris (`gr`, `er`) then matched the debris of unrelated words — so similarity scores stayed plausibly in range while measuring nothing at all. Every non-Latin script failed the same way, only more completely. Now `\p{L}\p{N}` with NFC normalization, umlauts folded to `ae`/`oe`/`ue`/`ss` so a corpus carrying both spellings of one subject compares equal, and German function words added to `STOPWORDS` — for the same reason the embedder is multilingual and the observation gate's matcher is bilingual.
+
+  Negations are deliberately **not** stopwords: no `not`, `nicht` or `kein` in either half of the list. Folding negation away makes a correction a near-duplicate of the thing it corrects, which is exactly the pair this module exists to keep apart. Two tests pin that.
+
+  `reconcile` and `supersession` both default to off, so this was dormant code. It is also the first thing anyone reaches for when building contradiction detection, and it fails silently rather than loudly — which is the argument for fixing it before it is switched on, not after.
+
+- **`fix(hooks)`: the per-Read timeline stopped recommending a tool that is no longer listed.** Its one-line header named `structure: smart_outline("…")` unconditionally. With `KEEPMIND_MCP_SMART_TOOLS` now `false` by default, that turned the most frequent instruction keepmind emits — it fires on nearly every tracked `Read` — into a pointer at a tool the model cannot see, and the failure would land one call later, where the cause is no longer visible. The clause is now emitted only when the setting is the literal `true`, and omitted otherwise. If the settings file cannot be read at all, it is omitted: not knowing whether the tool is registered is not a reason to name it.
+
+- **`fix(mcp)`: two comments claimed `KEEPMIND_RUNTIME` could be flipped without restarting the MCP server.** It cannot. `selectRuntime()` reads through `loadFromFileOnce()`, which caches for the lifetime of the process.
+
+### Schema
+
+Migrations **40**, **41** and **42**, each idempotent and verified against a copy of a live 12,420-row database.
+
+- **40** recomputes stored `subject_key` values. `subject_key` is a hash of the *normalized* title, so without recomputation the rows written before and after the normalization fix sit in two different subject spaces for the same subject, and supersession quietly stops finding its predecessor — the same failure mode `vec_meta.embedder_identity` guards against one table over. ASCII-only titles hash to exactly what they did before; all 16 umlaut-bearing titles rekeyed, row counts unchanged, second run a no-op.
+- **41** adds `source_kind`, `source_path`, `source_line`, `subject`, `last_verified_at`.
+- **42** adds `decision_edges(from, to, relation, certainty, source_path, source_line, raw_text)`. Its `UNIQUE` constraint covers the source location, so one relation declared in three files stays three rows — each row is a citation, and "three places say so" is what a contradiction check needs to be able to see.
+
+### Known gap, stated rather than shipped
+
+Detecting a third party retiring records **in prose** is not implemented. Three attempts produced 0 findings, then 55 of which 52 came from a single index paragraph, then 3 with the real one gone again. That check reads prose on both sides, which is the class this design excludes: every surviving check compares computed states — graph against graph, edge table against parsed status. A known gap with a stated reason beats a switch that is either loud or useless.
+
+The substantive class is absent for the same kind of reason: whether two records say incompatible *things* is a question about subject matter, and a tool answering it is inventing a relation rather than reading one.
+
+### Documentation
+
+- `docs/server-parity-map.md` gains an **MCP tool listing** section with the runtime and group tables above, and the measurement each row came from.
+- `docs/public/configuration.mdx` documents the two optional tool groups, that only the literal `true` enables them, and `KEEPMIND_INJECT_SOURCE_KIND`.
+- Every page that instructed the reader to call a now-gated tool says so at the top: `smart-explore-benchmark.mdx` and `knowledge-agents.mdx` open with the setting their whole content depends on, and `file-read-gate.mdx` states that the `smart_outline` half of the injected header appears only when the smart tools are on. `search-architecture.mdx` no longer lists `important_workflow` as a current tool (and no longer claims a Chroma vector service that this fork removed); the tool-listing change is recorded as the third stage of its architecture-evolution section.
+
 ## [3.4.2] - 2026-08-09
 
 3.4.1 made the observer's cost record impossible to suppress. The first day of using it showed that the record itself was wrong, that the way to read it was wrong twice over, and that it was not written at all when it was needed most. All four findings come from the field.
