@@ -25,18 +25,75 @@ export interface ReconcileDecision {
   score?: number;
 }
 
+/**
+ * Case- and diacritic-folding applied to BOTH the text and the stopword list,
+ * so the two are always compared in the same form.
+ *
+ * The umlaut transliteration is deliberate, not cosmetic: German corpora
+ * routinely carry both spellings of the same word, because filenames, slugs and
+ * ASCII-only tools force the `ae`/`oe`/`ue` form while the prose keeps the
+ * umlaut. "Größenbudget" and "Groessenbudget" are the same subject and have to
+ * fold together, or the reconciler treats a document and its own filename as
+ * unrelated.
+ */
+function fold(s: string): string {
+  return s
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/ß/g, 'ss');
+}
+
+// English + German function words. German is here for the same reason the
+// embedder is multilingual and the observation gate's text matcher is bilingual
+// (see CLAUDE.md): observations are written in one language while the work they
+// describe is often discussed in another. An English-only list left every German
+// function word standing, where it inflated trigram overlap between two
+// unrelated German observations.
+//
+// NEGATIONS ARE DELIBERATELY ABSENT from both halves — no "not", no "no", no
+// "nicht", no "kein". Dropping a negation folds "the port is 3000" and "the port
+// is not 3000" onto the same string, and that is precisely the pair this module
+// exists to keep apart: a near-duplicate score of 1.0 on a contradiction would
+// let a correction be swallowed by the thing it corrects. Anything added here
+// later must pass the same test — a stopword may remove noise, never meaning.
 const STOPWORDS = new Set([
+  // English
   'the', 'a', 'an', 'and', 'or', 'but', 'to', 'of', 'in', 'on', 'for', 'with',
   'is', 'are', 'was', 'were', 'be', 'been', 'it', 'this', 'that', 'we', 'i',
   'as', 'at', 'by', 'from', 'into', 'over', 'so', 'then', 'than', 'will',
-]);
+  // German
+  'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem',
+  'einer', 'eines', 'und', 'oder', 'aber', 'ist', 'sind', 'war', 'waren',
+  'wird', 'werden', 'wurde', 'wurden', 'hat', 'haben', 'hatte', 'hatten',
+  'für', 'mit', 'von', 'vom', 'zu', 'zum', 'zur', 'im', 'auf', 'am', 'an',
+  'aus', 'bei', 'nach', 'über', 'unter', 'durch', 'gegen', 'ohne', 'um',
+  'als', 'wie', 'dass', 'sich', 'es', 'wir', 'man', 'auch', 'noch', 'nur',
+  'schon', 'dann', 'wenn', 'weil', 'damit', 'sowie', 'bereits',
+].map(fold));
 
-/** lower-case, strip punctuation, collapse whitespace, drop stopwords. */
+/**
+ * Fold to a comparison form: NFC, lower case, umlaut transliteration,
+ * punctuation stripped, whitespace collapsed, stopwords dropped.
+ *
+ * The character class is Unicode-aware (`\p{L}\p{N}`) rather than `[a-z0-9]`.
+ * The ASCII-only version did not merely ignore non-ASCII letters, it DELETED
+ * them and left the surrounding fragments behind:
+ *
+ *     "Der Zurückknopf in der Anwendungstitelleiste (größer)"
+ *       →  "der zur ckknopf in der anwendungstitelleiste gr er"
+ *
+ * German compounds shattered at every umlaut, and the debris ("gr", "er")
+ * then matched the debris of unrelated words, so similarity scores stayed
+ * plausibly in range while measuring nothing. Every non-Latin script failed the
+ * same way, only more completely. Verified against a 126-file German corpus.
+ */
 export function normalizeText(s: string | null | undefined): string {
   if (!s) return '';
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]+/g, ' ')
+  return fold(s)
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
     .split(/\s+/)
     .filter((w) => w.length > 0 && !STOPWORDS.has(w))
     .join(' ')

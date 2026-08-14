@@ -126,6 +126,8 @@ export class SessionStore {
     this.addObservationBitemporalColumns();
     this.addObservationLastUsedColumn();
     this.addObservationUsageChannelColumns();
+    // Must run after addObservationBitemporalColumns — it needs subject_key to exist.
+    this.recomputeSubjectKeys();
   }
 
   /**
@@ -180,6 +182,58 @@ export class SessionStore {
     if (!applied) {
       this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(37, new Date().toISOString());
     }
+  }
+
+  // Schema 40 — recompute subject_key after the reconciler's normalizer became
+  // Unicode-aware (src/services/reconcile/reconciler.ts).
+  //
+  // subject_key is a hash of the NORMALIZED title, so changing the normalizer
+  // changes the key for every subject whose title carries a non-ASCII letter or
+  // a German function word. Rows written before that change and rows written
+  // after it would then sit in two different subject spaces for the same
+  // subject, and supersession would quietly stop finding the predecessor it is
+  // supposed to close. That is the same failure mode `vec_meta.embedder_identity`
+  // exists to prevent one table over, and it presents the same way: nothing
+  // errors, the feature just stops working.
+  //
+  // Cheap and idempotent: ASCII-only titles hash to exactly what they did
+  // before, so the UPDATE is a no-op for most rows on an English corpus.
+  private recomputeSubjectKeys(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(40) as SchemaVersion | undefined;
+    if (applied) return;
+
+    const cols = this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[];
+    if (cols.some(c => c.name === 'subject_key')) {
+      const rows = this.db.query(
+        'SELECT id, title, facts, narrative FROM observations WHERE subject_key IS NOT NULL'
+      ).all() as Array<{ id: number; title: string | null; facts: string | null; narrative: string | null }>;
+
+      const update = this.db.prepare('UPDATE observations SET subject_key = ? WHERE id = ?');
+      let changed = 0;
+      this.db.run('BEGIN TRANSACTION');
+      try {
+        for (const row of rows) {
+          const next = subjectKey({ title: row.title, facts: row.facts, narrative: row.narrative });
+          update.run(next, row.id);
+          changed++;
+        }
+        this.db.run('COMMIT');
+      } catch (error) {
+        this.db.run('ROLLBACK');
+        logger.warn(
+          'DB',
+          'subject_key recompute failed — supersession may not match across the normalizer change',
+          { rows: rows.length },
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return;
+      }
+      if (changed > 0) {
+        logger.info('DB', 'Recomputed subject_key for Unicode-aware normalization', { rows: changed });
+      }
+    }
+
+    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(40, new Date().toISOString());
   }
 
   // Phase 4 / Step 6 — auto-expiry: last_used_at (reset-on-use timer). Additive.
