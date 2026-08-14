@@ -126,6 +126,60 @@ export class SessionStore {
     this.addObservationBitemporalColumns();
     this.addObservationLastUsedColumn();
     this.addObservationUsageChannelColumns();
+    this.addCuratedSourceColumns();
+  }
+
+  /**
+   * Curated knowledge: source kind, provenance, and subject freshness.
+   *
+   * ONE store, two source kinds — not a second database and not a mode.
+   * A mode only swaps prompts and vocabulary, so curated rows built that way
+   * would still hang off the compressor; the guarantee that the model never
+   * sees them is enforced by the WRITE PATH, not by where the bytes live.
+   *
+   *   source_kind      NULL/'observed' = produced by the observer.
+   *                    'curated'       = imported verbatim from a file the
+   *                                      user owns. Never compressed, never
+   *                                      shown to a provider.
+   *   source_path      Absolute path of the file a curated row came from.
+   *   source_line      1-based line of its heading in that file.
+   *   subject          What the row is *about*, carried so an answer can name
+   *                    it. keepmind never checks whether the subject still
+   *                    exists on disk — that is a question about someone
+   *                    else's working tree, at their moment, under their
+   *                    rules, and a wrong negative there is worse than none.
+   *   last_verified_at When the owner last confirmed the row against reality.
+   *
+   * source_path/source_line are what let every answer cite a file and a line
+   * instead of asserting. They are deliberately on the observation itself, so
+   * a citation survives even when a row carries no edges at all.
+   */
+  private addCuratedSourceColumns(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(41) as SchemaVersion | undefined;
+    const cols = this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[];
+    const has = (n: string) => cols.some(c => c.name === n);
+    const columns: Array<[string, string]> = [
+      ['source_kind', 'TEXT'],
+      ['source_path', 'TEXT'],
+      ['source_line', 'INTEGER'],
+      ['subject', 'TEXT'],
+      ['last_verified_at', 'INTEGER'],
+    ];
+    if (applied && columns.every(([name]) => has(name))) return;
+
+    for (const [name, type] of columns) {
+      if (!has(name)) {
+        this.db.run(`ALTER TABLE observations ADD COLUMN ${name} ${type}`);
+      }
+    }
+    // The A9 origin filter is a WHERE on this index, not a subquery.
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_obs_source_kind ON observations(project, source_kind)');
+    // Re-importing a file must update its rows rather than duplicate them.
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_obs_source_path ON observations(source_path)');
+
+    if (!applied) {
+      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(41, new Date().toISOString());
+    }
   }
 
   /**
@@ -2299,6 +2353,20 @@ export class SessionStore {
       agent_type?: string | null;
       agent_id?: string | null;
       metadata?: string | null;
+      /**
+       * 'curated' marks a row imported verbatim from a file the user owns.
+       * It changes two things: the near-dup reconciler is skipped (see below),
+       * and the A9 origin filter can separate these rows from observed ones.
+       */
+      source_kind?: string | null;
+      /** Absolute path of the source file — half of every citation. */
+      source_path?: string | null;
+      /** 1-based line of the record's heading — the other half. */
+      source_line?: number | null;
+      /** What the row is about, carried for display. Never verified here. */
+      subject?: string | null;
+      /** Epoch millis when the owner last confirmed the row against reality. */
+      last_verified_at?: number | null;
     },
     promptNumber?: number,
     discoveryTokens: number = 0,
@@ -2324,7 +2392,15 @@ export class SessionStore {
     // Phase 4 / Step 4 — optional near-dup reconciliation (default OFF). On NOOP
     // we reuse the existing row; on UPDATE we insert then close the old window.
     let pendingSupersedeId: number | undefined;
-    if (this.mq.reconcile.enabled) {
+    // Curated rows never reach the reconciler. It decides supersession from
+    // trigram and token similarity — it GUESSES the relation — and a curated
+    // corpus states its relations outright ("löst 0093 ab"). Letting it run
+    // here would invent edges beside the declared ones and silently fold two
+    // records onto one another; the bi-temporal columns are worth reusing, the
+    // decider behind them is not. Curated supersession is written from the
+    // declared note instead.
+    const isCurated = observation.source_kind === 'curated';
+    if (this.mq.reconcile.enabled && !isCurated) {
       const decision = this.reconcileBeforeInsert(project, observation.type, rTitle ?? null, rNarrative ?? null);
       if (decision.action === 'NOOP' && decision.candidateId) {
         const existing = this.db.prepare('SELECT id, created_at_epoch FROM observations WHERE id = ?').get(decision.candidateId) as { id: number; created_at_epoch: number } | undefined;
@@ -2338,8 +2414,9 @@ export class SessionStore {
       INSERT INTO observations
       (memory_session_id, project, type, title, subtitle, facts, narrative, concepts,
        files_read, files_modified, prompt_number, discovery_tokens, agent_type, agent_id, content_hash, created_at, created_at_epoch,
-       generated_by_model, metadata, importance, valid_from, subject_key)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       generated_by_model, metadata, importance, valid_from, subject_key,
+       source_kind, source_path, source_line, subject, last_verified_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(memory_session_id, content_hash) DO NOTHING
       RETURNING id, created_at_epoch
     `);
@@ -2366,7 +2443,12 @@ export class SessionStore {
       rMetadata,
       importance,
       timestampEpoch,
-      subjectKey({ title: rTitle ?? null, facts: rFacts, narrative: rNarrative ?? null })
+      subjectKey({ title: rTitle ?? null, facts: rFacts, narrative: rNarrative ?? null }),
+      observation.source_kind ?? null,
+      observation.source_path ?? null,
+      observation.source_line ?? null,
+      observation.subject ?? null,
+      observation.last_verified_at ?? null
     ) as { id: number; created_at_epoch: number } | null;
 
     if (inserted) {
