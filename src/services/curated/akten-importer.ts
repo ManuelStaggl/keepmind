@@ -44,6 +44,16 @@ export interface ImportReport {
   skipped: Array<{ file: string; reason: string }>;
   /** Files that could not be read or parsed at all. */
   failed: Array<{ file: string; error: string }>;
+  /**
+   * Edges read out of files that stored no row of their own.
+   *
+   * Counted separately because they are invisible otherwise: a control file is
+   * reported as "skipped", so summing edges over `imported` reports zero for a
+   * directory of control files that in fact contributed relations. A number
+   * that reads as "nothing happened" while something did is worse than no
+   * number.
+   */
+  controlFileEdges: number;
 }
 
 /**
@@ -142,7 +152,7 @@ export function importAkteFile(
   memorySessionId: string,
   absolutePath: string,
   options: ImportOptions,
-): { record?: ImportedRecord; skipped?: string } {
+): { record?: ImportedRecord; skipped?: string; controlFileEdges?: number } {
   const content = readFileSync(absolutePath, 'utf8');
   const parsed = parseAkte(content);
 
@@ -160,7 +170,7 @@ export function importAkteFile(
     if (!options.dryRun && store.replaceEdgesForSource) {
       const { edges } = extractEdgesFromControlFile(content, absolutePath);
       store.replaceEdgesForSource(options.project, absolutePath, toEdgeRows(edges), options.nowEpoch);
-      return { skipped: `no record number in heading (read ${edges.length} edge(s) anyway)` };
+      return { skipped: `no record number in heading (read ${edges.length} edge(s) anyway)`, controlFileEdges: edges.length };
     }
     return { skipped: 'no record number in heading' };
   }
@@ -256,7 +266,7 @@ export function importAktenDirectory(
   options: ImportOptions,
 ): ImportReport {
   const root = resolve(directory);
-  const report: ImportReport = { imported: [], skipped: [], failed: [] };
+  const report: ImportReport = { imported: [], skipped: [], failed: [], controlFileEdges: 0 };
 
   let entries: string[];
   try {
@@ -281,6 +291,7 @@ export function importAktenDirectory(
       const outcome = importAkteFile(store, memorySessionId, absolutePath, options);
       if (outcome.skipped) {
         report.skipped.push({ file: entry, reason: outcome.skipped });
+        report.controlFileEdges += outcome.controlFileEdges ?? 0;
       } else if (outcome.record) {
         report.imported.push(outcome.record);
       }
@@ -295,6 +306,7 @@ export function importAktenDirectory(
     imported: report.imported.length,
     skipped: report.skipped.length,
     failed: report.failed.length,
+    controlFileEdges: report.controlFileEdges,
     dryRun: options.dryRun === true,
   });
 

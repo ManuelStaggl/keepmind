@@ -311,9 +311,24 @@ export function extractEdgesFromControlFile(
   const rejected: EdgeExtraction['rejected'] = [];
   const lines = stripSoftHyphens(content.replace(/\r\n/g, '\n')).split('\n');
 
+  // A fenced code block is quoted material, never an assertion. Documents that
+  // discuss the corpus put SAMPLE header lines in fences, and reading them as
+  // claims turns a description into data: the delivered set contains a brief
+  // whose fenced examples produced two edges, one of them the very statement
+  // the surrounding prose identifies as WRONG ("0035 schränkt 0005 ein" — a
+  // relation that record 0035 does not carry). A file explaining edges must
+  // not thereby create them.
+  let inFence = false;
+
   for (let index = 0; index < lines.length; index++) {
     const rawLine = prepare(lines[index]);
     const lineNumber = index + 1;
+
+    if (/^\s*(```|~~~)/.test(lines[index])) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
 
     // In a table the context ends at the cell boundary — but a row still has
     // a structure, and throwing it away costs real edges.
