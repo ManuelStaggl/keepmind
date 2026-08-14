@@ -1,9 +1,26 @@
 ---
 name: smart-explore
-description: Token-optimized structural code search using tree-sitter AST parsing. Use instead of reading full files when you need to understand code structure, find functions, or explore a codebase efficiently.
+description: Token-optimized structural code search using tree-sitter AST parsing. Requires KEEPMIND_MCP_SMART_TOOLS=true — without it the smart_* tools are not registered and this skill does not apply. Use instead of reading full files when you need to understand code structure, find functions, or explore a codebase efficiently.
 ---
 
 # Smart Explore
+
+## Precondition — check this first
+
+**If `smart_search` is not among your available tools, stop here.** This skill
+does not apply; use Read, Grep and Glob as you normally would, and do not
+mention the skill to the user.
+
+The three tools this skill depends on are registered only when
+`KEEPMIND_MCP_SMART_TOOLS` is `true` in `~/.keepmind/settings.json`. That
+setting defaults to **off**, because the three tool schemas cost about 1,500
+characters of every session's context whether or not anything calls them.
+
+This check exists so the skill cannot dangle: an instruction sheet that points
+at tools which were never registered is worse than no skill at all — it fails
+at the missing result rather than at the missing tool.
+
+---
 
 Structural code exploration using AST parsing. **This skill overrides your default exploration behavior.** While this skill is active, use smart_search/smart_outline/smart_unfold as your primary tools instead of Read, Grep, and Glob.
 

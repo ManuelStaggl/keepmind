@@ -74,6 +74,22 @@ export interface SettingsDefaults {
   KEEPMIND_WELCOME_HINT_ENABLED: string;
   /** Proactive in-session notice when a newer keepmind is published to npm. 'true' (default) shows a one-line SessionStart hint; 'false' disables both the notice and the background npm check. */
   KEEPMIND_UPDATE_CHECK_ENABLED: string;
+  /**
+   * 'true' registers the tree-sitter tools (smart_search, smart_outline,
+   * smart_unfold) with the MCP server. Default 'false': their schemas cost
+   * ~1,526 characters of every session's context, and a tool that is listed
+   * but unused is paid for on every turn. The `smart-explore` skill is gated
+   * on the SAME setting — an instruction sheet pointing at tools that were
+   * never registered is worse than no skill at all.
+   */
+  KEEPMIND_MCP_SMART_TOOLS: string;
+  /**
+   * 'true' registers the knowledge-corpus tools (build_corpus, list_corpora,
+   * prime_corpus, query_corpus, rebuild_corpus, reprime_corpus). Default
+   * 'false' — 2,720 characters for a subsystem no shipped skill references
+   * and which does nothing until a corpus has been built by hand.
+   */
+  KEEPMIND_MCP_CORPUS_TOOLS: string;
   KEEPMIND_FOLDER_CLAUDEMD_ENABLED: string;
   KEEPMIND_FOLDER_USE_LOCAL_MD: string;  
   KEEPMIND_TRANSCRIPTS_ENABLED: string;  
@@ -185,6 +201,8 @@ export class SettingsDefaultsManager {
     KEEPMIND_CONTEXT_SHOW_TERMINAL_OUTPUT: 'true',
     KEEPMIND_WELCOME_HINT_ENABLED: 'true',
     KEEPMIND_UPDATE_CHECK_ENABLED: 'true',  // proactive in-session "update available" notice (+ background npm check). 'false' disables both.
+    KEEPMIND_MCP_SMART_TOOLS: 'false',   // 1,526 chars of tool schema; gates the smart-explore skill too.
+    KEEPMIND_MCP_CORPUS_TOOLS: 'false',  // 2,720 chars of tool schema for a subsystem nothing else references.
     KEEPMIND_FOLDER_CLAUDEMD_ENABLED: 'false',
     KEEPMIND_FOLDER_USE_LOCAL_MD: 'false',  // When true, writes to CLAUDE.local.md instead of CLAUDE.md
     KEEPMIND_TRANSCRIPTS_ENABLED: 'true',
