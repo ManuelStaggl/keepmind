@@ -22,7 +22,23 @@ const realProjectFilterSnapshot = { ...realProjectFilter };
 
 // Mutable so a single test can flip one key without re-registering the module
 // (mock.module is process-global and sticky — see the note above).
+//
+// This alone is NOT enough: CI runs the suite under Node through
+// tests/bun-test-shim.ts, where `mock.module` cannot intercept an ESM import,
+// so the REAL SettingsDefaultsManager runs. Tests that need a specific value
+// therefore set the matching env var as well — loadFromFile applies env
+// overrides by default — and setSmartTools() below does both at once.
 let settingsOverride: Record<string, unknown> = {};
+
+function setSmartTools(value: string | undefined): void {
+  if (value === undefined) {
+    settingsOverride = {};
+    delete process.env.KEEPMIND_MCP_SMART_TOOLS;
+    return;
+  }
+  settingsOverride = { KEEPMIND_MCP_SMART_TOOLS: value };
+  process.env.KEEPMIND_MCP_SMART_TOOLS = value;
+}
 
 mock.module('../../src/shared/SettingsDefaultsManager.js', () => ({
   SettingsDefaultsManager: {
@@ -99,7 +115,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  settingsOverride = {};
+  setSmartTools(undefined);
   loggerSpies.forEach(s => s.mockRestore());
   if (fetchSpy) {
     fetchSpy.mockRestore();
@@ -203,6 +219,7 @@ describe('fileContextHandler — #2094 (no Read mutation)', () => {
   // tool that is not in its listing — and the failure would land one call later,
   // where the cause is no longer visible.
   it('omits the smart_outline hint when the smart tools are not listed', async () => {
+    setSmartTools('false');
     const future = Date.now() + 60_000;
     fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(() =>
       Promise.resolve(makeObservationsResponse([{ id: 1, created_at_epoch: future }]))
@@ -221,7 +238,7 @@ describe('fileContextHandler — #2094 (no Read mutation)', () => {
   });
 
   it('names smart_outline once KEEPMIND_MCP_SMART_TOOLS is the literal "true"', async () => {
-    settingsOverride = { KEEPMIND_MCP_SMART_TOOLS: 'true' };
+    setSmartTools('true');
     const future = Date.now() + 60_000;
     fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(() =>
       Promise.resolve(makeObservationsResponse([{ id: 1, created_at_epoch: future }]))
@@ -238,7 +255,7 @@ describe('fileContextHandler — #2094 (no Read mutation)', () => {
   });
 
   it('treats "1" as off, matching enabledGroups() in the MCP server', async () => {
-    settingsOverride = { KEEPMIND_MCP_SMART_TOOLS: '1' };
+    setSmartTools('1');
     const future = Date.now() + 60_000;
     fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(() =>
       Promise.resolve(makeObservationsResponse([{ id: 1, created_at_epoch: future }]))
