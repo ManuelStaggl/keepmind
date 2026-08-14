@@ -123,6 +123,24 @@ harder corpus: 71% → 75% @1. The spelling figures fall for the same reason the
 are measured as set agreement — more documents means the two top-10 lists
 overlap less, not that folding got worse.
 
+`nach-bm25.json` — same corpus, weighted bm25 columns:
+
+| Channel | B @1/@10 | B MRR | C @1/@10 |
+|---|---|---|---|
+| fts | 54→71% / 75→79% | 0.612→0.743 | 70% / 90% |
+| worker | 75→79% / 96→92% | 0.798→0.826 | 70% / 100% |
+
+This is what the harness is for. Weighting the columns was not in any plan; it
+came out of asking whether the ranking had been *checked* rather than merely
+made to work, and it moved rank-1 accuracy further than anything else in the
+whole change set. The measured profiles cluster within one question of each
+other, so the finding is "weighted beats unweighted" — not a specific tuple.
+
+The @10 drop on the fused path is one question out of 24. It is recorded rather
+than explained away: a sharper ranking that promotes the right record more often
+can also push a marginal one out of the tail, and at this sample size a single
+question is exactly the resolution limit.
+
 ## Adding questions
 
 Append to `questions.jsonl`. Keep `herkunft` honest — if a question reuses the
