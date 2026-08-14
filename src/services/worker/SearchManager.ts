@@ -1,5 +1,6 @@
 
 import { SessionSearch } from '../sqlite/SessionSearch.js';
+import { identifierTerms } from '../sqlite/fts-query.js';
 import { SessionStore } from '../sqlite/SessionStore.js';
 import { ChromaSync } from '../sync/ChromaSync.js';
 import { FormattingService } from './FormattingService.js';
@@ -43,6 +44,22 @@ export interface SearchTelemetryEnvelope {
 function matching(query?: string): string {
   return query ? ` matching "${query}"` : ' (filters only, no query text)';
 }
+
+/**
+ * Fusion weights for an identifier lookup.
+ *
+ * Keyword ranks lead. The semantic side is damped rather than dropped, and
+ * that distinction was measured rather than assumed:
+ *
+ *   dropped  (0 / 1)      bare id @1 100%, MRR 1.000 | in a sentence @1  7%, MRR 0.236
+ *   damped   (0.15 / 0.85) bare id @1  93%, MRR 0.964 | in a sentence @1 36%, MRR 0.485
+ *
+ * Dropping it makes the bare-identifier lookup perfect and the sentence form
+ * useless. Damping costs 7 points on the first and buys 29 on the second, and
+ * a question that names a record while asking something about it is the more
+ * common of the two.
+ */
+const IDENTIFIER_FUSION = { wDense: 0.15, wSparse: 0.85 };
 
 export class SearchManager {
   private orchestrator: SearchOrchestrator;
@@ -496,14 +513,29 @@ export class SearchManager {
         // Sparse side: BM25 keyword ids per active doc type. Fuse with RRF so
         // exact keyword hits reinforce semantic recall and the path still
         // returns results when the embedder is cold (dense empty → pure BM25).
+        // An identifier query is a lookup, not a similarity question.
+        //
+        // There is no meaning in `V-0076` for an embedding model to place, and
+        // the measurement says exactly that: the semantic channel answers 7%
+        // of identifier questions at rank 10 — guessing — while the keyword
+        // channel answers 100%. At the default weights the blind channel is
+        // weighted three times as heavily as the accurate one, so fusing them
+        // scored 64% where keyword alone scored 100%. Fusion is the right
+        // default and the wrong answer here.
+        const identifiers = identifierTerms(query);
+        const fuseOptions = identifiers.length > 0 ? IDENTIFIER_FUSION : undefined;
+        if (identifiers.length > 0) {
+          logger.debug('SEARCH', 'Identifier query — leaning on keyword ranks', { count: identifiers.length });
+        }
+
         const obsIds = searchObservations
-          ? this.rrfFuse(denseObs, this.ftsIdsFor('observation', query, { ...options, type: obs_type, concepts, files }))
+          ? this.rrfFuse(denseObs, this.ftsIdsFor('observation', query, { ...options, type: obs_type, concepts, files }), fuseOptions)
           : [];
         const sessionIds = searchSessions
-          ? this.rrfFuse(denseSessions, this.ftsIdsFor('session_summary', query, options))
+          ? this.rrfFuse(denseSessions, this.ftsIdsFor('session_summary', query, options), fuseOptions)
           : [];
         const promptIds = searchPrompts
-          ? this.rrfFuse(densePrompts, this.ftsIdsFor('user_prompt', query, options))
+          ? this.rrfFuse(densePrompts, this.ftsIdsFor('user_prompt', query, options), fuseOptions)
           : [];
 
         logger.debug('SEARCH', 'Hybrid RRF fused ids (search PATH 2)', {

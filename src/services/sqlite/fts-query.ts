@@ -101,6 +101,32 @@ export function queryTerms(raw: string): string[] {
 }
 
 /**
+ * Identifiers named in a query: `V-0076`, or a bare four-digit record number.
+ *
+ * WHY THIS IS WORTH DETECTING. An embedding model cannot place an identifier
+ * in a meaning space — there is no meaning in `V-0076` to embed. Measured over
+ * the identifier question sets, the semantic channel answers 7% of them at
+ * rank 10, which is indistinguishable from guessing, while the keyword channel
+ * answers 100%. Fusing a perfect channel with a blind one at the default
+ * weights loses: the fused path scores 64% where keyword alone scores 100%.
+ *
+ * The bare-number form only counts when it IS the whole query. A four-digit
+ * number inside a sentence is as likely to be a year or a version as a record,
+ * and treating "was 2026 entschieden?" as an identifier lookup would suppress
+ * the semantic channel on an ordinary question.
+ */
+export function identifierTerms(raw: string): string[] {
+  const out = new Set<string>();
+
+  for (const match of raw.matchAll(/\bV-\d{3,}\b/gi)) out.add(match[0].toUpperCase());
+
+  const trimmed = raw.trim();
+  if (/^\d{4}$/.test(trimmed)) out.add(trimmed);
+
+  return [...out];
+}
+
+/**
  * Build the MATCH expression, or null when there is nothing to search for.
  *
  * Null rather than an empty string: an empty MATCH is a syntax error, and the

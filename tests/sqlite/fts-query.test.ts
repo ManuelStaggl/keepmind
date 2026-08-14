@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { buildFtsMatchExpression, queryTerms, spellingVariants } from '../../src/services/sqlite/fts-query.js';
+import { buildFtsMatchExpression, queryTerms, spellingVariants, identifierTerms } from '../../src/services/sqlite/fts-query.js';
 
 describe('the phrase bug this module exists to fix', () => {
   it('does not wrap a multi-word question in one phrase', () => {
@@ -107,5 +107,30 @@ describe('identifiers', () => {
   it('strips a leading or trailing dash, which is punctuation', () => {
     expect(queryTerms('— Entscheidung —')).toEqual(['Entscheidung']);
     expect(queryTerms('Regelwerk -')).toEqual(['Regelwerk']);
+  });
+});
+
+describe('identifier detection', () => {
+  it('recognises a work-item id anywhere in the query', () => {
+    expect(identifierTerms('V-0076')).toEqual(['V-0076']);
+    expect(identifierTerms('Welche Entscheidung schliesst V-0076?')).toEqual(['V-0076']);
+    expect(identifierTerms('v-0076')).toEqual(['V-0076']);
+  });
+
+  it('recognises a bare record number ONLY as the whole query', () => {
+    // A four-digit number inside a sentence is as likely to be a year or a
+    // version. Treating "was 2026 entschieden?" as a lookup would suppress the
+    // semantic channel on an ordinary question.
+    expect(identifierTerms('0081')).toEqual(['0081']);
+    expect(identifierTerms('Was wurde 2026 entschieden?')).toEqual([]);
+  });
+
+  it('finds nothing in an ordinary question', () => {
+    expect(identifierTerms('Entscheidet das Marketing über Farben?')).toEqual([]);
+    expect(identifierTerms('Was gilt zur Barrierefreiheit?')).toEqual([]);
+  });
+
+  it('collects several ids without duplicates', () => {
+    expect(identifierTerms('V-0076 und V-0077 und nochmal V-0076')).toEqual(['V-0076', 'V-0077']);
   });
 });
