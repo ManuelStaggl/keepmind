@@ -25,5 +25,18 @@ export function loadContextConfig(): ContextConfig {
     fullObservationField: settings.KEEPMIND_CONTEXT_FULL_FIELD as 'narrative' | 'facts',
     showLastSummary: settings.KEEPMIND_CONTEXT_SHOW_LAST_SUMMARY === 'true',
     showLastMessage: settings.KEEPMIND_CONTEXT_SHOW_LAST_MESSAGE === 'true',
+    injectSourceKind: normalizeSourceKind(settings.KEEPMIND_INJECT_SOURCE_KIND),
   };
+}
+
+/**
+ * Unknown values fall back to 'all'.
+ *
+ * A typo here would otherwise empty the injection block completely, and an
+ * empty block looks exactly like "there was nothing to say" — the failure mode
+ * is silence, which is the one this project keeps paying for.
+ */
+function normalizeSourceKind(raw: string | undefined): 'all' | 'curated' | 'observed' {
+  const value = (raw ?? '').trim().toLowerCase();
+  return value === 'curated' || value === 'observed' ? value : 'all';
 }
