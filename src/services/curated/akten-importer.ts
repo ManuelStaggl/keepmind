@@ -121,9 +121,17 @@ export function importAkteFile(
   const parsed = parseAkte(content);
 
   if (!parsed.id) {
-    // No record number: an index, a template or a readme. Recognised by the
-    // missing number rather than by filename — filename rules need a second
-    // list to keep in sync, and the corpus renames files freely.
+    // No record number: an index, a template or a control file. Recognised by
+    // the missing number rather than by filename — filename rules need a
+    // second list to keep in sync, and the corpus renames files freely.
+    //
+    // NOT A RECORD IS NOT THE SAME AS NOT A SOURCE. In the measured corpus a
+    // control file declares two records obsolete, and nothing inside those
+    // records knows it; another names a supersession that the superseded
+    // record does carry. Skipping these files here is right — they are not
+    // decisions and must not become rows — but the EDGE reader has to read
+    // them anyway, or the graph provably misses edges that exist in writing.
+    // The skip is reported rather than swallowed for exactly that reason.
     return { skipped: 'no record number in heading' };
   }
 
