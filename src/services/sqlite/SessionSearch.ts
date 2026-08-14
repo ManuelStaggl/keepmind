@@ -15,6 +15,7 @@ import {
   UserPromptRow
 } from './types.js';
 import { DEFAULT_PLATFORM_SOURCE, normalizePlatformSource } from '../../shared/platform-source.js';
+import { buildFtsMatchExpression } from './fts-query.js';
 
 export class SessionSearch {
   private db: Database;
@@ -303,8 +304,9 @@ export class SessionSearch {
         LIMIT ? OFFSET ?
       `;
 
-      const escapedQuery = '"' + query.replace(/"/g, '""') + '"';
-      params.unshift(escapedQuery);
+      const matchExpression = buildFtsMatchExpression(query);
+      if (matchExpression === null) return [];
+      params.unshift(matchExpression);
       params.push(limit, offset);
 
       try {
@@ -367,8 +369,9 @@ export class SessionSearch {
         LIMIT ? OFFSET ?
       `;
 
-      const escapedQuery = '"' + query.replace(/"/g, '""') + '"';
-      params.unshift(escapedQuery);
+      const matchExpression = buildFtsMatchExpression(query);
+      if (matchExpression === null) return [];
+      params.unshift(matchExpression);
       params.push(limit, offset);
 
       try {

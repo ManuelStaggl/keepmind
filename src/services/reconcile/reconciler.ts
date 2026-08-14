@@ -36,7 +36,7 @@ export interface ReconcileDecision {
  * fold together, or the reconciler treats a document and its own filename as
  * unrelated.
  */
-function fold(s: string): string {
+export function fold(s: string): string {
   return s
     .normalize('NFC')
     .toLowerCase()
@@ -59,7 +59,7 @@ function fold(s: string): string {
 // exists to keep apart: a near-duplicate score of 1.0 on a contradiction would
 // let a correction be swallowed by the thing it corrects. Anything added here
 // later must pass the same test — a stopword may remove noise, never meaning.
-const STOPWORDS = new Set([
+export const STOPWORDS = new Set([
   // English
   'the', 'a', 'an', 'and', 'or', 'but', 'to', 'of', 'in', 'on', 'for', 'with',
   'is', 'are', 'was', 'were', 'be', 'been', 'it', 'this', 'that', 'we', 'i',
