@@ -4,6 +4,113 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [4.1.0] - 2026-08-14
+
+## Search was broken, and nothing was measuring it
+
+Keyword search returned **nothing at all** for any multi-word question, for
+everyone, and had been doing so silently. Both FTS paths wrapped the entire
+query in one pair of quotes — FTS5 syntax for an exact phrase — so a question
+only matched where its full word sequence appeared verbatim. Measured against a
+real corpus: `Regelwerk` returned 10 rows, `Gestaltung Regelwerk` returned 0.
+
+It went unnoticed because the semantic channel covered for it, and because
+`fts_hit_count = 0` across every row was read as "search is unused" rather than
+"search is broken". Those were two separate faults.
+
+Three more ranking faults surfaced from there, each fixed and each measured:
+
+- **The fused ranking was thrown away on every search.** Hybrid search fuses
+  semantic and keyword hits with RRF, and the result is carried only by the
+  order of the ids — which hydration then re-sorted by date. A question quoting
+  a record almost verbatim returned the five most recently written records
+  instead of the matching one.
+- **All columns ranked equally**, so a hit in a 5 KB body counted as much as a
+  hit in the title. Weighting them moved rank-1 accuracy from 54% to 71%.
+- **Identifiers were split apart.** `V-0169` tokenised as `v` + `0169`, matching
+  every record containing that four-digit number. Keeping it whole took a bare
+  identifier lookup from 29% to 100% at rank 1.
+
+An identifier query now also stops being fused with the semantic channel at full
+weight. There is no meaning in `V-0076` for an embedding model to place — it
+answers 7% of such questions, against 100% for keyword search — so fusing the
+two at the default weights lost to keyword search alone.
+
+German spellings are handled on the query side: `unicode61` strips diacritics
+but never transliterates, so "Prüfung" and "Pruefung" were two unrelated terms,
+and "Grösse", "Größe" and "Groesse" were three disjoint result sets. Both
+spellings of every term are now searched.
+
+## Measuring retrieval quality
+
+`npm run eval:memory` — a question set run against the real search code and the
+real database, no Docker. It reports recall@1, recall@10 and MRR per question
+class and per channel, saves runs, and diffs them.
+
+It reports no verdict. No threshold makes retrieval "good", and inventing one
+would repeat the mistake ranking already forbids.
+
+One of its three channels goes over HTTP to the running worker, because the two
+that call the search classes directly scored the ranking fault above as fine —
+neither goes through the code that broke it.
+
+## Curated knowledge
+
+`keepmind curated:import` reads hand-written decision records and work items
+into memory **verbatim**: no model, no compression, no outbound call at any
+point. The source set is configured in one place (`curatedSources` in
+settings.json) rather than typed per run, so an import can be repeated
+identically. Re-importing a file replaces what it produced instead of adding to
+it.
+
+Work items bring their own reader: their state is computed from an append-only
+event log rather than read from a field, because the corpus deliberately keeps
+it in one place.
+
+- **Supersession.** A record that a later one supersedes has its validity window
+  closed, so it stops being injected as current — and keeps its row, its text
+  and its place in search results. Nothing is ever deleted. Only relations the
+  reader is certain about act; uncertain ones are listed for a person, because
+  a wrongly retired record is invisible, which is the one failure nobody
+  notices.
+- **`keepmind curated:alter`** ranks records by how much has happened since they
+  were written: days, later decisions, and how many of those cite them. It
+  asserts nothing — it is arithmetic over dates and relations — and it gives a
+  backlog a reading order it otherwise does not have.
+- **`keepmind akten:check`** reports structural contradictions and exits
+  non-zero, for use as a pre-commit step.
+
+## Before a question reaches a person
+
+A new hook runs when a question is put to a human and offers decisions that may
+already cover it. It offers *candidates*: it never says a question is settled,
+and never says there is no decision on one — that sentence may only come from
+declared relations, never from a distance measure. It always allows the question
+through.
+
+## Fixes
+
+- Deleting a project left its declared relations and its embeddings behind.
+  Measured after two delete-and-reimport cycles: 197 orphaned relations pointing
+  at files that no longer existed, and 659 orphaned vectors — which still
+  answered the nearest-neighbour query while resolving to nothing, so semantic
+  search for that project went blind without raising a single error.
+- The curated importer writes rows directly and enqueued nothing, so nothing
+  told the worker they existed; their embeddings appeared only at the next
+  periodic pass. It now asks for indexing and reports whether it happened.
+- A document *explaining* relations no longer creates them: fenced code blocks
+  are quoted material and are skipped. A brief describing a corpus had its
+  examples read as claims, including one the surrounding prose identifies as
+  wrong.
+- Relations read out of files that store no row of their own were reported as
+  zero. They are counted and shown separately.
+
+## Upgrading
+
+The observations index is rebuilt once on first start to pick up the identifier
+tokenizer. No configuration is required for that. `curatedSources` and
+`KEEPMIND_CURATED_PROJECT` are only needed if you use the curated path.
+
 ## [4.0.0] - 2026-08-14
 
 Three changes that were measured before they were made. The tool listing was costing 13,003 characters of context on every turn to describe tools that could not run; curated decision records had no way into the store that did not pass a compressor; and the reconciler's text normalization deleted every non-ASCII letter instead of ignoring it. The first is a breaking change, and the version number says so.
