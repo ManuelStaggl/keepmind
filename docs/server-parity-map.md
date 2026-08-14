@@ -162,6 +162,68 @@ scope for Phase 9.
 | -------------------------- | ------------------------------ | ------- | ----------- |
 | `GET /api/chroma/status`   | _(none — server-beta is Postgres-only)_ | _(none)_ | unsupported |
 
+## MCP tool listing
+
+The `unsupported` rows above have a direct consequence for the MCP server:
+a tool whose route is unsupported in the active runtime cannot do anything
+except explain that it is unavailable, yet its name, description and full
+`inputSchema` are sent to the model on every session.
+
+`tools/list` therefore returns only the tools the active runtime can serve.
+Each descriptor in `src/servers/mcp-server.ts` carries a `runtime` field:
+
+| `runtime` | Tools                                                                                                                            | Listed when            |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `worker`  | `search`, `timeline`, `get_observations`, `session_start_context`, `delete_observations_by_project`, the six `*_corpus`/`list_corpora` tools | `KEEPMIND_RUNTIME=worker` |
+| `server`  | `observation_add`, `observation_record_event`, `observation_search`, `observation_context`, `observation_generation_status`, `memory_add`, `memory_search`, `memory_context` | `KEEPMIND_RUNTIME=server` |
+| `any`     | `smart_search`, `smart_unfold`, `smart_outline`                                                                                  | always                 |
+
+### Optional groups (independent of runtime)
+
+A second `group` field gates whole subsystems that are **off by default**,
+because a listed tool is paid for on every turn whether or not it is called:
+
+| `group`  | Setting                     | Default | Cost when on |
+| -------- | --------------------------- | ------- | ------------ |
+| `core`   | —                           | always  | —            |
+| `smart`  | `KEEPMIND_MCP_SMART_TOOLS`  | `false` | 1,526 chars  |
+| `corpus` | `KEEPMIND_MCP_CORPUS_TOOLS` | `false` | 2,720 chars  |
+
+Only the literal string `true` switches a group on; `1`, `yes` and `on` do not.
+
+The `smart-explore` skill is gated on `KEEPMIND_MCP_SMART_TOOLS` as well — it
+opens with a precondition that disqualifies it when `smart_search` is absent.
+An instruction sheet pointing at tools that were never registered fails at the
+missing *result* rather than at the missing tool, which is strictly worse than
+shipping no skill.
+
+### Measured
+
+Against the built bundle, worker runtime, `tools/list` serialized:
+
+| Configuration            | Tools | Characters |
+| ------------------------ | ----: | ---------: |
+| before this change       |    23 |     13,003 |
+| both groups off (default) |     5 |      3,954 |
+| `smart` on               |     8 |      5,480 |
+| `corpus` on              |    11 |      6,674 |
+| both on                  |    14 |      8,200 |
+| server runtime, both off |     8 |      4,729 |
+
+The default install went from 13,003 to 3,954 characters — **9,049 fewer, about
+2,510 tokens** at the 3.6 chars/token ratio these figures were originally
+costed with.
+
+`important_workflow` was removed and its three-layer sequence folded into the
+description of `search`, where the sequence starts. As its own entry it spent
+396 characters to carry 298 characters of text.
+
+Dispatch is **not** filtered — by runtime or by group. `CallTool` still resolves
+against the full set, so a client holding a stale list gets the handler's own
+diagnosis — which names the setting to change — instead of a bare
+`Unknown tool`, and a group can be switched on without restarting anything that
+already knows the tool name.
+
 ## Anti-pattern guards (referenced in Phase 9)
 
 The following grep MUST return zero matches:

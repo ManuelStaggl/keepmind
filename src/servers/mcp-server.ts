@@ -49,6 +49,7 @@ import {
   type ServerRuntimeContext,
 } from '../services/hooks/runtime-selector.js';
 import { normalizePlatformSource } from '../shared/platform-source.js';
+import { loadFromFileOnce } from '../shared/hook-settings.js';
 
 let mcpServerDirResolutionFailed = false;
 const mcpServerDir = (() => {
@@ -233,9 +234,13 @@ async function verifyWorkerConnection(): Promise<boolean> {
 // share the REST core for writes and searches; we never duplicate the
 // event-insert + outbox + enqueue logic on the MCP side.
 //
-// We deliberately resolve the runtime per-call (cheap; reads cached
-// settings) so the user can flip KEEPMIND_RUNTIME without restarting
-// the MCP server.
+// We resolve the runtime per-call rather than caching it in a module
+// constant. Note that this is NOT a live re-read: selectRuntime() goes
+// through loadFromFileOnce(), which caches settings for the lifetime of
+// the process, so KEEPMIND_RUNTIME is effectively fixed at whatever it
+// was when this process first read it. Changing it needs an MCP server
+// restart. Per-call resolution only buys us not having to order module
+// initialisation around it.
 type ServerToolContext = ServerRuntimeContext;
 
 interface ServerUnavailable {
@@ -545,48 +550,65 @@ async function ensureWorkerConnection(): Promise<boolean> {
   }
 }
 
-const tools = [
+// Which backend a tool needs in order to do anything at all.
+//
+//   'worker' — talks to the local worker REST API
+//   'server' — talks to the server /v1 endpoints (KEEPMIND_RUNTIME=server)
+//   'any'    — needs no backend; runs in this process (tree-sitter tools)
+//
+// Only one of the two backends is ever selected, so every tool bound to the
+// other one is dead weight in the client's context window: its name,
+// description and full inputSchema are sent to the model on every single
+// session, and the only thing it can do when called is explain that it is
+// unavailable. `tools/list` therefore returns just the tools the ACTIVE
+// runtime can serve. Measured on the built bundle: the whole list is 13,003
+// characters; the eight server-bound tools are 4,729 of them, paid by every
+// worker-runtime session — which is every default install.
+//
+// This filters the LISTING only, never dispatch: see CallToolRequestSchema.
+type ToolRuntime = 'worker' | 'server' | 'any';
+
+// A second, independent axis: whole subsystems that are off by default.
+//
+//   'core'   — always registered when the runtime matches
+//   'smart'  — tree-sitter tools, KEEPMIND_MCP_SMART_TOOLS
+//   'corpus' — knowledge-corpus tools, KEEPMIND_MCP_CORPUS_TOOLS
+//
+// Both optional groups default to OFF. They are the two largest blocks of
+// schema in the list (1,526 and 2,720 characters) and neither does anything
+// until someone deliberately reaches for it — a corpus has to be built by
+// hand before its five sibling tools mean anything, and the tree-sitter
+// tools duplicate Read/Grep/Glob for callers who never opted into them.
+// A tool that is listed is paid for on every turn whether or not it is used,
+// so "available on request" is the wrong default for both.
+type ToolGroup = 'core' | 'smart' | 'corpus';
+
+interface ToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  runtime: ToolRuntime;
+  group: ToolGroup;
+  handler: (args: any) => Promise<any>;
+}
+
+const tools: ToolDefinition[] = [
   {
-    // Renamed from __IMPORTANT: some MCP clients reject tool names starting with
-    // an underscore and abort parsing the whole server, taking search/timeline/
-    // get_observations down with it. Leading __ also collides with the
-    // mcp__<server>__<tool> namespacing hosts apply (upstream c7d72411).
-    name: 'important_workflow',
-    description: `3-LAYER WORKFLOW (ALWAYS FOLLOW):
-1. search(query) → Get index with IDs (~50-100 tokens/result)
-2. timeline(anchor=ID) → Get context around interesting results
-3. get_observations([IDs]) → Fetch full details ONLY for filtered IDs
-NEVER fetch full details without filtering first. 10x token savings.`,
-    inputSchema: {
-      type: 'object',
-      properties: {}
-    },
-    handler: async () => ({
-      content: [{
-        type: 'text' as const,
-        text: `# Memory Search Workflow
-
-**3-Layer Pattern (ALWAYS follow this):**
-
-1. **Search** - Get index of results with IDs
-   \`search(query="...", limit=20, project="...")\`
-   Returns: Table with IDs, titles, dates (~50-100 tokens/result)
-
-2. **Timeline** - Get context around interesting results
-   \`timeline(anchor=<ID>, depth_before=3, depth_after=3)\`
-   Returns: Chronological context showing what was happening
-
-3. **Fetch** - Get full details ONLY for relevant IDs
-   \`get_observations(ids=[...])\`  # ALWAYS batch for 2+ items
-   Returns: Complete details (~500-1000 tokens/result)
-
-**Why:** 10x token savings. Never fetch full details without filtering first.`
-      }]
-    })
-  },
-  {
+    // The three-layer sequence used to be its own tool (`important_workflow`,
+    // renamed from `__IMPORTANT` because leading underscores broke some MCP
+    // clients). It is documented HERE instead: the sequence starts with
+    // search, so the caller who needs the rule is already reading this text.
+    // As a separate entry it cost 396 characters to say what these 298 say —
+    // the extra 98 bought a name and an empty schema, nothing else.
     name: 'search',
-    description: 'Step 1: Search memory. Returns index with IDs. Params: query, limit, project, platformSource, type, obs_type, dateStart, dateEnd, offset, orderBy',
+    runtime: 'worker',
+    group: 'core',
+    description: `Step 1 of 3. Search memory, returns an index with IDs. Params: query, limit, project, platformSource, type, obs_type, dateStart, dateEnd, offset, orderBy.
+ALWAYS follow the three-layer sequence:
+1. search(query) → index with IDs (~50-100 tokens/result)
+2. timeline(anchor=ID) → context around the interesting ones
+3. get_observations([IDs]) → full detail ONLY for the IDs you kept
+Never call get_observations without narrowing first — that is the 10x difference.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -610,6 +632,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'timeline',
+    runtime: 'worker',
+    group: 'core',
     description: 'Step 2: Get context around results. Params: anchor (observation ID) OR query (finds anchor automatically), depth_before, depth_after, project',
     inputSchema: {
       type: 'object',
@@ -629,6 +653,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'get_observations',
+    runtime: 'worker',
+    group: 'core',
     description: 'Step 3: Fetch full details for filtered IDs. Params: ids (array of observation IDs, required), orderBy, limit, project',
     inputSchema: {
       type: 'object',
@@ -648,6 +674,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'session_start_context',
+    runtime: 'worker',
+    group: 'core',
     description: 'Render the exact worker-mode SessionStart context for a project. Calls /api/context/inject and returns the same text hooks inject at startup. Params: project OR projects, platformSource, full, colors.',
     inputSchema: {
       type: 'object',
@@ -670,6 +698,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'delete_observations_by_project',
+    runtime: 'worker',
+    group: 'core',
     description: 'Delete ALL observations and summaries for a project. Irreversible. Requires confirm:true to execute; pass dryRun:true to preview the counts that would be deleted without touching data. Params: project (required), confirm, dryRun.',
     inputSchema: {
       type: 'object',
@@ -691,6 +721,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   // MCP clients keep working without rewrites. (Plan line 753.)
   {
     name: 'observation_add',
+    runtime: 'server',
+    group: 'core',
     description: 'Insert a manual observation directly into server storage. Calls /v1/memories — does NOT enqueue generation. Server runtime only. Params: content (required), projectId (optional, falls back to settings), serverSessionId, kind, metadata.',
     inputSchema: {
       type: 'object',
@@ -708,6 +740,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'observation_record_event',
+    runtime: 'server',
+    group: 'core',
     description: 'Record an agent event into the server. Calls /v1/events — server inserts the event row, the outbox row, and enqueues a generation job atomically. Server runtime only.',
     inputSchema: {
       type: 'object',
@@ -730,6 +764,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'observation_search',
+    runtime: 'server',
+    group: 'core',
     description: 'Full-text search across generated observations using the server\'s GIN tsvector index (Phase 1). Calls /v1/search. Server runtime only. Params: query (required), projectId (optional), platformSource, limit (default 20, max 100).',
     inputSchema: {
       type: 'object',
@@ -746,6 +782,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'observation_context',
+    runtime: 'server',
+    group: 'core',
     description: 'Get top-N relevant observations for context injection. Returns matched observations AND a pre-joined context string suitable for prompt injection. Calls /v1/context. Server runtime only.',
     inputSchema: {
       type: 'object',
@@ -762,6 +800,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'observation_generation_status',
+    runtime: 'server',
+    group: 'core',
     description: 'Look up the status of an observation generation job by id. Calls /v1/jobs/:id. Server runtime only. Returns the same payload as REST.',
     inputSchema: {
       type: 'object',
@@ -779,6 +819,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   // there is one code path for MCP write/read against the server.
   {
     name: 'memory_add',
+    runtime: 'server',
+    group: 'core',
     description: 'Compatibility alias for observation_add. Same behavior; same schema modulo the legacy field names.',
     inputSchema: {
       type: 'object',
@@ -810,6 +852,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'memory_search',
+    runtime: 'server',
+    group: 'core',
     description: 'Compatibility alias for observation_search. Same FTS path; same /v1/search REST endpoint.',
     inputSchema: {
       type: 'object',
@@ -826,6 +870,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'memory_context',
+    runtime: 'server',
+    group: 'core',
     description: 'Compatibility alias for observation_context. Same /v1/context REST endpoint.',
     inputSchema: {
       type: 'object',
@@ -842,6 +888,9 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'smart_search',
+    // tree-sitter runs in this process against the working tree — no backend.
+    runtime: 'any',
+    group: 'smart',
     description: 'Search codebase for symbols, functions, classes using tree-sitter AST parsing. Returns folded structural views with token counts. Use path parameter to scope the search.',
     inputSchema: {
       type: 'object',
@@ -879,6 +928,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'smart_unfold',
+    runtime: 'any',
+    group: 'smart',
     description: 'Expand a specific symbol (function, class, method) from a file. Returns the full source code of just that symbol. Use after smart_search or smart_outline to read specific code.',
     inputSchema: {
       type: 'object',
@@ -932,6 +983,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'smart_outline',
+    runtime: 'any',
+    group: 'smart',
     description: 'Get structural outline of a file — shows all symbols (functions, classes, methods, types) with signatures but bodies folded. Much cheaper than reading the full file.',
     inputSchema: {
       type: 'object',
@@ -970,6 +1023,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'build_corpus',
+    runtime: 'worker',
+    group: 'corpus',
     description: 'Build a knowledge corpus from filtered observations. Creates a queryable knowledge agent. Params: name (required), description, project, types (comma-separated), concepts (comma-separated), files (comma-separated), query, dateStart, dateEnd, limit',
     inputSchema: {
       type: 'object',
@@ -994,6 +1049,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'list_corpora',
+    runtime: 'worker',
+    group: 'corpus',
     description: 'List all knowledge corpora with their stats and priming status',
     inputSchema: {
       type: 'object',
@@ -1006,6 +1063,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'prime_corpus',
+    runtime: 'worker',
+    group: 'corpus',
     description: 'Prime a knowledge corpus — creates an AI session loaded with the corpus knowledge. Must be called before query_corpus.',
     inputSchema: {
       type: 'object',
@@ -1023,6 +1082,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'query_corpus',
+    runtime: 'worker',
+    group: 'corpus',
     description: 'Ask a question to a primed knowledge corpus. The corpus must be primed first with prime_corpus.',
     inputSchema: {
       type: 'object',
@@ -1041,6 +1102,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'rebuild_corpus',
+    runtime: 'worker',
+    group: 'corpus',
     description: 'Rebuild a knowledge corpus from its stored filter — re-runs the search to refresh with new observations. Does not re-prime the session.',
     inputSchema: {
       type: 'object',
@@ -1058,6 +1121,8 @@ NEVER fetch full details without filtering first. 10x token savings.`,
   },
   {
     name: 'reprime_corpus',
+    runtime: 'worker',
+    group: 'corpus',
     description: 'Create a fresh knowledge agent session for a corpus, clearing prior Q&A context. Use when conversation has drifted or after rebuilding.',
     inputSchema: {
       type: 'object',
@@ -1087,9 +1152,38 @@ const server = new Server(
   }
 );
 
+/** Optional tool groups the user has switched on. Both default to off. */
+function enabledGroups(): Set<ToolGroup> {
+  const settings = loadFromFileOnce();
+  const on = (value: string | undefined) => (value ?? '').trim().toLowerCase() === 'true';
+  const groups = new Set<ToolGroup>(['core']);
+  if (on(settings.KEEPMIND_MCP_SMART_TOOLS)) groups.add('smart');
+  if (on(settings.KEEPMIND_MCP_CORPUS_TOOLS)) groups.add('corpus');
+  return groups;
+}
+
+function toolsForRuntime(runtime: SelectedRuntime, groups: Set<ToolGroup>): ToolDefinition[] {
+  return tools.filter(tool =>
+    (tool.runtime === 'any' || tool.runtime === runtime) && groups.has(tool.group)
+  );
+}
+
 server.setRequestHandler(ListToolsRequestSchema, async () => {
+  // Same resolution as resolveServerToolContext() above, and with the same
+  // caveat: settings are cached process-wide, so this reflects the runtime as
+  // of process start. Switching KEEPMIND_RUNTIME requires an MCP server
+  // restart — which is also when a client re-lists, so the two line up.
+  const runtime = selectRuntime();
+  const groups = enabledGroups();
+  const visible = toolsForRuntime(runtime, groups);
+  logger.info('SYSTEM', 'MCP tools/list filtered by runtime and group', undefined, {
+    runtime,
+    groups: [...groups].join(','),
+    listed: visible.length,
+    hidden: tools.length - visible.length,
+  });
   return {
-    tools: tools.map(tool => ({
+    tools: visible.map(tool => ({
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema
@@ -1098,6 +1192,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 });
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  // Deliberately NOT filtered by runtime. A client holding a tool list from
+  // before a runtime switch, or one that hardcodes a name, gets the handler's
+  // own diagnosis — requireServerForObservationTool() names the setting to
+  // change — instead of a bare "Unknown tool" that says nothing about why.
   const tool = tools.find(t => t.name === request.params.name);
 
   if (!tool) {
