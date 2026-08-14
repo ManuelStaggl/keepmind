@@ -1,0 +1,44 @@
+{"_comment": "Fragensatz für die Erinnerungsqualität. Format: eine Frage je Zeile. `set` B = Inhaltsumschreibung (die Frage umschreibt den Inhalt einer Akte mit ANDEREN Wörtern), C = Themenfrage (mehrere Akten sind richtig), D = Schreibweisenpaar (beide Schreibungen müssen dieselbe Trefferliste liefern). `gold` sind Aktennummern. `herkunft` sagt, wie die Frage entstanden ist — verbatim-Fragen wären wertlos, hier ist jede eine Paraphrase."}
+{"id": "B01", "set": "B", "frage": "Wie viel Platz dürfen die Regeldateien des Steuerstands einnehmen?", "gold": ["0005"], "herkunft": "paraphrase"}
+{"id": "B02", "set": "B", "frage": "Wo sitzt der Knopf, mit dem man zurückgeht?", "gold": ["0047"], "herkunft": "paraphrase"}
+{"id": "B03", "set": "B", "frage": "Welche Oberflächenbibliothek benutzen wir?", "gold": ["0053"], "herkunft": "paraphrase"}
+{"id": "B04", "set": "B", "frage": "Dürfen wir am Gedächtnis selbst entwickeln?", "gold": ["0057"], "herkunft": "paraphrase"}
+{"id": "B05", "set": "B", "frage": "Wie gross ist die Schrift auf Schaltflächen?", "gold": ["0107"], "herkunft": "paraphrase"}
+{"id": "B06", "set": "B", "frage": "Entscheidet das Marketing über Farben?", "gold": ["0034"], "herkunft": "paraphrase"}
+{"id": "B07", "set": "B", "frage": "Soll ich widersprechen, wenn ich anderer Meinung bin?", "gold": ["0077"], "herkunft": "paraphrase"}
+{"id": "B08", "set": "B", "frage": "Was zählt mehr, rechtliche Vorgaben oder Geschmack?", "gold": ["0092"], "herkunft": "paraphrase"}
+{"id": "B09", "set": "B", "frage": "Darf ich Daten aus dem Haus geben?", "gold": ["0093"], "herkunft": "paraphrase"}
+{"id": "B10", "set": "B", "frage": "Wo verläuft die Vertraulichkeitsgrenze?", "gold": ["0110"], "herkunft": "paraphrase"}
+{"id": "B11", "set": "B", "frage": "Muss ein eigenes Bedienelement vorher abgestimmt werden?", "gold": ["0033"], "herkunft": "paraphrase"}
+{"id": "B12", "set": "B", "frage": "Was ist mit hohem Kontrast passiert?", "gold": ["0009"], "herkunft": "paraphrase"}
+{"id": "B13", "set": "B", "frage": "Wie wird die gedämpfte Schriftfarbe bestimmt?", "gold": ["0023"], "herkunft": "paraphrase"}
+{"id": "B14", "set": "B", "frage": "Zählt ein Nachtrag zur Berichtigung gegen die Grössenbeschränkung?", "gold": ["0118"], "herkunft": "paraphrase"}
+{"id": "B15", "set": "B", "frage": "Reicht es, eine Lizenz nur zu erwähnen?", "gold": ["0081"], "herkunft": "paraphrase"}
+{"id": "B16", "set": "B", "frage": "Braucht unsere eigene Schrift einen Rechtsgrund?", "gold": ["0082"], "herkunft": "paraphrase"}
+{"id": "B17", "set": "B", "frage": "Was tun mit einem Riegel, der zu oft falsch anschlägt?", "gold": ["0096"], "herkunft": "paraphrase"}
+{"id": "B18", "set": "B", "frage": "Darf ein Windows-eigener Knopf ein Symbol aus dem Fremdpaket zeigen?", "gold": ["0097"], "herkunft": "paraphrase"}
+{"id": "B19", "set": "B", "frage": "Was gehört in eine leere Ansicht?", "gold": ["0104"], "herkunft": "paraphrase"}
+{"id": "B20", "set": "B", "frage": "Steht die Fehlermeldung über oder unter der Beschriftung?", "gold": ["0103"], "herkunft": "paraphrase"}
+{"id": "B21", "set": "B", "frage": "Bekommt das Anwendungsfenster die Sparschalter?", "gold": ["0094"], "herkunft": "paraphrase"}
+{"id": "B22", "set": "B", "frage": "Was ist mit der Paketfassung 0.17.0 passiert?", "gold": ["0032", "0031"], "herkunft": "paraphrase"}
+{"id": "B23", "set": "B", "frage": "Wird ohne Aufsicht mit Fenstern gearbeitet?", "gold": ["0063"], "herkunft": "paraphrase"}
+{"id": "B24", "set": "B", "frage": "Wie wird mit einem veralteten Original verglichen?", "gold": ["0045"], "herkunft": "paraphrase"}
+{"id": "C01", "set": "C", "frage": "Was gilt zur Barrierefreiheit?", "gold": ["0013", "0020", "0009"], "herkunft": "paraphrase"}
+{"id": "C02", "set": "C", "frage": "Was gilt zu Lizenzen und Rechtsnachweisen?", "gold": ["0081", "0082", "0085"], "herkunft": "paraphrase"}
+{"id": "C03", "set": "C", "frage": "Was gilt zum Umfang des Regelwerks?", "gold": ["0008", "0011", "0012", "0035", "0073"], "herkunft": "paraphrase"}
+{"id": "C04", "set": "C", "frage": "Was gilt zu Farben und ihrer Herleitung?", "gold": ["0015", "0023", "0030", "0034"], "herkunft": "paraphrase"}
+{"id": "C05", "set": "C", "frage": "Was gilt zum Messen des Verbrauchs?", "gold": ["0024", "0066", "0017"], "herkunft": "paraphrase"}
+{"id": "C06", "set": "C", "frage": "Was gilt zum Prüfen der Form vor dem Absenden?", "gold": ["0027", "0029", "0060"], "herkunft": "paraphrase"}
+{"id": "C07", "set": "C", "frage": "Was gilt zum Eigenbau gegenüber fertigen Bausteinen?", "gold": ["0050", "0052", "0075", "0098", "0043"], "herkunft": "paraphrase"}
+{"id": "C08", "set": "C", "frage": "Was gilt zum Gedächtnis und zum Verdichten von Sitzungen?", "gold": ["0057", "0064", "0071", "0065"], "herkunft": "paraphrase"}
+{"id": "C09", "set": "C", "frage": "Was gilt zum Geltungsbereich der Automatik?", "gold": ["0001", "0003"], "herkunft": "paraphrase"}
+{"id": "C10", "set": "C", "frage": "Was gilt zur Ablösung der Gestaltungsfestlegungen?", "gold": ["0091", "0099", "0089"], "herkunft": "paraphrase"}
+{"id": "D01", "set": "D", "frage": "Prüfung", "variante": "Pruefung", "herkunft": "schreibweise", "korpus": 94}
+{"id": "D02", "set": "D", "frage": "Begründung", "variante": "Begruendung", "herkunft": "schreibweise", "korpus": 45}
+{"id": "D03", "set": "D", "frage": "Maßstab", "variante": "Massstab", "herkunft": "schreibweise", "korpus": 25}
+{"id": "D04", "set": "D", "frage": "Ablösung", "variante": "Abloesung", "herkunft": "schreibweise", "korpus": 37}
+{"id": "D05", "set": "D", "frage": "ausdrücklich", "variante": "ausdruecklich", "herkunft": "schreibweise", "korpus": 87}
+{"id": "D06", "set": "D", "frage": "Prüffläche", "variante": "Pruefflaeche", "herkunft": "schreibweise", "korpus": 33}
+{"id": "D07", "set": "D", "frage": "Rückfrage", "variante": "Rueckfrage", "herkunft": "schreibweise", "korpus": 26}
+{"id": "D08", "set": "D", "frage": "Wächter", "variante": "Waechter", "herkunft": "schreibweise", "korpus": 20}
+{"id": "D09", "set": "D", "frage": "vollständig", "variante": "vollstaendig", "herkunft": "schreibweise", "korpus": 36}

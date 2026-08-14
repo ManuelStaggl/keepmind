@@ -1,0 +1,746 @@
+{
+  "project": "steuerstand",
+  "corpus": 126,
+  "questions": 43,
+  "k": 10,
+  "channels": {
+    "fts": {
+      "available": true,
+      "B": {
+        "n": 24,
+        "hit1": 0.5833333333333334,
+        "hit10": 0.75,
+        "mrr": 0.6388888888888888
+      },
+      "C": {
+        "n": 10,
+        "hit1": 0.7,
+        "hit10": 0.9,
+        "mrr": 0.7833333333333333
+      },
+      "D": {
+        "n": 9,
+        "agreement": 1,
+        "identical": 9
+      }
+    },
+    "vector": {
+      "available": true,
+      "B": {
+        "n": 24,
+        "hit1": 0.6666666666666666,
+        "hit10": 1,
+        "mrr": 0.7622685185185185
+      },
+      "C": {
+        "n": 10,
+        "hit1": 0.8,
+        "hit10": 1,
+        "mrr": 0.8833333333333332
+      },
+      "D": {
+        "n": 9,
+        "agreement": 0.31037970743853094,
+        "identical": 0
+      }
+    }
+  },
+  "perQuestion": {
+    "fts": [
+      {
+        "id": "B01",
+        "set": "B",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0
+      },
+      {
+        "id": "B02",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B03",
+        "set": "B",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0
+      },
+      {
+        "id": "B04",
+        "set": "B",
+        "hit1": false,
+        "hit10": true,
+        "rr": 0.3333333333333333
+      },
+      {
+        "id": "B05",
+        "set": "B",
+        "hit1": false,
+        "hit10": true,
+        "rr": 0.5
+      },
+      {
+        "id": "B06",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B07",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B08",
+        "set": "B",
+        "hit1": false,
+        "hit10": true,
+        "rr": 0.16666666666666666
+      },
+      {
+        "id": "B09",
+        "set": "B",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0
+      },
+      {
+        "id": "B10",
+        "set": "B",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0
+      },
+      {
+        "id": "B11",
+        "set": "B",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0
+      },
+      {
+        "id": "B12",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B13",
+        "set": "B",
+        "hit1": false,
+        "hit10": true,
+        "rr": 0.3333333333333333
+      },
+      {
+        "id": "B14",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B15",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B16",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B17",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B18",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B19",
+        "set": "B",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0
+      },
+      {
+        "id": "B20",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B21",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B22",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B23",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B24",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "C01",
+        "set": "C",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "C02",
+        "set": "C",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0
+      },
+      {
+        "id": "C03",
+        "set": "C",
+        "hit1": false,
+        "hit10": true,
+        "rr": 0.3333333333333333
+      },
+      {
+        "id": "C04",
+        "set": "C",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "C05",
+        "set": "C",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "C06",
+        "set": "C",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "C07",
+        "set": "C",
+        "hit1": false,
+        "hit10": true,
+        "rr": 0.5
+      },
+      {
+        "id": "C08",
+        "set": "C",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "C09",
+        "set": "C",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "C10",
+        "set": "C",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "D01",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 1,
+        "counts": [
+          10,
+          10
+        ]
+      },
+      {
+        "id": "D02",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 1,
+        "counts": [
+          10,
+          10
+        ]
+      },
+      {
+        "id": "D03",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 1,
+        "counts": [
+          10,
+          10
+        ]
+      },
+      {
+        "id": "D04",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 1,
+        "counts": [
+          10,
+          10
+        ]
+      },
+      {
+        "id": "D05",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 1,
+        "counts": [
+          10,
+          10
+        ]
+      },
+      {
+        "id": "D06",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 1,
+        "counts": [
+          10,
+          10
+        ]
+      },
+      {
+        "id": "D07",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 1,
+        "counts": [
+          10,
+          10
+        ]
+      },
+      {
+        "id": "D08",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 1,
+        "counts": [
+          10,
+          10
+        ]
+      },
+      {
+        "id": "D09",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 1,
+        "counts": [
+          10,
+          10
+        ]
+      }
+    ],
+    "vector": [
+      {
+        "id": "B01",
+        "set": "B",
+        "hit1": false,
+        "hit10": true,
+        "rr": 0.16666666666666666
+      },
+      {
+        "id": "B02",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B03",
+        "set": "B",
+        "hit1": false,
+        "hit10": true,
+        "rr": 0.1
+      },
+      {
+        "id": "B04",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B05",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B06",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B07",
+        "set": "B",
+        "hit1": false,
+        "hit10": true,
+        "rr": 0.3333333333333333
+      },
+      {
+        "id": "B08",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B09",
+        "set": "B",
+        "hit1": false,
+        "hit10": true,
+        "rr": 0.5
+      },
+      {
+        "id": "B10",
+        "set": "B",
+        "hit1": false,
+        "hit10": true,
+        "rr": 0.25
+      },
+      {
+        "id": "B11",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B12",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B13",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B14",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B15",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B16",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B17",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B18",
+        "set": "B",
+        "hit1": false,
+        "hit10": true,
+        "rr": 0.5
+      },
+      {
+        "id": "B19",
+        "set": "B",
+        "hit1": false,
+        "hit10": true,
+        "rr": 0.3333333333333333
+      },
+      {
+        "id": "B20",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B21",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B22",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B23",
+        "set": "B",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "B24",
+        "set": "B",
+        "hit1": false,
+        "hit10": true,
+        "rr": 0.1111111111111111
+      },
+      {
+        "id": "C01",
+        "set": "C",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "C02",
+        "set": "C",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "C03",
+        "set": "C",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "C04",
+        "set": "C",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "C05",
+        "set": "C",
+        "hit1": false,
+        "hit10": true,
+        "rr": 0.3333333333333333
+      },
+      {
+        "id": "C06",
+        "set": "C",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "C07",
+        "set": "C",
+        "hit1": false,
+        "hit10": true,
+        "rr": 0.5
+      },
+      {
+        "id": "C08",
+        "set": "C",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "C09",
+        "set": "C",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "C10",
+        "set": "C",
+        "hit1": true,
+        "hit10": true,
+        "rr": 1
+      },
+      {
+        "id": "D01",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 0.3333333333333333,
+        "counts": [
+          10,
+          10
+        ]
+      },
+      {
+        "id": "D02",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 0.3333333333333333,
+        "counts": [
+          10,
+          10
+        ]
+      },
+      {
+        "id": "D03",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 0.3333333333333333,
+        "counts": [
+          10,
+          10
+        ]
+      },
+      {
+        "id": "D04",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 0.42857142857142855,
+        "counts": [
+          10,
+          10
+        ]
+      },
+      {
+        "id": "D05",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 0.17647058823529413,
+        "counts": [
+          10,
+          10
+        ]
+      },
+      {
+        "id": "D06",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 0.17647058823529413,
+        "counts": [
+          10,
+          10
+        ]
+      },
+      {
+        "id": "D07",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 0.3333333333333333,
+        "counts": [
+          10,
+          10
+        ]
+      },
+      {
+        "id": "D08",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 0.42857142857142855,
+        "counts": [
+          10,
+          10
+        ]
+      },
+      {
+        "id": "D09",
+        "set": "D",
+        "hit1": false,
+        "hit10": false,
+        "rr": 0,
+        "agreement": 0.25,
+        "counts": [
+          10,
+          10
+        ]
+      }
+    ]
+  }
+}

@@ -90,7 +90,8 @@
     "release": "node scripts/release.mjs patch",
     "release:patch": "node scripts/release.mjs patch",
     "release:minor": "node scripts/release.mjs minor",
-    "release:major": "node scripts/release.mjs major"
+    "release:major": "node scripts/release.mjs major",
+    "eval:memory": "node --import tsx evals/memory/run.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
