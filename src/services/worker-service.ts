@@ -354,7 +354,7 @@ export class WorkerService implements WorkerRef {
 
   private registerRoutes(): void {
 
-    this.server.registerRoutes(new ChromaRoutes());
+    this.server.registerRoutes(new ChromaRoutes(this.dbManager));
 
     this.server.app.get('/api/context/inject', async (req, res, next) => {
       if (!this.initializationCompleteFlag || !this.searchRoutes) {

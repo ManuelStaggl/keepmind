@@ -18,6 +18,25 @@
 // question about the subject matter, not about the structure, and a tool that
 // answers it is inventing a relation — which is the one thing A2 forbids. The
 // tool lays candidates out; a person decides.
+//
+// ALSO NOT HERE, AND MEASURED RATHER THAN ASSUMED: "a control file declares a
+// relation that the record itself does not carry". It was requested with one
+// named example — an index reading "0035 schränkt 0005 ein" where record 0035
+// did not mention 0005. Two things killed it:
+//
+//   The example no longer exists. In the corpus delivered a day later, record
+//   0035 carries that relation itself, at line 4. The check would have found
+//   nothing it was asked to find.
+//
+//   Deciding which file "belongs to" a record needs a filename heuristic, and
+//   that makes one side of the comparison a guess rather than a calculation —
+//   the exact thing the design rule above forbids. Implemented anyway and run
+//   over the real corpus, it produced 20 findings, of which the visible ones
+//   were artefacts of that heuristic: `based_on` edges are declared by their
+//   TARGET record, so every one of them looks unbacked.
+//
+// A control file naming a relation nothing else carries is also not an error.
+// It is the reason control files are read at all.
 
 export interface GraphEdge {
   from: string;
