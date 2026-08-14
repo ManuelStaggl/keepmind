@@ -48,6 +48,7 @@ ${pc.bold('Runtime Commands')} (requires Bun, delegates to installed plugin):
   ${pc.cyan('npx keepmind akten:import <dir>…')}   Import curated decision records verbatim — no model involved ${pc.dim('--project <name> --dry-run --json')}
   ${pc.cyan('npx keepmind akten:check <dir>…')}    Report structural contradictions; exits non-zero. For pre-commit ${pc.dim('--json')}
   ${pc.cyan('npx keepmind curated:import')}        Import the configured curated source set — records AND work items ${pc.dim('--dry-run --json')}
+  ${pc.cyan('npx keepmind curated:alter')}         Which decisions have the most happened around since they were written ${pc.dim('--limit --all --json')}
   ${pc.cyan('npx keepmind migrate --purge --yes')}    Import, then remove claude-mem entirely (archives it first; requires a verified-complete migration)
   ${pc.cyan('npx keepmind transcript watch')}     Start transcript watcher
 
@@ -190,6 +191,12 @@ async function main(): Promise<void> {
     case 'curated:import': {
       const { runCuratedImportCommand, parseCuratedImportOptions } = await import('./commands/curated.js');
       await runCuratedImportCommand(parseCuratedImportOptions(args.slice(1)));
+      break;
+    }
+
+    case 'curated:alter': {
+      const { runAlterCommand, parseAlterOptions } = await import('./commands/alter.js');
+      await runAlterCommand(parseAlterOptions(args.slice(1)));
       break;
     }
 

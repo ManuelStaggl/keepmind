@@ -172,8 +172,25 @@ export async function runCuratedImportCommand(options: CuratedImportOptions): Pr
     }
   }
 
+  // Close the validity window of every record a later one supersedes. This
+  // runs after ALL sources, because an edge routinely lives in a different
+  // directory than the record it retires — a control file declaring two
+  // records obsolete is the measured case.
+  let supersession: Awaited<ReturnType<typeof applySupersessionsSafely>> = null;
+  if (!options.dryRun) {
+    supersession = await applySupersessionsSafely(store, project, nowEpoch);
+  }
+
+  // Ask the worker to index what we just wrote. This process writes rows
+  // directly and enqueues nothing — that is what keeps a curated record away
+  // from a model — so nothing else tells the worker the rows exist, and their
+  // embeddings would otherwise appear only at the next periodic pass. Measured
+  // straight after an import: semantic search returned nothing for the new
+  // rows and reported no error.
+  const indexed = options.dryRun ? null : await requestBackfill(project);
+
   if (options.json) {
-    console.log(JSON.stringify({ project, origin, dryRun: options.dryRun, sources: summary }, null, 2));
+    console.log(JSON.stringify({ project, origin, dryRun: options.dryRun, sources: summary, supersession, indexed }, null, 2));
     if (failedTotal > 0) process.exitCode = 1;
     return;
   }
@@ -217,5 +234,83 @@ export async function runCuratedImportCommand(options: CuratedImportOptions): Pr
     console.log('');
   }
 
+  if (supersession) {
+    console.log(`  Supersession: ${supersession.closed.length} record(s) retired by ${supersession.edgesApplied} edge(s), ${supersession.reopened} window(s) reopened.`);
+    // Uncertain edges are listed, never applied. A wrongly retired record is
+    // invisible, and invisible is the one failure nobody notices.
+    if (supersession.uncertain.length > 0) {
+      console.log(`    ${supersession.uncertain.length} uncertain supersession(s) NOT applied — decide by hand:`);
+      for (const item of supersession.uncertain) {
+        console.log(`        ${item.from} → ${item.to}  ${item.sourcePath}:${item.sourceLine}`);
+      }
+    }
+    if (supersession.unknownTargets.length > 0) {
+      console.log(`    ${supersession.unknownTargets.length} edge(s) name a record with no row:`);
+      for (const item of supersession.unknownTargets) {
+        console.log(`        ${item.from} → ${item.to}  ${item.sourcePath}:${item.sourceLine}`);
+      }
+    }
+    console.log('');
+  }
+
+  if (indexed?.indexed) {
+    console.log('  Semantic index updated.\n');
+  } else if (indexed) {
+    // Never silent. Without this line an import looks complete while semantic
+    // search is still blind to every row it just wrote.
+    console.log(`  ⚠ Semantic index NOT updated: ${indexed.reason}`);
+    console.log('    Keyword search works now; semantic search follows at the worker\'s next pass.\n');
+  }
+
   if (failedTotal > 0) process.exitCode = 1;
+}
+
+/**
+ * Apply supersessions, reporting rather than failing when the schema is older
+ * than the feature. The import already succeeded at this point; refusing to
+ * return would throw away a completed import over a bookkeeping step.
+ */
+async function applySupersessionsSafely(store: unknown, project: string, nowEpoch: number) {
+  try {
+    const { applySupersessions } = await import('../../services/curated/supersession.js');
+    const db = (store as { db: Parameters<typeof applySupersessions>[0] }).db;
+    return applySupersessions(db, project, nowEpoch);
+  } catch (error) {
+    console.error(`  ⚠ Supersession step failed: ${error instanceof Error ? error.message : error}`);
+    return null;
+  }
+}
+
+/**
+ * Ask the running worker to index the project.
+ *
+ * A missing worker is a normal state for a CLI command, not a failure — the
+ * import already succeeded. It is reported rather than swallowed, because the
+ * difference between "indexed" and "indexed later" is the difference between
+ * semantic search working and silently returning nothing.
+ */
+async function requestBackfill(project: string): Promise<{ indexed: boolean; reason?: string }> {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { homedir } = await import('node:os');
+
+  let port: string;
+  try {
+    port = readFileSync(join(homedir(), '.keepmind', 'worker.port'), 'utf8').trim();
+  } catch {
+    return { indexed: false, reason: 'no running worker (worker.port not found)' };
+  }
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/chroma/backfill`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ project }),
+    });
+    if (!response.ok) return { indexed: false, reason: `worker replied ${response.status}` };
+    const body = await response.json() as { indexed?: boolean; reason?: string };
+    return { indexed: body.indexed === true, reason: body.reason ?? 'worker declined' };
+  } catch (error) {
+    return { indexed: false, reason: `worker unreachable — ${error instanceof Error ? error.message : error}` };
+  }
 }
