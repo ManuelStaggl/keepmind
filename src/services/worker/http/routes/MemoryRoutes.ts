@@ -44,8 +44,32 @@ export class MemoryRoutes extends BaseRouteHandler {
 
     try {
       const result = sessionStore.deleteObservationsByProject(project, { dryRun: dryRun === true });
-      logger.info('HTTP', 'delete-by-project', result);
-      res.json({ success: true, ...result });
+
+      // Vectors live in their own database, so deleting the rows leaves every
+      // embedding behind — pointing at ids that no longer exist. Measured
+      // after two delete-and-reimport cycles: 459 orphaned vectors for one
+      // project and not a single live row with an embedding, because the
+      // orphans still answered the KNN query and hydrating their ids produced
+      // nothing. Semantic search for that project went silently blind while
+      // reporting no error at all.
+      //
+      // Retention already knows how to drop a project's vectors; it was simply
+      // never asked to here.
+      let vectorsDeleted = 0;
+      if (!dryRun) {
+        try {
+          const { SqliteVecManager } = await import('../../../vector/SqliteVecManager.js');
+          vectorsDeleted = SqliteVecManager.instance().deleteByProject(project);
+        } catch (error) {
+          // Reported, not fatal: the rows are already gone, and a delete that
+          // half-succeeded must say so rather than claim success.
+          logger.warn('HTTP', 'delete-by-project: vectors could not be removed', { project }, error instanceof Error ? error : undefined);
+        }
+      }
+
+      const payload = { ...result, vectorsDeleted };
+      logger.info('HTTP', 'delete-by-project', payload);
+      res.json({ success: true, ...payload });
     } catch (error) {
       res.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }

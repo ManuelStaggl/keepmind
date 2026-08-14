@@ -2971,7 +2971,7 @@ export class SessionStore {
   deleteObservationsByProject(
     project: string,
     options: { dryRun?: boolean } = {}
-  ): { project: string; dryRun: boolean; observationsDeleted: number; summariesDeleted: number } {
+  ): { project: string; dryRun: boolean; observationsDeleted: number; summariesDeleted: number; edgesDeleted: number } {
     const p = (project ?? '').trim();
     if (p === '' || p === '*') {
       throw new Error(`deleteObservationsByProject: refusing unsafe project '${project}'`);
@@ -2980,13 +2980,27 @@ export class SessionStore {
     const obsCount = (this.db.prepare('SELECT count(*) AS c FROM observations WHERE project = ?').get(p) as { c: number }).c;
     const sumCount = (this.db.prepare('SELECT count(*) AS c FROM session_summaries WHERE project = ?').get(p) as { c: number }).c;
 
+    // Declared relations belong to the project too, and nothing else removes
+    // them. Clearing a project and re-importing it used to leave every edge
+    // from the previous import in place, still pointing at source files that
+    // no longer exist — 197 of them, indistinguishable from live ones except
+    // by their paths, and counted in every total. An orphaned edge is worse
+    // than a missing one: it asserts a relation nobody can check.
+    const hasEdges = (this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='decision_edges'")
+      .all() as { name: string }[]).length > 0;
+    const edgeCount = hasEdges
+      ? (this.db.prepare('SELECT count(*) AS c FROM decision_edges WHERE project = ?').get(p) as { c: number }).c
+      : 0;
+
     if (options.dryRun) {
-      return { project: p, dryRun: true, observationsDeleted: obsCount, summariesDeleted: sumCount };
+      return { project: p, dryRun: true, observationsDeleted: obsCount, summariesDeleted: sumCount, edgesDeleted: edgeCount };
     }
 
     const tx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM observations WHERE project = ?').run(p);
       this.db.prepare('DELETE FROM session_summaries WHERE project = ?').run(p);
+      if (edgeCount > 0) this.db.prepare('DELETE FROM decision_edges WHERE project = ?').run(p);
     });
     tx();
 
@@ -3001,8 +3015,8 @@ export class SessionStore {
       logger.warn('DB', 'observations_fts rebuild after project delete failed', { project: p }, error instanceof Error ? error : new Error(String(error)));
     }
 
-    logger.info('DB', 'Deleted observations by project', { project: p, observationsDeleted: obsCount, summariesDeleted: sumCount });
-    return { project: p, dryRun: false, observationsDeleted: obsCount, summariesDeleted: sumCount };
+    logger.info('DB', 'Deleted observations by project', { project: p, observationsDeleted: obsCount, summariesDeleted: sumCount, edgesDeleted: edgeCount });
+    return { project: p, dryRun: false, observationsDeleted: obsCount, summariesDeleted: sumCount, edgesDeleted: edgeCount };
   }
 
   getSessionSummariesByIds(
