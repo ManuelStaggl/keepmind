@@ -62,6 +62,90 @@ function usage(): string {
   ].join('\n');
 }
 
+/**
+ * `keepmind akten:check` — report structural contradictions, exit non-zero.
+ *
+ * A command rather than a hook on save, because keepmind has no hook there: it
+ * sees tool use inside a session, not the moment an editor writes a file or a
+ * commit is made. A system that claims to report "on save" but only manages it
+ * sometimes is worse than one that honestly reports on demand — you would
+ * start trusting its silence.
+ *
+ * As a pre-commit step it runs demonstrably on every commit, its silence means
+ * something, and it can stop the commit. A message in a chat session can do
+ * none of those.
+ */
+export async function runAktenCheckCommand(options: AktenImportOptions): Promise<void> {
+  if (options.directories.length === 0) {
+    console.log('Usage: keepmind akten:check <directory> [<directory>…] [--json]');
+    process.exitCode = 1;
+    return;
+  }
+
+  const { parseAkte } = await import('../../services/curated/akten-parser.js');
+  const { extractEdges, extractEdgesFromControlFile } = await import('../../services/curated/edge-reader.js');
+  const { checkContradictions, currentRecords } = await import('../../services/curated/contradiction-check.js');
+  const { readdirSync, readFileSync, statSync: stat } = await import('node:fs');
+  const { join } = await import('node:path');
+
+  const edges: Parameters<typeof checkContradictions>[0] = [];
+  const records: Parameters<typeof checkContradictions>[1] = [];
+
+  for (const directory of options.directories) {
+    const absolute = resolve(directory);
+    if (!existsSync(absolute) || !stat(absolute).isDirectory()) {
+      console.error(`Not a directory: ${absolute}`);
+      process.exitCode = 1;
+      return;
+    }
+    for (const entry of readdirSync(absolute).sort()) {
+      if (!entry.toLowerCase().endsWith('.md')) continue;
+      const file = join(absolute, entry);
+      if (stat(file).isDirectory()) continue;
+      const content = readFileSync(file, 'utf8');
+      const parsed = parseAkte(content);
+      if (parsed.id) {
+        records.push({ id: parsed.id, status: parsed.status, sourcePath: file, sourceLine: parsed.headingLine });
+        edges.push(...extractEdges(parsed, file).edges);
+      } else {
+        // Not a record, still a source of relations.
+        edges.push(...extractEdgesFromControlFile(content, file).edges);
+      }
+    }
+  }
+
+  const findings = checkContradictions(edges, records);
+  const current = currentRecords(edges, records);
+
+  if (options.json) {
+    console.log(JSON.stringify({ records: records.length, edges: edges.length, current: current.length, findings }, null, 2));
+    if (findings.length > 0) process.exitCode = 1;
+    return;
+  }
+
+  console.log(`${records.length} record(s), ${edges.length} declared relation(s), ${current.length} still in force.`);
+
+  if (findings.length === 0) {
+    // Saying this out loud matters: the value of this check is its silence,
+    // and silence you cannot distinguish from "did not run" is worth nothing.
+    console.log('No structural contradictions found.');
+    return;
+  }
+
+  console.log(`\n${findings.length} contradiction(s):`);
+  for (const finding of findings) {
+    console.log(`\n  [${finding.kind} · ${finding.certainty}] ${finding.summary}`);
+    for (const citation of finding.citations) {
+      console.log(`      ${citation.path}:${citation.line}`);
+      console.log(`        ${citation.text}`);
+    }
+  }
+  console.log('\nStructural findings only. Whether two records that both apply say');
+  console.log('incompatible things is a question about the subject matter, and this');
+  console.log('command deliberately does not answer it.');
+  process.exitCode = 1;
+}
+
 export async function runAktenImportCommand(options: AktenImportOptions): Promise<void> {
   if (options.directories.length === 0) {
     console.log(usage());

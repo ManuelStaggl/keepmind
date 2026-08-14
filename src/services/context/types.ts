@@ -27,6 +27,21 @@ export interface ContextConfig {
   fullObservationField: 'narrative' | 'facts';
   showLastSummary: boolean;
   showLastMessage: boolean;
+
+  /**
+   * Which source kind may be injected.
+   *
+   *   'all'      — both (default, and what every install did before this)
+   *   'curated'  — only records imported verbatim from files the user owns
+   *   'observed' — only what the observer produced
+   *
+   * This is the whole of the origin filter: once curated content is its own
+   * source kind, separating the two is a WHERE clause. The expensive version
+   * of this idea — asking, per observation, whether a curated equivalent
+   * exists — needs a similarity comparison at injection time, which is
+   * precisely the fuzzy matching the decision graph exists to avoid.
+   */
+  injectSourceKind: 'all' | 'curated' | 'observed';
 }
 
 export interface Observation {

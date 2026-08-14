@@ -87,6 +87,7 @@ export function checkContradictions(
   const findings: Finding[] = [];
   const byId = new Map(records.map(r => [r.id, r]));
 
+
   // --- 1. the same relation asserted in both directions -------------------
   //
   // Both sides come from the graph, so this is a calculation against a

@@ -46,6 +46,7 @@ ${pc.bold('Runtime Commands')} (requires Bun, delegates to installed plugin):
   ${pc.cyan('npx keepmind cleanup [--dry-run]')}    Run one-time v12.4.3 pollution cleanup (or preview counts)
   ${pc.cyan('npx keepmind migrate [--from <dir>] [--dry-run]')}    Import an existing claude-mem database (lossless, non-destructive)
   ${pc.cyan('npx keepmind akten:import <dir>…')}   Import curated decision records verbatim — no model involved ${pc.dim('--project <name> --dry-run --json')}
+  ${pc.cyan('npx keepmind akten:check <dir>…')}    Report structural contradictions; exits non-zero. For pre-commit ${pc.dim('--json')}
   ${pc.cyan('npx keepmind migrate --purge --yes')}    Import, then remove claude-mem entirely (archives it first; requires a verified-complete migration)
   ${pc.cyan('npx keepmind transcript watch')}     Start transcript watcher
 
@@ -176,6 +177,12 @@ async function main(): Promise<void> {
     case 'akten:import': {
       const { runAktenImportCommand, parseAktenImportOptions } = await import('./commands/akten.js');
       await runAktenImportCommand(parseAktenImportOptions(args.slice(1)));
+      break;
+    }
+
+    case 'akten:check': {
+      const { runAktenCheckCommand, parseAktenImportOptions } = await import('./commands/akten.js');
+      await runAktenCheckCommand(parseAktenImportOptions(args.slice(1)));
       break;
     }
 

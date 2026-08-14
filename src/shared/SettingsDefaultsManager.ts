@@ -70,6 +70,14 @@ export interface SettingsDefaults {
   KEEPMIND_SESSION_START_MAX_CHARS: string;
   KEEPMIND_CONTEXT_SHOW_LAST_SUMMARY: string;
   KEEPMIND_CONTEXT_SHOW_LAST_MESSAGE: string;
+  /**
+   * Which source kind SessionStart may inject: 'all' (default), 'curated' or
+   * 'observed'. This is the whole of the origin filter — once curated content
+   * is its own source kind, separating the two is a WHERE clause rather than a
+   * project. Unknown values fall back to 'all': the alternative failure is an
+   * empty injection block, which reads exactly like "there was nothing to say".
+   */
+  KEEPMIND_INJECT_SOURCE_KIND: string;
   KEEPMIND_CONTEXT_SHOW_TERMINAL_OUTPUT: string;
   KEEPMIND_WELCOME_HINT_ENABLED: string;
   /** Proactive in-session notice when a newer keepmind is published to npm. 'true' (default) shows a one-line SessionStart hint; 'false' disables both the notice and the background npm check. */
@@ -182,6 +190,7 @@ export class SettingsDefaultsManager {
     KEEPMIND_SESSION_START_MAX_CHARS: '4500',  // ~1.1k tokens — the measured size of today's injection, which is the part that demonstrably works.
     KEEPMIND_CONTEXT_SHOW_LAST_SUMMARY: 'true',
     KEEPMIND_CONTEXT_SHOW_LAST_MESSAGE: 'false',
+    KEEPMIND_INJECT_SOURCE_KIND: 'all',  // A9 origin filter: 'all' | 'curated' | 'observed'.
     KEEPMIND_CONTEXT_SHOW_TERMINAL_OUTPUT: 'true',
     KEEPMIND_WELCOME_HINT_ENABLED: 'true',
     KEEPMIND_UPDATE_CHECK_ENABLED: 'true',  // proactive in-session "update available" notice (+ background npm check). 'false' disables both.
