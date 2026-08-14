@@ -30,6 +30,16 @@ interface FileContextConfig {
   minBytes: number;
   maxRows: number;
   minScore: number;
+  /**
+   * Whether `smart_outline` is actually in the caller's tool listing.
+   *
+   * This block is injected on nearly every Read and used to name the tool
+   * unconditionally. Since KEEPMIND_MCP_SMART_TOOLS defaults to 'false', that
+   * turned the most frequent hint in the system into a pointer at a tool the
+   * model cannot see — the failure lands on the follow-up call, not here.
+   * Mirrors `enabledGroups()` in the MCP server: only the literal 'true'.
+   */
+  smartToolsListed: boolean;
 }
 
 function readFileContextConfig(): FileContextConfig {
@@ -44,6 +54,7 @@ function readFileContextConfig(): FileContextConfig {
     minBytes: num(settings.KEEPMIND_FILE_CONTEXT_MIN_BYTES, 1_500),
     maxRows: Math.max(1, num(settings.KEEPMIND_FILE_CONTEXT_MAX_ROWS, 3)),
     minScore: num(settings.KEEPMIND_FILE_CONTEXT_MIN_SCORE, 2),
+    smartToolsListed: String(settings.KEEPMIND_MCP_SMART_TOOLS ?? '').trim().toLowerCase() === 'true',
   };
 }
 
@@ -125,7 +136,8 @@ function deduplicateObservations(
 
 function formatFileTimeline(
   observations: ObservationRow[],
-  filePath: string
+  filePath: string,
+  smartToolsListed: boolean
 ): string {
   const safePath = filePath.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
   const byDay = new Map<string, ObservationRow[]>();
@@ -156,10 +168,13 @@ function formatFileTimeline(
   // tracked Read, so trimming the fixed header ~60-80 tokens/read adds up to
   // thousands of tokens over a session (see perf plan T1). Keeps the two facts
   // that matter: the Read result below is complete (not truncated by us), and
-  // the two follow-up affordances.
+  // the follow-up affordances that are actually available.
+  const structureHint = smartToolsListed
+    ? ` · structure: smart_outline("${safePath}")`
+    : '';
   const lines: string[] = [
     `Current: ${currentDate} ${currentTime} ${currentTimezone}`,
-    `Prior observations for this file (the Read result below is complete). Detail: get_observations([IDs]) · structure: smart_outline("${safePath}").`,
+    `Prior observations for this file (the Read result below is complete). Detail: get_observations([IDs])${structureHint}.`,
   ];
 
   for (const [day, dayObservations] of sortedDays) {
@@ -192,7 +207,10 @@ export const fileContextHandler: EventHandler = {
       logger.debug('HOOK', 'File context config read failed, using defaults', {
         error: error instanceof Error ? error.message : String(error),
       });
-      config = { enabled: true, minBytes: 1_500, maxRows: 3, minScore: 2 };
+      // smartToolsListed defaults to false here for the same reason the setting
+      // itself does: if we cannot read the settings we cannot know the tool is
+      // registered, and a hint at an absent tool is worse than no hint.
+      config = { enabled: true, minBytes: 1_500, maxRows: 3, minScore: 2, smartToolsListed: false };
     }
     if (!config.enabled) {
       return { continue: true, suppressOutput: true };
@@ -334,5 +352,5 @@ async function buildFileContextTimeline(
     return null;
   }
 
-  return formatFileTimeline(dedupedObservations, filePath);
+  return formatFileTimeline(dedupedObservations, filePath, config.smartToolsListed);
 }

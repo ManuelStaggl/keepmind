@@ -5,19 +5,19 @@ description: "MCP tools with 3-layer workflow for token-efficient memory retriev
 
 # Search Architecture
 
-keepmind uses an **MCP-based search architecture** that provides intelligent memory retrieval through 4 streamlined tools following a 3-layer workflow pattern.
+keepmind uses an **MCP-based search architecture** that provides intelligent memory retrieval through 3 streamlined tools following a 3-layer workflow pattern.
 
 ## Overview
 
 **Architecture**: MCP Tools → MCP Protocol → HTTP API → Worker Service
 
 **Key Components**:
-1. **MCP Tools** (4 tools) - `search`, `timeline`, `get_observations`, `important_workflow`
+1. **MCP Tools** (3 tools) - `search`, `timeline`, `get_observations`
 2. **MCP Server** (`plugin/scripts/mcp-server.cjs`) - Thin wrapper over HTTP API
 3. **HTTP API Endpoints** - Fast search operations on Worker Service (port 37777)
 4. **Worker Service** - Express.js server with FTS5 full-text search
 5. **SQLite Database** - Persistent storage with FTS5 virtual tables
-6. **Chroma Vector DB** - Semantic search with hybrid retrieval
+6. **In-process vector search** - `sqlite-vec` inside the same database, no separate service
 
 **Token Efficiency**: ~10x savings through 3-layer workflow pattern
 
@@ -25,7 +25,7 @@ keepmind uses an **MCP-based search architecture** that provides intelligent mem
 
 ### 1. User Query
 
-Claude has access to 4 MCP tools. When searching memory, Claude follows the 3-layer workflow:
+Claude has access to 3 MCP tools. When searching memory, Claude follows the 3-layer workflow:
 
 ```
 Step 1: search(query="authentication bug", type="bugfix", limit=10)
@@ -91,22 +91,12 @@ Claude reviews the index, decides which observations are relevant, and can:
 - Use `timeline` to get context
 - Use `get_observations` to fetch full details for selected IDs
 
-## The 4 MCP Tools
+## The 3 MCP Tools
 
-### `important_workflow` - Workflow Documentation
-
-Always visible to Claude. Explains the 3-layer workflow pattern.
-
-**Description:**
-```
-3-LAYER WORKFLOW (ALWAYS FOLLOW):
-1. search(query) → Get index with IDs (~50-100 tokens/result)
-2. timeline(anchor=ID) → Get context around interesting results
-3. get_observations([IDs]) → Fetch full details ONLY for filtered IDs
-NEVER fetch full details without filtering first. 10x token savings.
-```
-
-**Purpose:** Ensures Claude follows token-efficient pattern
+The 3-layer workflow used to be a fourth tool of its own (`important_workflow`).
+It is now carried in the description of `search`, where the sequence starts — as
+a separate entry it spent 396 characters of every session's tool listing to say
+what 298 characters say here.
 
 ### `search` - Search Memory Index
 
@@ -114,7 +104,12 @@ NEVER fetch full details without filtering first. 10x token savings.
 ```typescript
 {
   name: 'search',
-  description: 'Step 1: Search memory. Returns index with IDs. Params: query, limit, project, type, obs_type, dateStart, dateEnd, offset, orderBy',
+  description: `Step 1 of 3. Search memory, returns an index with IDs. Params: query, limit, project, platformSource, type, obs_type, dateStart, dateEnd, offset, orderBy.
+ALWAYS follow the three-layer sequence:
+1. search(query) → index with IDs (~50-100 tokens/result)
+2. timeline(anchor=ID) → context around the interesting ones
+3. get_observations([IDs]) → full detail ONLY for the IDs you kept
+Never call get_observations without narrowing first — that is the 10x difference.`,
   inputSchema: {
     type: 'object',
     properties: {},
@@ -326,7 +321,7 @@ Total: 2,500-5,000 tokens (50-75% savings)
 
 **Code Size:** ~2,718 lines in mcp-server.ts
 
-### After: Streamlined MCP Implementation
+### Then: Streamlined MCP Implementation
 
 **Approach:** 4 MCP tools following 3-layer workflow
 
@@ -347,15 +342,36 @@ Total: 2,500-5,000 tokens (50-75% savings)
 
 **Code Size:** ~312 lines in mcp-server.ts (88% reduction)
 
+### Now: The Listing Itself Is the Cost
+
+The count kept growing again — smart tools, corpus tools, and a second set bound
+to the server runtime — until the listing was **13,003 characters** paid on every
+turn, whether or not anything called them.
+
+**Approach:** the listing is filtered twice before it is sent.
+
+- **By runtime.** Only one backend is ever selected, so the tools bound to the
+  other one can do nothing but explain that they are unavailable.
+- **By group.** `KEEPMIND_MCP_SMART_TOOLS` and `KEEPMIND_MCP_CORPUS_TOOLS` are
+  both `false` by default; see [Configuration](/configuration).
+- **`important_workflow` folded into `search`**, where the sequence starts.
+
+**Result:** a default worker install lists 5 tools in **3,954 characters** —
+about 2,510 tokens per session less than before.
+
+Dispatch is deliberately *not* filtered. A client holding a stale listing still
+reaches the handler, which names the setting to change, instead of getting a
+bare `Unknown tool`.
+
 ### Key Insight
 
 **Before:** Progressive disclosure was something Claude had to remember
 
-**After:** Progressive disclosure is enforced by tool design itself
+**Now:** Progressive disclosure is enforced by tool design itself
 
 The 3-layer workflow pattern makes it structurally difficult to waste tokens:
 - Can't fetch details without first getting IDs from search
-- Can't search without seeing workflow reminder (`important_workflow`)
+- Can't search without reading the sequence — it is the description of `search`
 - Timeline provides middle ground between index and full details
 
 ## Configuration

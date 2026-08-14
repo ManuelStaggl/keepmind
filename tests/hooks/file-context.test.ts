@@ -20,6 +20,26 @@ const realWorkerUtilsSnapshot = { ...realWorkerUtils };
 const realProjectNameSnapshot = { ...realProjectName };
 const realProjectFilterSnapshot = { ...realProjectFilter };
 
+// Mutable so a single test can flip one key without re-registering the module
+// (mock.module is process-global and sticky — see the note above).
+//
+// This alone is NOT enough: CI runs the suite under Node through
+// tests/bun-test-shim.ts, where `mock.module` cannot intercept an ESM import,
+// so the REAL SettingsDefaultsManager runs. Tests that need a specific value
+// therefore set the matching env var as well — loadFromFile applies env
+// overrides by default — and setSmartTools() below does both at once.
+let settingsOverride: Record<string, unknown> = {};
+
+function setSmartTools(value: string | undefined): void {
+  if (value === undefined) {
+    settingsOverride = {};
+    delete process.env.KEEPMIND_MCP_SMART_TOOLS;
+    return;
+  }
+  settingsOverride = { KEEPMIND_MCP_SMART_TOOLS: value };
+  process.env.KEEPMIND_MCP_SMART_TOOLS = value;
+}
+
 mock.module('../../src/shared/SettingsDefaultsManager.js', () => ({
   SettingsDefaultsManager: {
     get: (key: string) => {
@@ -27,7 +47,7 @@ mock.module('../../src/shared/SettingsDefaultsManager.js', () => ({
       return '';
     },
     getInt: () => 0,
-    loadFromFile: () => ({ KEEPMIND_EXCLUDED_PROJECTS: [] }),
+    loadFromFile: () => ({ KEEPMIND_EXCLUDED_PROJECTS: [], ...settingsOverride }),
   },
 }));
 
@@ -95,6 +115,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setSmartTools(undefined);
   loggerSpies.forEach(s => s.mockRestore());
   if (fetchSpy) {
     fetchSpy.mockRestore();
@@ -190,6 +211,64 @@ describe('fileContextHandler — #2094 (no Read mutation)', () => {
     expect(result.hookSpecificOutput).toBeDefined();
     expect(result.hookSpecificOutput!.additionalContext).toContain('Prior observations for this file');
     expect((result.hookSpecificOutput as any).updatedInput).toBeUndefined();
+  });
+
+  // This block is injected on nearly every tracked Read, which makes it the
+  // most frequent instruction keepmind emits. KEEPMIND_MCP_SMART_TOOLS defaults
+  // to 'false', so naming smart_outline unconditionally pointed the model at a
+  // tool that is not in its listing — and the failure would land one call later,
+  // where the cause is no longer visible.
+  it('omits the smart_outline hint when the smart tools are not listed', async () => {
+    setSmartTools('false');
+    const future = Date.now() + 60_000;
+    fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(makeObservationsResponse([{ id: 1, created_at_epoch: future }]))
+    );
+
+    const result = await fileContextHandler.execute({
+      sessionId: 'sess',
+      cwd: tmpDir,
+      toolName: 'Read',
+      toolInput: { file_path: testFile },
+    });
+
+    const context = result.hookSpecificOutput!.additionalContext as string;
+    expect(context).toContain('get_observations([IDs])');
+    expect(context).not.toContain('smart_outline');
+  });
+
+  it('names smart_outline once KEEPMIND_MCP_SMART_TOOLS is the literal "true"', async () => {
+    setSmartTools('true');
+    const future = Date.now() + 60_000;
+    fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(makeObservationsResponse([{ id: 1, created_at_epoch: future }]))
+    );
+
+    const result = await fileContextHandler.execute({
+      sessionId: 'sess',
+      cwd: tmpDir,
+      toolName: 'Read',
+      toolInput: { file_path: testFile },
+    });
+
+    expect(result.hookSpecificOutput!.additionalContext).toContain('smart_outline(');
+  });
+
+  it('treats "1" as off, matching enabledGroups() in the MCP server', async () => {
+    setSmartTools('1');
+    const future = Date.now() + 60_000;
+    fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(makeObservationsResponse([{ id: 1, created_at_epoch: future }]))
+    );
+
+    const result = await fileContextHandler.execute({
+      sessionId: 'sess',
+      cwd: tmpDir,
+      toolName: 'Read',
+      toolInput: { file_path: testFile },
+    });
+
+    expect(result.hookSpecificOutput!.additionalContext).not.toContain('smart_outline');
   });
 
   it('header text no longer claims the file was truncated', async () => {

@@ -39,12 +39,7 @@ When the gate fires, Claude sees a message like this:
 
 ```
 Current: 2026-04-07 3:25pm PDT
-Read blocked: This file has prior observations. Choose the cheapest path:
-- Already know enough? The timeline below may be all you need (semantic priming).
-- Need details? get_observations([IDs]) -- ~300 tokens each.
-- Need current code? smart_outline("path") for structure (~1-2k tokens),
-  smart_unfold("path", "<symbol>") for a specific function (~400-2k tokens).
-- Need to edit? Use smart tools for line numbers, then sed via Bash.
+Prior observations for this file (the Read result below is complete). Detail: get_observations([IDs]) · structure: smart_outline("path").
 
 ### Apr 5, 2026
 42301 2:15pm  Fixed database connection pooling
@@ -53,6 +48,17 @@ Read blocked: This file has prior observations. Choose the cheapest path:
 ### Mar 28, 2026
 41890 4:30pm  Added health check endpoint
 ```
+
+The header is one line rather than four on purpose: this block is injected on
+nearly every tracked Read, so 60–80 tokens of fixed preamble is thousands of
+tokens over a session.
+
+<Note>
+  The `structure: smart_outline(...)` half of that line appears **only** when
+  `KEEPMIND_MCP_SMART_TOOLS` is `true`. With the smart tools off — the default —
+  the hint is omitted rather than left pointing at a tool the model cannot see:
+  a suggestion that fails at the follow-up call is worse than no suggestion.
+</Note>
 
 ---
 
@@ -64,7 +70,7 @@ Claude has four options after seeing the timeline, ordered from cheapest to most
 |--------|-----------|-------------|
 | **Semantic priming** | 0 extra | Timeline titles tell Claude enough to proceed |
 | **get_observations([IDs])** | ~300 each | Need specific details from past work |
-| **smart_outline / smart_unfold** | ~1-2k | Need current code structure or a specific function |
+| **smart_outline / smart_unfold** | ~1-2k | Need current code structure or a specific function (requires `KEEPMIND_MCP_SMART_TOOLS=true`) |
 | **Full file read** | 5k-50k | File has changed significantly since observations |
 
 In practice, most file reads resolve at the semantic priming or get_observations level, saving thousands of tokens per interaction.
@@ -83,7 +89,7 @@ This lets Claude reason about how recent the observations are relative to now. F
 
 - **Observations from today** -- likely still accurate, semantic priming is safe
 - **Observations from last week** -- probably accurate, get_observations for details
-- **Observations from months ago** -- file may have changed, consider smart_outline or full read
+- **Observations from months ago** -- file may have changed, consider a full read (or `smart_outline`, if the smart tools are enabled)
 
 The timestamp format matches the session start context header (`YYYY-MM-DD time timezone`), so Claude sees consistent temporal markers throughout its session.
 
