@@ -312,8 +312,58 @@ export function extractEdgesFromControlFile(
   const lines = stripSoftHyphens(content.replace(/\r\n/g, '\n')).split('\n');
 
   for (let index = 0; index < lines.length; index++) {
-    const line = prepare(lines[index]);
+    const rawLine = prepare(lines[index]);
     const lineNumber = index + 1;
+
+    // In a table the context ends at the cell boundary — but a row still has
+    // a structure, and throwing it away costs real edges.
+    //
+    //   | 0124 | Der Sperrsatz aus 0076 fällt … | … 0062 … |
+    //   | 0011 | Regelwerk bekommt Ebenen      | ersetzt 0012 |
+    //
+    // Reading a row as one clause manufactured a supersession between 0076 and
+    // 0062, which the row never relates. Reading the cells as unrelated
+    // fragments then lost the second row entirely — and that one is a genuine
+    // contradiction, the index claiming the reverse of what both records say.
+    //
+    // The row's first cell names the subject; later cells state things about
+    // it. So the subject is carried across the row while the sentence context
+    // stops at each boundary, which keeps the real edge and drops the invented
+    // one. Cell-splitting alone took 32 spurious edges out and one true
+    // finding with them.
+    if (rawLine.includes('|')) {
+      const cells = rawLine.split('|').filter(c => c.trim().length > 0);
+      if (cells.length === 0) continue;
+      const subject = soleReference(cells[0]);
+      for (let cellIndex = subject ? 1 : 0; cellIndex < cells.length; cellIndex++) {
+        // `·` separates statements inside a cell exactly as it does inside a
+        // header. `ersetzt 0072 · Prüfstand 0075` is one relation and one
+        // mention; letting the verb reach across the separator declared 0075
+        // superseded by a cell that only names it.
+        for (const clause of cells[cellIndex].split('·')) {
+          scanControlLine(clause, lineNumber, subject);
+        }
+      }
+      continue;
+    }
+    for (const clause of rawLine.split('·')) {
+      scanControlLine(clause, lineNumber, null);
+    }
+  }
+
+  /** The single record number in a cell, or null when it holds none or many. */
+  function soleReference(cell: string): string | null {
+    REFERENCE.lastIndex = 0;
+    const found: string[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = REFERENCE.exec(cell)) !== null) {
+      if (!isRecordNumber(match[1], match[2]) || (!match[1] && isDatePart(cell, match.index))) continue;
+      found.push(`${match[1] ?? ''}${match[2]}`);
+    }
+    return found.length === 1 ? found[0] : null;
+  }
+
+  function scanControlLine(line: string, lineNumber: number, rowSubject: string | null): void {
     REFERENCE.lastIndex = 0;
     let ref: RegExpExecArray | null;
     const refs: Array<{ id: string; at: number }> = [];
@@ -321,9 +371,35 @@ export function extractEdgesFromControlFile(
       if (!isRecordNumber(ref[1], ref[2]) || (!ref[1] && isDatePart(line, ref.index))) continue;
       refs.push({ id: `${ref[1] ?? ''}${ref[2]}`, at: ref.index });
     }
-    // A control-file edge needs two records in one clause: the file itself is
-    // not a record, so there is no implicit `from`.
-    if (refs.length < 2) continue;
+
+    // A table row supplies its subject from the first cell, so one reference
+    // in a later cell is enough: `| 0011 | … | ersetzt 0012 |`.
+    if (rowSubject && refs.length >= 1) {
+      const relation = matchRelation(line.slice(0, refs[0].at));
+      if (!relation) return;
+      const clause = line.trim();
+      if (negatesRelation(clause)) {
+        rejected.push({ to: refs.map(r => r.id).join(','), reason: 'relation negated', line: lineNumber, rawText: clause });
+        return;
+      }
+      for (const target of refs) {
+        if (target.id === rowSubject) continue;
+        edges.push({
+          from: relation.forward ? rowSubject : target.id,
+          to: relation.forward ? target.id : rowSubject,
+          relation: relation.relation,
+          certainty: 'vermutet',
+          sourcePath,
+          sourceLine: lineNumber,
+          rawText: clause,
+        });
+      }
+      return;
+    }
+
+    // Outside a table there is no implicit subject, so an edge needs both
+    // sides written out in the same clause.
+    if (refs.length < 2) return;
 
     // A record states its relations with itself as the implicit subject
     // ("löst 0093 ab"), so the verb comes first. A control file writes the
@@ -337,16 +413,16 @@ export function extractEdgesFromControlFile(
       const found = matchRelation(line.slice(0, candidate.at));
       if (found) { relation = found; split = candidate.at; break; }
     }
-    if (!relation || split < 0) continue;
+    if (!relation || split < 0) return;
 
     const subjects = refs.filter(r => r.at < split);
     const targets = refs.filter(r => r.at >= split);
-    if (subjects.length === 0 || targets.length === 0) continue;
+    if (subjects.length === 0 || targets.length === 0) return;
 
     const clause = line.trim();
     if (negatesRelation(clause)) {
       rejected.push({ to: targets.map(r => r.id).join(','), reason: 'relation negated', line: lineNumber, rawText: clause });
-      continue;
+      return;
     }
 
     // The last subject before the verb is the one it belongs to.
