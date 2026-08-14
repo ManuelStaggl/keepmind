@@ -13,6 +13,7 @@ import { sessionAcquireHandler } from './session-acquire.js';
 import { sessionReleaseHandler } from './session-release.js';
 import { sessionStartHandler } from './session-start.js';
 import { precompactHandler } from './precompact.js';
+import { decisionCheckHandler } from './decision-check.js';
 
 export type EventType =
   | 'context'
@@ -25,7 +26,8 @@ export type EventType =
   | 'file-context'
   | 'session-acquire'
   | 'session-release'
-  | 'precompact';
+  | 'precompact'
+  | 'decision-check';
 
 const handlers: Record<EventType, EventHandler> = {
   'context': contextHandler,
@@ -40,7 +42,8 @@ const handlers: Record<EventType, EventHandler> = {
   'file-context': fileContextHandler,
   'session-acquire': sessionAcquireHandler,
   'session-release': sessionReleaseHandler,
-  'precompact': precompactHandler
+  'precompact': precompactHandler,
+  'decision-check': decisionCheckHandler
 };
 
 export function getEventHandler(eventType: string): EventHandler {

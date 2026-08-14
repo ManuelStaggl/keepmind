@@ -107,6 +107,11 @@ function shellTemplateManifest(buildShellCommand) {
         'UserPromptSubmit.0.0': claudeHook(['hook', 'claude-code', 'session-init']),
         'PostToolUse.0.0': claudeHook(['hook', 'claude-code', 'observation']),
         'PreToolUse.0.0': claudeHook(['hook', 'claude-code', 'file-context']),
+        // A second PreToolUse group, matched on AskUserQuestion only. It costs a
+        // Node cold start per group, which is why the file asserts every entry
+        // is deliberate — this one fires only when a question goes to a person,
+        // which is rare and is the single most expensive thing to get wrong.
+        'PreToolUse.1.0': claudeHook(['hook', 'claude-code', 'decision-check']),
         'Stop.0.0': claudeHook(['hook', 'claude-code', 'summarize']),
         // NOTE: no SessionEnd hook. Claude Code SIGTERMs (cancels) its own
         // SessionEnd hooks during exit teardown, which printed a scary

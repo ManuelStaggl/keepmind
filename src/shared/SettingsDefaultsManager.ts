@@ -58,6 +58,9 @@ export interface SettingsDefaults {
   KEEPMIND_ENABLED: string;
   /** 'false' disables the per-Read file timeline injection entirely. */
   KEEPMIND_FILE_CONTEXT_ENABLED: string;
+  KEEPMIND_DECISION_CHECK_ENABLED: string;
+  KEEPMIND_DECISION_CHECK_MAX_ROWS: string;
+  KEEPMIND_CURATED_PROJECT: string;
   /** Minimum file size in bytes before a Read gets a timeline injected. */
   KEEPMIND_FILE_CONTEXT_MIN_BYTES: string;
   /** Max observations shown per file timeline. */
@@ -199,6 +202,9 @@ export class SettingsDefaultsManager {
     KEEPMIND_OBSERVE_TRIGGER: 'batched',
     KEEPMIND_ENABLED: 'true',
     KEEPMIND_FILE_CONTEXT_ENABLED: 'true',
+    KEEPMIND_DECISION_CHECK_ENABLED: 'true',
+    KEEPMIND_DECISION_CHECK_MAX_ROWS: '3',
+    KEEPMIND_CURATED_PROJECT: '',
     KEEPMIND_FILE_CONTEXT_MIN_BYTES: '1500',
     KEEPMIND_FILE_CONTEXT_MAX_ROWS: '3',  // was a hardcoded 5, with no threshold and no way to turn it off.
     KEEPMIND_FILE_CONTEXT_MIN_SCORE: '2',  // require real specificity: the observation named this file as modified, or touched few files.
