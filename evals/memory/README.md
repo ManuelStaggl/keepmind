@@ -104,6 +104,25 @@ Its 41% spelling agreement sits between the two: the keyword half now matches
 both spellings perfectly, the semantic half still does not, and fusing them
 averages the two.
 
+`nach-b1-rest.json` — **different corpus**: 333 records (137 decisions + 196
+work items) instead of 126.
+
+| Channel | B @1/@10 | C @1/@10 | D agreement |
+|---|---|---|---|
+| fts | 54% / 75% | 70% / 90% | 89% (8/9) |
+| vector | 71% / 88% | 80% / 100% | 11% (0/9) |
+| **worker** | **75% / 96%** | 70% / 100% | 24% (0/9) |
+
+**Do not read the deltas against the earlier runs as regressions.** The corpus
+grew by a factor of 2.6 and now contains 196 work items that no question asks
+about, so every question competes against far more candidates. That is why
+`--compare` prints a diff and not a verdict.
+
+The one number that is comparable is the direction of the fused path under a
+harder corpus: 71% → 75% @1. The spelling figures fall for the same reason they
+are measured as set agreement — more documents means the two top-10 lists
+overlap less, not that folding got worse.
+
 ## Adding questions
 
 Append to `questions.jsonl`. Keep `herkunft` honest — if a question reuses the
