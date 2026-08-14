@@ -21,6 +21,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -205,6 +206,59 @@ async function runVectorChannel(questions: Question[], project: string): Promise
   return { available: true, outcomes };
 }
 
+/**
+ * The channel that measures what a person actually gets.
+ *
+ * The other two call the search classes directly, which is precise and was not
+ * enough: a ranking fault lived between `SessionSearch` and the answer for as
+ * long as this file existed without this channel. Hydration by id threw the
+ * fused ranking away, so the question "Lizenz nennen ist nicht mitliefern" —
+ * nearly the title of record 0081 — returned the five most recently imported
+ * records. Both direct channels scored it fine, because neither of them goes
+ * through the code that broke it.
+ *
+ * So this one goes over HTTP to the running worker, the same route the MCP
+ * search tools use. It needs a running worker, and says so when there is none
+ * rather than scoring zero.
+ */
+async function runWorkerChannel(questions: Question[], project: string): Promise<ChannelReport> {
+  let base: string;
+  try {
+    const port = readFileSync(join(homedir(), '.keepmind', 'worker.port'), 'utf8').trim();
+    base = `http://127.0.0.1:${port}`;
+  } catch (error) {
+    return { available: false, reason: `no worker.port (${error instanceof Error ? error.message : error})`, outcomes: [] };
+  }
+
+  const query = async (text: string): Promise<ChannelResult> => {
+    const url = `${base}/api/search?query=${encodeURIComponent(text)}&project=${encodeURIComponent(project)}&limit=${K}&format=json`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    const body = await response.json() as { observations?: Array<{ title?: string }> };
+    const rows = body.observations ?? [];
+    return {
+      records: rows.map(r => recordNumber(r.title)).filter((x): x is string => x !== null),
+      returned: rows.length,
+    };
+  };
+
+  const outcomes: QuestionOutcome[] = [];
+  try {
+    for (const q of questions) {
+      outcomes.push(q.set === 'D' && q.variante
+        ? scoreSpelling(q, await query(q.frage), await query(q.variante))
+        : score(q, await query(q.frage)));
+    }
+  } catch (error) {
+    return {
+      available: false,
+      reason: `worker unreachable — ${error instanceof Error ? error.message : error}`,
+      outcomes,
+    };
+  }
+  return { available: true, outcomes };
+}
+
 function summarise(outcomes: QuestionOutcome[], set: string) {
   const rows = outcomes.filter(o => o.set === set);
   if (rows.length === 0) return null;
@@ -239,6 +293,7 @@ async function main(): Promise<void> {
   const out = flag('out');
   const compare = flag('compare');
   const skipVector = args.includes('--no-vector');
+  const skipWorker = args.includes('--no-worker');
 
   const questions = loadQuestions();
 
@@ -252,6 +307,9 @@ async function main(): Promise<void> {
   const vector = skipVector
     ? { available: false, reason: 'skipped via --no-vector', outcomes: [] }
     : await runVectorChannel(questions, project);
+  const worker = skipWorker
+    ? { available: false, reason: 'skipped via --no-worker', outcomes: [] }
+    : await runWorkerChannel(questions, project);
 
   const report = {
     project,
@@ -273,8 +331,15 @@ async function main(): Promise<void> {
         C: summarise(vector.outcomes, 'C'),
         D: summarise(vector.outcomes, 'D'),
       },
+      worker: {
+        available: worker.available,
+        reason: worker.reason,
+        B: summarise(worker.outcomes, 'B'),
+        C: summarise(worker.outcomes, 'C'),
+        D: summarise(worker.outcomes, 'D'),
+      },
     },
-    perQuestion: { fts: fts.outcomes, vector: vector.outcomes },
+    perQuestion: { fts: fts.outcomes, vector: vector.outcomes, worker: worker.outcomes },
   };
 
   if (out) {
@@ -311,7 +376,7 @@ async function main(): Promise<void> {
   if (compare) {
     const before = JSON.parse(readFileSync(compare, 'utf8'));
     console.log(`  Compared to ${compare}:`);
-    for (const channel of ['fts', 'vector'] as const) {
+    for (const channel of ['fts', 'vector', 'worker'] as const) {
       for (const set of ['B', 'C'] as const) {
         const now = (report.channels[channel] as never as Record<string, { hit10: number } | null>)[set];
         const then = before.channels?.[channel]?.[set];

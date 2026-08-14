@@ -136,8 +136,12 @@ describe('SearchManager platform-scoped Chroma hydration', () => {
         { platform_source: 'cursor' },
       ],
     });
+    // `relevance`, not `date_desc`: this assertion is about platformSource
+    // reaching hydration, and it happened to pin the sort order too. That
+    // order was the bug — the RRF ranking is carried only by the id order, and
+    // hydrating by date threw it away on every search.
     expect(getSessionSummariesByIds).toHaveBeenCalledWith([session.id], {
-      orderBy: 'date_desc',
+      orderBy: 'relevance',
       limit: 10,
       project: 'search-project',
       platformSource: 'cursor',
@@ -194,8 +198,10 @@ describe('SearchManager platform-scoped Chroma hydration', () => {
       limit: 10,
     });
 
+    // See the note above: the sort order here was incidental to the assertion
+    // and pinned the fault in place.
     expect(getUserPromptsByIds).toHaveBeenCalledWith([prompt.id], {
-      orderBy: 'date_desc',
+      orderBy: 'relevance',
       limit: 10,
       project: 'search-project',
       platformSource: 'cursor',

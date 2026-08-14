@@ -33,7 +33,13 @@ export class SQLiteSearchStrategy {
       project,
       platformSource,
       dateRange,
-      orderBy = 'date_desc'
+      // Best matches first, like every other search path. With a query this
+      // selects the bm25 rank; without one there is nothing to rank and
+      // SessionSearch falls back to newest-first on its own, so the filter-only
+      // case is unaffected. The `findBy*` helpers below keep `date_desc`
+      // deliberately — they never carry a query, and "newest first" is what
+      // "show me observations about X" means.
+      orderBy = 'relevance'
     } = options;
 
     const searchObservations = searchType === 'all' || searchType === 'observations';

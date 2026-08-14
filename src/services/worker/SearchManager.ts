@@ -514,25 +514,48 @@ export class SearchManager {
           logger.debug('SEARCH', 'Hybrid search found no matches', {});
         }
 
+        // The RRF fusion above produces a ranking, and the ONLY thing carrying
+        // it is the order of these id arrays. `get*ByIds` preserves that order
+        // for `relevance` alone; its default is `date_desc`, and the three
+        // calls below used to take it. The fused ranking was therefore
+        // computed and then thrown away on every search: a question quoting a
+        // record almost verbatim ("Lizenz nennen ist nicht mitliefern",
+        // record 0081) returned the five most recently imported records
+        // instead, and record 0081 was not among them.
+        //
+        // An explicit date order from the caller still wins — someone asking
+        // for newest-first means it. Absent that, a search returns its best
+        // matches first, which is what "search" means.
+        const rankedOrderBy = options.orderBy ?? 'relevance';
+
+        // `WHERE id IN (…)` does not promise to return rows in the order the
+        // ids were given, with or without an ORDER BY. Every other ranked call
+        // site re-sorts for that reason; these three did not exist to.
+        const byRank = <T extends { id: number }>(ids: number[]) =>
+          (a: T, b: T) => ids.indexOf(a.id) - ids.indexOf(b.id);
+
         if (obsIds.length > 0) {
-          const obsOptions = { ...options, type: obs_type, concepts, files };
+          const obsOptions = { ...options, type: obs_type, concepts, files, orderBy: rankedOrderBy };
           observations = this.sessionStore.getObservationsByIds(obsIds, obsOptions);
+          if (rankedOrderBy === 'relevance') observations.sort(byRank(obsIds));
         }
         if (sessionIds.length > 0) {
           sessions = this.sessionStore.getSessionSummariesByIds(sessionIds, {
-            orderBy: 'date_desc',
+            orderBy: rankedOrderBy,
             limit: options.limit,
             project: options.project,
             platformSource: options.platformSource
           });
+          if (rankedOrderBy === 'relevance') sessions.sort(byRank(sessionIds));
         }
         if (promptIds.length > 0) {
           prompts = this.sessionStore.getUserPromptsByIds(promptIds, {
-            orderBy: 'date_desc',
+            orderBy: rankedOrderBy,
             limit: options.limit,
             project: options.project,
             platformSource: options.platformSource
           });
+          if (rankedOrderBy === 'relevance') prompts.sort(byRank(promptIds));
         }
       } catch (chromaError) {
         const errorObject = chromaError instanceof Error ? chromaError : new Error(String(chromaError));

@@ -5,14 +5,34 @@ answers it? `evals/swebench` measures whether a coding agent can patch a
 repository, which is a different question and was the only one being asked.
 
 ```bash
-npm run eval:memory                                  # both channels
-npm run eval:memory -- --no-vector                   # keyword only, fast
+npm run eval:memory                                  # all three channels
+npm run eval:memory -- --no-vector --no-worker       # keyword only, fast
 npm run eval:memory -- --out run.json                # save a run
 npm run eval:memory -- --compare baseline-4.0.0.json # diff against a saved run
 npm run eval:memory -- --project steuerstand         # default
 ```
 
 No Docker. It runs the real search code against the real database.
+
+## The three channels
+
+| Channel | What it calls | Why it is here |
+|---|---|---|
+| `fts` | `SessionSearch` directly | the keyword path in isolation |
+| `vector` | `SqliteVecManager` directly | the semantic path in isolation |
+| `worker` | `GET /api/search` on the running worker | **what a person actually gets** |
+
+The `worker` channel needs a running worker and says so when there is none,
+rather than scoring zero.
+
+It exists because the two direct channels are not enough, and that is not a
+hypothetical: a ranking fault lived between `SessionSearch` and the answer, and
+both direct channels scored it fine because neither goes through the code that
+broke it. Hydration by id discarded the fused ranking, so the question "Lizenz
+nennen ist nicht mitliefern" — nearly the title of record 0081 — returned the
+five most recently imported records, and 0081 was not among them. A measurement
+that cannot see the path the user takes will keep reporting health while the
+product is broken.
 
 ## What the numbers mean
 
@@ -69,6 +89,20 @@ unused"; it was two separate faults reading as one.
 The vector channel is untouched — only the keyword path changed. Its 31%
 spelling agreement is a real remaining gap: the multilingual embedder bridges
 German spellings only partly, and nothing in this change addresses that.
+
+`nach-b8.json` — after the ranking fix, with the `worker` channel added:
+
+| Channel | B @1/@10 | C @1/@10 | D agreement |
+|---|---|---|---|
+| fts | 58% / 75% | 70% / 90% | 100% (9/9) |
+| vector | 67% / 100% | 80% / 100% | 31% (0/9) |
+| **worker** | **71% / 96%** | 70% / 100% | 41% (0/9) |
+
+The fused path beats both channels it fuses at @1, which is the point of RRF —
+and was worth nothing while the ranking was being discarded during hydration.
+Its 41% spelling agreement sits between the two: the keyword half now matches
+both spellings perfectly, the semantic half still does not, and fusing them
+averages the two.
 
 ## Adding questions
 

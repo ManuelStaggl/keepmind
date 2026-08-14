@@ -419,3 +419,66 @@ describe('ChromaSearchStrategy', () => {
     });
   });
 });
+
+describe('ChromaSearchStrategy — semantic rank order', () => {
+  // Regression. The strategy passed the caller's `orderBy` straight through,
+  // and `getObservationsByIds` defaults to `date_desc`, keeping the id order
+  // only for `relevance`. So a search that did not name an order had its
+  // semantic ranking silently replaced by "newest first". Measured on the
+  // hybrid path, which had the identical fault: the question "Lizenz nennen
+  // ist nicht mitliefern" — nearly the title of record 0081 — returned the
+  // five most recently imported records, none of them 0081.
+  const recentEpoch = () => Date.now() - 1000 * 60 * 60;
+
+  function setup(storeOrder: number[]) {
+    const chromaSync: any = {
+      queryChroma: mock(() => Promise.resolve({
+        ids: [10, 20, 30],
+        distances: [0.1, 0.2, 0.3],
+        metadatas: [
+          { sqlite_id: 10, doc_type: 'observation', created_at_epoch: recentEpoch() },
+          { sqlite_id: 20, doc_type: 'observation', created_at_epoch: recentEpoch() },
+          { sqlite_id: 30, doc_type: 'observation', created_at_epoch: recentEpoch() }
+        ]
+      }))
+    };
+    const sessionStore: any = {
+      getObservationsByIds: mock(() => storeOrder.map(id => ({ ...mockObservation, id }))),
+      getSessionSummariesByIds: mock(() => []),
+      getUserPromptsByIds: mock(() => [])
+    };
+    return { strategy: new ChromaSearchStrategy(chromaSync, sessionStore), sessionStore };
+  }
+
+  it('asks for relevance order when the caller named none', async () => {
+    const { strategy, sessionStore } = setup([10, 20, 30]);
+
+    await strategy.search({ query: 'test query', searchType: 'observations' });
+
+    expect(sessionStore.getObservationsByIds.mock.calls[0][1].orderBy).toBe('relevance');
+  });
+
+  it('restores rank order when the store returns rows in another', async () => {
+    // `WHERE id IN (…)` makes no promise about row order, with or without an
+    // ORDER BY — hydration alone is not enough to preserve the ranking.
+    const { strategy } = setup([30, 10, 20]);
+
+    const result = await strategy.search({ query: 'test query', searchType: 'observations' });
+
+    expect(result.results.observations.map((o: any) => o.id)).toEqual([10, 20, 30]);
+  });
+
+  it('still honours an explicit date order from the caller', async () => {
+    // Someone asking for newest-first means it; only the absent case changed.
+    const { strategy, sessionStore } = setup([30, 20, 10]);
+
+    const result = await strategy.search({
+      query: 'test query',
+      searchType: 'observations',
+      orderBy: 'date_desc'
+    } as any);
+
+    expect(sessionStore.getObservationsByIds.mock.calls[0][1].orderBy).toBe('date_desc');
+    expect(result.results.observations.map((o: any) => o.id)).toEqual([30, 20, 10]);
+  });
+});

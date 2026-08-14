@@ -37,7 +37,11 @@ export class ChromaSearchStrategy {
       limit = SEARCH_CONSTANTS.DEFAULT_LIMIT,
       project,
       platformSource,
-      orderBy = 'date_desc'
+      // A search returns its best matches first. The default used to be
+      // `date_desc`, which meant every caller that did not name an order got
+      // the semantic ranking replaced by "newest first" — the ranking was
+      // computed, then discarded.
+      orderBy = 'relevance'
     } = options;
 
     if (!query) {
@@ -95,7 +99,14 @@ export class ChromaSearchStrategy {
     let sessions: SessionSummarySearchResult[] = [];
     let prompts: UserPromptSearchResult[] = [];
 
+    // Semantic rank arrives as the order of `categorized.*Ids` and nothing
+    // else. `get*ByIds` keeps that order only for `relevance`. Same fault,
+    // same fix as the hybrid path in SearchManager, where it was measured: a
+    // near-verbatim question returned the most recently written rows instead
+    // of the matching one.
     const sqlOrderBy = options.orderBy;
+    const byRank = <T extends { id: number }>(ids: number[]) =>
+      (a: T, b: T) => ids.indexOf(a.id) - ids.indexOf(b.id);
 
     if (categorized.obsIds.length > 0) {
       const obsOptions = {
@@ -108,6 +119,7 @@ export class ChromaSearchStrategy {
         platformSource: options.platformSource
       };
       observations = this.sessionStore.getObservationsByIds(categorized.obsIds, obsOptions);
+      if (sqlOrderBy === 'relevance') observations.sort(byRank(categorized.obsIds));
     }
 
     if (categorized.sessionIds.length > 0) {
@@ -117,6 +129,7 @@ export class ChromaSearchStrategy {
         project: options.project,
         platformSource: options.platformSource
       });
+      if (sqlOrderBy === 'relevance') sessions.sort(byRank(categorized.sessionIds));
     }
 
     if (categorized.promptIds.length > 0) {
@@ -126,6 +139,7 @@ export class ChromaSearchStrategy {
         project: options.project,
         platformSource: options.platformSource
       });
+      if (sqlOrderBy === 'relevance') prompts.sort(byRank(categorized.promptIds));
     }
 
     return {
