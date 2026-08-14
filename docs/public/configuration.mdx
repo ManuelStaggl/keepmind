@@ -276,6 +276,36 @@ never reads as "there was nothing more". Urgent hints (stale OAuth token,
 degraded vector search, update notice) are added *after* the trim and are never
 what gets dropped.
 
+### Optional MCP tool groups
+
+Two groups of MCP tools are **off by default**. A tool that appears in
+`tools/list` costs its name, description and full input schema in every session,
+on every turn, whether or not anything calls it — so both groups are opt-in.
+
+| Key                         | Default | Description                                                              |
+|-----------------------------|---------|--------------------------------------------------------------------------|
+| `KEEPMIND_MCP_SMART_TOOLS`  | `false` | `smart_search`, `smart_outline`, `smart_unfold` (tree-sitter). 1,526 chars |
+| `KEEPMIND_MCP_CORPUS_TOOLS` | `false` | The six knowledge-corpus tools. 2,720 chars                              |
+
+Only the literal string `true` switches a group on — `1`, `yes` and `on` do not.
+
+Turning `KEEPMIND_MCP_SMART_TOOLS` on also activates the `smart-explore` skill,
+which is gated on the same setting: with the tools absent the skill disqualifies
+itself in its first paragraph rather than instructing you to call tools that
+were never registered.
+
+Calling a tool by name still works even while its group is off — the switch
+controls what is *listed*, not what is dispatched. That is what lets you turn a
+group on without restarting anything that already knows the name.
+
+<Warning>
+  **Behaviour change.** Both groups previously shipped on, and the
+  `important_workflow` tool has been removed (its three-layer sequence now
+  lives in the description of `search`). A default install's `tools/list` went
+  from 13,003 to 3,954 characters. If you relied on `smart_*` or the corpus
+  tools, set the corresponding key to `true` in `~/.keepmind/settings.json`.
+</Warning>
+
 ### Per-Read file timeline
 
 Injected before a `Read` when earlier observations touched that file.
