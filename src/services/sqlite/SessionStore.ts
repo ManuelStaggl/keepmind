@@ -127,6 +127,110 @@ export class SessionStore {
     this.addObservationLastUsedColumn();
     this.addObservationUsageChannelColumns();
     this.addCuratedSourceColumns();
+    this.createDecisionEdgesTable();
+  }
+
+  /**
+   * Declared relations between curated records.
+   *
+   * A separate table, not a column: an edge has its own source location, its
+   * own certainty and its own relation type, and the same pair of records can
+   * be linked by several relations declared in several files. None of that
+   * fits in a field on either endpoint.
+   *
+   * `certainty` keeps 'sicher' apart from 'vermutet' — an edge whose verb and
+   * target sit in one clause is better evidence than one inferred from the
+   * field label alone, and better again than one a third-party control file
+   * asserts about two records. The distinction is not decoration: A2 forbids
+   * inventing relations, and the honest way to honour that while still using
+   * weaker signals is to carry the strength with the edge.
+   *
+   * UNIQUE covers the source location, so the SAME relation declared in three
+   * different files stays three rows. That is deliberate — each row is a
+   * citation, and "three places say so" is exactly the kind of thing a
+   * contradiction check needs to be able to see.
+   */
+  private createDecisionEdgesTable(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(42) as SchemaVersion | undefined;
+    const existing = this.db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='decision_edges'").all();
+    if (applied && existing.length > 0) return;
+
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS decision_edges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project TEXT NOT NULL,
+        from_record TEXT NOT NULL,
+        to_record TEXT NOT NULL,
+        relation TEXT NOT NULL,
+        certainty TEXT NOT NULL,
+        source_path TEXT NOT NULL,
+        source_line INTEGER NOT NULL,
+        raw_text TEXT,
+        created_at_epoch INTEGER NOT NULL,
+        UNIQUE(project, from_record, to_record, relation, source_path, source_line)
+      )
+    `);
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_edges_from ON decision_edges(project, from_record)');
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_edges_to ON decision_edges(project, to_record)');
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_edges_relation ON decision_edges(project, relation)');
+
+    if (!applied) {
+      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(42, new Date().toISOString());
+    }
+  }
+
+  /**
+   * Replace all edges read from one file.
+   *
+   * Per-file rather than per-project: re-reading one changed record must not
+   * drop the edges every other file declared, and re-reading it must not leave
+   * its old edges behind either. Deleting by source_path is the only key that
+   * gets both.
+   */
+  replaceEdgesForSource(
+    project: string,
+    sourcePath: string,
+    edges: Array<{
+      from: string;
+      to: string;
+      relation: string;
+      certainty: string;
+      sourceLine: number;
+      rawText?: string | null;
+    }>,
+    nowEpoch: number = Date.now(),
+  ): { inserted: number; removed: number } {
+    const removed = this.db.prepare('DELETE FROM decision_edges WHERE project = ? AND source_path = ?')
+      .run(project, sourcePath) as unknown as { changes?: number };
+    const stmt = this.db.prepare(`
+      INSERT INTO decision_edges
+        (project, from_record, to_record, relation, certainty, source_path, source_line, raw_text, created_at_epoch)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT DO NOTHING
+    `);
+    let inserted = 0;
+    for (const edge of edges) {
+      stmt.run(project, edge.from, edge.to, edge.relation, edge.certainty, sourcePath, edge.sourceLine, edge.rawText ?? null, nowEpoch);
+      inserted++;
+    }
+    return { inserted, removed: removed?.changes ?? 0 };
+  }
+
+  /** Every edge declared in a project, newest source first. */
+  getEdges(project: string): Array<{
+    from_record: string;
+    to_record: string;
+    relation: string;
+    certainty: string;
+    source_path: string;
+    source_line: number;
+    raw_text: string | null;
+  }> {
+    return this.db.prepare(`
+      SELECT from_record, to_record, relation, certainty, source_path, source_line, raw_text
+      FROM decision_edges WHERE project = ?
+      ORDER BY from_record, to_record, relation
+    `).all(project) as never;
   }
 
   /**

@@ -63,6 +63,10 @@ describe('importAktenDirectory — the model-free guarantee', () => {
     // silent extra round trip.
     const { stored } = makeStore();
     const forbidden: string[] = [];
+    // The allowed set is written out in full and on purpose. Every name here
+    // is a plain storage call; none of them enqueues work, and the queue is
+    // the only thing in keepmind that reaches a model. Adding a name to this
+    // list is the moment to check that property again.
     const strict = new Proxy(
       {
         getOrCreateManualSession: () => 'session-1',
@@ -70,6 +74,7 @@ describe('importAktenDirectory — the model-free guarantee', () => {
           stored.push({ project, ...observation });
           return { id: stored.length, createdAtEpoch: 1 };
         },
+        replaceEdgesForSource: () => ({ inserted: 0, removed: 0 }),
       } as any,
       {
         get(target, prop: string) {

@@ -16,6 +16,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve, extname } from 'node:path';
 import { parseAkte, type ParsedAkte } from './akten-parser.js';
+import { extractEdges, extractEdgesFromControlFile, type DecisionEdge } from './edge-reader.js';
 import { logger } from '../../utils/logger.js';
 
 export interface ImportedRecord {
@@ -28,6 +29,8 @@ export interface ImportedRecord {
   sourceLine: number;
   /** True when the row already existed and was matched by content hash. */
   unchanged: boolean;
+  /** Declared relations read out of this record's header. */
+  edges?: number;
 }
 
 export interface ImportReport {
@@ -50,6 +53,17 @@ export interface ImportReport {
  */
 export interface CuratedStore {
   getOrCreateManualSession(project: string): string;
+  /**
+   * Optional so the importer stays usable against a store that predates the
+   * edge table. When absent, records still import and only the graph is
+   * missing — a partial result the caller can see, rather than a crash.
+   */
+  replaceEdgesForSource?(
+    project: string,
+    sourcePath: string,
+    edges: Array<{ from: string; to: string; relation: string; certainty: string; sourceLine: number; rawText?: string | null }>,
+    nowEpoch?: number,
+  ): { inserted: number; removed: number };
   storeObservation(
     memorySessionId: string,
     project: string,
@@ -111,6 +125,18 @@ function isMarkdown(file: string): boolean {
   return extname(file).toLowerCase() === '.md';
 }
 
+/** Shape the edge reader's output for the store. */
+function toEdgeRows(edges: DecisionEdge[]) {
+  return edges.map(edge => ({
+    from: edge.from,
+    to: edge.to,
+    relation: edge.relation,
+    certainty: edge.certainty,
+    sourceLine: edge.sourceLine,
+    rawText: edge.rawText,
+  }));
+}
+
 export function importAkteFile(
   store: CuratedStore,
   memorySessionId: string,
@@ -128,10 +154,14 @@ export function importAkteFile(
     // NOT A RECORD IS NOT THE SAME AS NOT A SOURCE. In the measured corpus a
     // control file declares two records obsolete, and nothing inside those
     // records knows it; another names a supersession that the superseded
-    // record does carry. Skipping these files here is right — they are not
-    // decisions and must not become rows — but the EDGE reader has to read
-    // them anyway, or the graph provably misses edges that exist in writing.
-    // The skip is reported rather than swallowed for exactly that reason.
+    // record does carry. Skipping these files as RECORDS is right — they are
+    // not decisions and must not become rows — but their edges are read all
+    // the same, or the graph provably misses relations that exist in writing.
+    if (!options.dryRun && store.replaceEdgesForSource) {
+      const { edges } = extractEdgesFromControlFile(content, absolutePath);
+      store.replaceEdgesForSource(options.project, absolutePath, toEdgeRows(edges), options.nowEpoch);
+      return { skipped: `no record number in heading (read ${edges.length} edge(s) anyway)` };
+    }
     return { skipped: 'no record number in heading' };
   }
 
@@ -188,6 +218,15 @@ export function importAkteFile(
     options.nowEpoch,
   );
 
+  // Edges are replaced per file, so re-reading one changed record neither
+  // drops what other files declared nor leaves its own stale edges behind.
+  let edgeCount = 0;
+  if (store.replaceEdgesForSource) {
+    const { edges } = extractEdges(parsed, absolutePath);
+    store.replaceEdgesForSource(options.project, absolutePath, toEdgeRows(edges), options.nowEpoch);
+    edgeCount = edges.length;
+  }
+
   return {
     record: {
       id: result.id,
@@ -196,6 +235,7 @@ export function importAkteFile(
       sourcePath: absolutePath,
       sourceLine: parsed.headingLine,
       unchanged: false,
+      edges: edgeCount,
     },
   };
 }
