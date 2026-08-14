@@ -7,6 +7,16 @@ description: "Build queryable AI brains from your observation history"
 
 Knowledge agents let you compile a slice of your keepmind observation history into a **queryable "brain"** that answers questions conversationally. Instead of getting raw search results back, you get synthesized, grounded answers drawn from your actual project history -- decisions, discoveries, bugfixes, and features.
 
+<Warning>
+  **The corpus tools are opt-in.** `build_corpus`, `list_corpora`,
+  `prime_corpus`, `reprime_corpus`, `query_corpus` and `rebuild_corpus` are not
+  listed to the model unless `KEEPMIND_MCP_CORPUS_TOOLS` is set to the literal
+  string `true` in `~/.keepmind/settings.json`. Their schemas cost 2,720
+  characters of every session's context, and a corpus has to be built by hand
+  before any of them means anything — so nothing on this page happens by
+  default. See [Configuration](/configuration#optional-mcp-tool-groups).
+</Warning>
+
 ## Quick Start
 
 Three ways to use knowledge agents, from simplest to most powerful.

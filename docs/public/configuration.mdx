@@ -276,6 +276,28 @@ never reads as "there was nothing more". Urgent hints (stale OAuth token,
 degraded vector search, update notice) are added *after* the trim and are never
 what gets dropped.
 
+### Curated records and the origin filter
+
+Records imported with `npx keepmind akten:import` are stored verbatim, never
+reach a model, and are marked with a `source_kind` of `curated`. Everything the
+observer produced is `observed`. The filter decides which of the two may be
+injected at session start.
+
+| Key                          | Default | Description                                                    |
+|------------------------------|---------|-----------------------------------------------------------------|
+| `KEEPMIND_INJECT_SOURCE_KIND` | `all`   | `all` \| `curated` (only imported records) \| `observed` (only what the observer wrote) |
+
+Rows written before this key existed carry no `source_kind` and are read as
+`observed`, so they do not silently drop out of a filtered query. An
+unrecognised value falls back to `all`: a typo would otherwise empty the
+injection block, and an empty block looks exactly like "there was nothing to
+say".
+
+Use `curated` when the imported corpus is the authority and the observer's
+record is background noise for that project; use `observed` to see what the
+observer alone would have injected. `all` is what every install did before this
+key existed.
+
 ### Optional MCP tool groups
 
 Two groups of MCP tools are **off by default**. A tool that appears in

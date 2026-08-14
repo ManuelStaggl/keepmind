@@ -7,6 +7,15 @@ description: "Token efficiency comparison between AST-based and traditional code
 
 Smart Explore uses tree-sitter AST parsing to provide structural code navigation through three MCP tools: `smart_search`, `smart_outline`, and `smart_unfold`. This report documents a rigorous A/B comparison against the standard Explore agent (which uses Glob, Grep, and Read tools) to quantify the token savings and quality trade-offs.
 
+<Warning>
+  **These three tools are opt-in.** They are not listed to the model unless
+  `KEEPMIND_MCP_SMART_TOOLS` is set to the literal string `true` in
+  `~/.keepmind/settings.json`; the `smart-explore` skill is gated on the same
+  key. Their schemas cost 1,526 characters of every session's context, which is
+  charged on every turn whether or not the savings below are ever collected.
+  See [Configuration](/configuration#optional-mcp-tool-groups).
+</Warning>
+
 ## Executive Summary
 
 | Metric | Smart Explore | Explore Agent | Advantage |
