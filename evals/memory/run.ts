@@ -31,7 +31,8 @@ const K = 10;
 
 interface Question {
   id: string;
-  set: 'B' | 'C' | 'D';
+  /** A = work-item id to the decision that closes it, K = the bare id alone. */
+  set: 'A' | 'K' | 'B' | 'C' | 'D';
   frage: string;
   /** Second spelling of the same question — set D only. */
   variante?: string;
@@ -320,6 +321,8 @@ async function main(): Promise<void> {
       fts: {
         available: fts.available,
         reason: fts.reason,
+        A: summarise(fts.outcomes, 'A'),
+        K: summarise(fts.outcomes, 'K'),
         B: summarise(fts.outcomes, 'B'),
         C: summarise(fts.outcomes, 'C'),
         D: summarise(fts.outcomes, 'D'),
@@ -327,6 +330,8 @@ async function main(): Promise<void> {
       vector: {
         available: vector.available,
         reason: vector.reason,
+        A: summarise(vector.outcomes, 'A'),
+        K: summarise(vector.outcomes, 'K'),
         B: summarise(vector.outcomes, 'B'),
         C: summarise(vector.outcomes, 'C'),
         D: summarise(vector.outcomes, 'D'),
@@ -334,6 +339,8 @@ async function main(): Promise<void> {
       worker: {
         available: worker.available,
         reason: worker.reason,
+        A: summarise(worker.outcomes, 'A'),
+        K: summarise(worker.outcomes, 'K'),
         B: summarise(worker.outcomes, 'B'),
         C: summarise(worker.outcomes, 'C'),
         D: summarise(worker.outcomes, 'D'),
@@ -363,10 +370,14 @@ async function main(): Promise<void> {
       console.log(`  ${name.padEnd(7)} unavailable — ${channel.reason}`);
       continue;
     }
+    const a = channel.A as { hit1: number; hit10: number; mrr: number; n: number } | null;
+    const k = channel.K as { hit1: number; hit10: number; mrr: number; n: number } | null;
     const b = channel.B as { hit1: number; hit10: number; mrr: number; n: number } | null;
     const c = channel.C as { hit1: number; hit10: number; mrr: number; n: number } | null;
     const d = channel.D as { agreement: number; identical: number; n: number } | null;
     console.log(`  ${name}`);
+    if (a) console.log(`    A  work item → decision   @1 ${pct(a.hit1)}   @10 ${pct(a.hit10)}   MRR ${a.mrr.toFixed(3)}   (n=${a.n})`);
+    if (k) console.log(`    K  bare id alone          @1 ${pct(k.hit1)}   @10 ${pct(k.hit10)}   MRR ${k.mrr.toFixed(3)}   (n=${k.n})`);
     if (b) console.log(`    B  paraphrase → record     @1 ${pct(b.hit1)}   @10 ${pct(b.hit10)}   MRR ${b.mrr.toFixed(3)}   (n=${b.n})`);
     if (c) console.log(`    C  "what applies to X?"    @1 ${pct(c.hit1)}   @10 ${pct(c.hit10)}   MRR ${c.mrr.toFixed(3)}   (n=${c.n})`);
     if (d) console.log(`    D  spelling agreement      ${pct(d.agreement)}        identical ${d.identical}/${d.n}`);

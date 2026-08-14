@@ -88,3 +88,24 @@ describe('German spellings', () => {
     expect(spellingVariants('Regelwerk')).toEqual(['Regelwerk']);
   });
 });
+
+describe('identifiers', () => {
+  it('keeps a hyphenated identifier in one piece', () => {
+    // MUST stay in step with `tokenize="unicode61 tokenchars '-'"` on
+    // observations_fts. Measured with the index changed and this left
+    // splitting: every identifier query returned NOTHING — 0% where it had
+    // been 100% at rank 10, with no error raised anywhere. Whole: a bare
+    // identifier goes from 29% to 100% at rank 1.
+    expect(queryTerms('V-0169')).toEqual(['V-0169']);
+    expect(buildFtsMatchExpression('V-0169')).toBe('"V-0169"');
+  });
+
+  it('keeps the identifier whole inside a sentence', () => {
+    expect(queryTerms('Welche Entscheidung schliesst V-0076?')).toContain('V-0076');
+  });
+
+  it('strips a leading or trailing dash, which is punctuation', () => {
+    expect(queryTerms('— Entscheidung —')).toEqual(['Entscheidung']);
+    expect(queryTerms('Regelwerk -')).toEqual(['Regelwerk']);
+  });
+});

@@ -42,3 +42,31 @@
 {"id": "D07", "set": "D", "frage": "Rückfrage", "variante": "Rueckfrage", "herkunft": "schreibweise", "korpus": 26}
 {"id": "D08", "set": "D", "frage": "Wächter", "variante": "Waechter", "herkunft": "schreibweise", "korpus": 20}
 {"id": "D09", "set": "D", "frage": "vollständig", "variante": "vollstaendig", "herkunft": "schreibweise", "korpus": 36}
+{"id": "A01", "set": "A", "frage": "Welche Entscheidung schliesst den Vorgang V-0076?", "gold": ["0112"], "herkunft": "kennung-in-frage"}
+{"id": "A02", "set": "A", "frage": "Welche Entscheidung schliesst den Vorgang V-0077?", "gold": ["0112"], "herkunft": "kennung-in-frage"}
+{"id": "A03", "set": "A", "frage": "Welche Entscheidung schliesst den Vorgang V-0008?", "gold": ["0113"], "herkunft": "kennung-in-frage"}
+{"id": "A04", "set": "A", "frage": "Welche Entscheidung schliesst den Vorgang V-0017?", "gold": ["0113"], "herkunft": "kennung-in-frage"}
+{"id": "A05", "set": "A", "frage": "Welche Entscheidung schliesst den Vorgang V-0090?", "gold": ["0113"], "herkunft": "kennung-in-frage"}
+{"id": "A06", "set": "A", "frage": "Welche Entscheidung schliesst den Vorgang V-0118?", "gold": ["0113"], "herkunft": "kennung-in-frage"}
+{"id": "A07", "set": "A", "frage": "Welche Entscheidung schliesst den Vorgang V-0040?", "gold": ["0114"], "herkunft": "kennung-in-frage"}
+{"id": "A08", "set": "A", "frage": "Welche Entscheidung schliesst den Vorgang V-0073?", "gold": ["0114"], "herkunft": "kennung-in-frage"}
+{"id": "A09", "set": "A", "frage": "Welche Entscheidung schliesst den Vorgang V-0147?", "gold": ["0114"], "herkunft": "kennung-in-frage"}
+{"id": "A10", "set": "A", "frage": "Welche Entscheidung schliesst den Vorgang V-0158?", "gold": ["0114"], "herkunft": "kennung-in-frage"}
+{"id": "A11", "set": "A", "frage": "Welche Entscheidung schliesst den Vorgang V-0027?", "gold": ["0115"], "herkunft": "kennung-in-frage"}
+{"id": "A12", "set": "A", "frage": "Welche Entscheidung schliesst den Vorgang V-0159?", "gold": ["0115"], "herkunft": "kennung-in-frage"}
+{"id": "A13", "set": "A", "frage": "Welche Entscheidung schliesst den Vorgang V-0168?", "gold": ["0118"], "herkunft": "kennung-in-frage"}
+{"id": "A14", "set": "A", "frage": "Welche Entscheidung schliesst den Vorgang V-0177?", "gold": ["0120"], "herkunft": "kennung-in-frage"}
+{"id": "K01", "set": "K", "frage": "V-0076", "gold": ["0112"], "herkunft": "nackte-kennung"}
+{"id": "K02", "set": "K", "frage": "V-0077", "gold": ["0112"], "herkunft": "nackte-kennung"}
+{"id": "K03", "set": "K", "frage": "V-0008", "gold": ["0113"], "herkunft": "nackte-kennung"}
+{"id": "K04", "set": "K", "frage": "V-0017", "gold": ["0113"], "herkunft": "nackte-kennung"}
+{"id": "K05", "set": "K", "frage": "V-0090", "gold": ["0113"], "herkunft": "nackte-kennung"}
+{"id": "K06", "set": "K", "frage": "V-0118", "gold": ["0113"], "herkunft": "nackte-kennung"}
+{"id": "K07", "set": "K", "frage": "V-0040", "gold": ["0114"], "herkunft": "nackte-kennung"}
+{"id": "K08", "set": "K", "frage": "V-0073", "gold": ["0114"], "herkunft": "nackte-kennung"}
+{"id": "K09", "set": "K", "frage": "V-0147", "gold": ["0114"], "herkunft": "nackte-kennung"}
+{"id": "K10", "set": "K", "frage": "V-0158", "gold": ["0114"], "herkunft": "nackte-kennung"}
+{"id": "K11", "set": "K", "frage": "V-0027", "gold": ["0115"], "herkunft": "nackte-kennung"}
+{"id": "K12", "set": "K", "frage": "V-0159", "gold": ["0115"], "herkunft": "nackte-kennung"}
+{"id": "K13", "set": "K", "frage": "V-0168", "gold": ["0118"], "herkunft": "nackte-kennung"}
+{"id": "K14", "set": "K", "frage": "V-0177", "gold": ["0120"], "herkunft": "nackte-kennung"}

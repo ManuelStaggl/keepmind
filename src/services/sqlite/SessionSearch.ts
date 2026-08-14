@@ -53,6 +53,7 @@ export class SessionSearch {
     const hasFTS = tables.some(t => t.name === 'observations_fts' || t.name === 'session_summaries_fts');
 
     if (hasFTS) {
+      this.migrateObservationsFtsTokenizer();
       return;
     }
 
@@ -72,6 +73,63 @@ export class SessionSearch {
     }
   }
 
+  /**
+   * Rebuild `observations_fts` once, when it predates the hyphen tokenizer.
+   *
+   * The index and the query builder MUST agree on whether a hyphen splits a
+   * token. Measured: with the tokenizer changed and `queryTerms` left alone,
+   * every identifier query returned NOTHING — 0% where it had been 100% at
+   * rank 10. That is why this migration exists rather than a settings flag:
+   * a switch would let the two halves drift apart, and the failure is total
+   * and silent.
+   *
+   * Cheap and idempotent: it fires only while the stored DDL lacks
+   * `tokenchars`, and `rebuild` refills from the content table.
+   */
+  private migrateObservationsFtsTokenizer(): void {
+    try {
+      const row = this.db
+        .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='observations_fts'")
+        .get() as { sql?: string } | undefined;
+      if (!row?.sql || row.sql.includes('tokenchars')) return;
+
+      logger.info('DB', 'Rebuilding observations_fts with the hyphen-aware tokenizer');
+      this.db.run('DROP TABLE IF EXISTS observations_fts');
+      this.createObservationsFtsTable();
+      this.db.run("INSERT INTO observations_fts(observations_fts) VALUES('rebuild')");
+      logger.info('DB', 'observations_fts rebuilt');
+    } catch (error) {
+      // Never fatal: the old index still answers every query except the
+      // identifier ones, and losing search entirely would be worse.
+      logger.warn('DB', 'observations_fts tokenizer migration failed — identifier search stays split', {}, error instanceof Error ? error : undefined);
+    }
+  }
+
+  /**
+   * The observations index.
+   *
+   * `tokenchars '-'` keeps `V-0169` one token instead of `v` + `0169`.
+   * Measured over evals/memory: a bare identifier went from 29% to 100% at
+   * rank 1 (MRR 0.607 -> 1.000), and the paraphrase set improved slightly too.
+   * The cost is that a hyphenated word no longer matches its own halves; the
+   * question sets show that trade landing far on the profitable side.
+   */
+  private createObservationsFtsTable(): void {
+    this.db.run(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
+        title,
+        subtitle,
+        narrative,
+        text,
+        facts,
+        concepts,
+        content='observations',
+        content_rowid='id',
+        tokenize="unicode61 tokenchars '-'"
+      );
+    `);
+  }
+
   private isFts5Available(): boolean {
     try {
       this.db.run('CREATE VIRTUAL TABLE _fts5_probe USING fts5(test_column)');
@@ -83,18 +141,10 @@ export class SessionSearch {
   }
 
   private createFTSTablesAndTriggers(): void {
-    this.db.run(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
-        title,
-        subtitle,
-        narrative,
-        text,
-        facts,
-        concepts,
-        content='observations',
-        content_rowid='id'
-      );
-    `);
+    // One definition, used by both first creation and the migration above —
+    // two copies of this DDL is how the tokenizer would come back on a fresh
+    // install after being migrated away on an existing one.
+    this.createObservationsFtsTable();
 
     this.db.run(`
       INSERT INTO observations_fts(rowid, title, subtitle, narrative, text, facts, concepts)

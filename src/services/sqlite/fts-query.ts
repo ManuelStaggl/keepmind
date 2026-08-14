@@ -79,9 +79,21 @@ export function spellingVariants(term: string): string[] {
   return [...out];
 }
 
-/** Words to match on, in query order, stopwords dropped. */
+/**
+ * Words to match on, in query order, stopwords dropped.
+ *
+ * THE HYPHEN IS PART OF A TOKEN, and this must stay in step with the
+ * `tokenize="unicode61 tokenchars '-'"` on `observations_fts`. The two halves
+ * are one decision: with the index changed and this left splitting on hyphens,
+ * every identifier query returned NOTHING — measured 0% where it had been 100%
+ * at rank 10, with no error anywhere. Keeping `V-0169` whole took a bare
+ * identifier from 29% to 100% at rank 1.
+ */
 export function queryTerms(raw: string): string[] {
-  const tokens = raw.match(/[\p{L}\p{N}]+/gu) ?? [];
+  const tokens = (raw.match(/[\p{L}\p{N}-]+/gu) ?? [])
+    // A lone dash or a trailing one is punctuation, not a term.
+    .map(token => token.replace(/^-+|-+$/g, ''))
+    .filter(token => token.length > 0);
   const kept = tokens.filter(t => !STOPWORDS.has(fold(t)));
   // A query made entirely of stopwords ("was ist das?") still has to search
   // for something. Dropping every term would return the whole table.

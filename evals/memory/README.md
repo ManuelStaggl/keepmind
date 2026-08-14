@@ -38,9 +38,16 @@ product is broken.
 
 | Set | Question shape | Metric |
 |---|---|---|
+| **A** | "Which decision closes V-0076?" — identifier inside a sentence | hit@1, hit@10, MRR |
+| **K** | `V-0076` — the bare identifier, nothing else | hit@1, hit@10, MRR |
 | **B** | A paraphrase of one record's content, in different words | hit@1, hit@10, MRR |
 | **C** | "Was gilt zu X?" — several records are correct | hit@1, hit@10, MRR |
 | **D** | The same term in both German spellings | agreement between the two result lists |
+
+Sets A and K are the same 14 pairs asked two ways, and the split is the point:
+K isolates the tokenizer, A shows what happens once ordinary words compete with
+the identifier. The pairs are not invented — they are read out of the `Schliesst`
+field of the records that close those work items.
 
 Set D scores agreement, not relevance. Two spellings that both find nothing
 score 0, not a vacuous 1 — equally blind is not equally good.
@@ -149,3 +156,33 @@ record's own wording, say so, and expect its score to mean less.
 Set D terms were harvested from the corpus by frequency rather than invented;
 `korpus` records how often each appeared. Terms that do not occur measure
 nothing.
+
+## `nach-tokenchars.json` — the hyphen tokenizer
+
+`observations_fts` now uses `tokenize="unicode61 tokenchars '-'"`, so `V-0169`
+is one token instead of `v` + `0169`. Measured on the keyword channel alone:
+
+| Set | before | after |
+|---|---|---|
+| K bare identifier | @1 29% · MRR 0.607 | **@1 100% · MRR 1.000** |
+| B paraphrase | @1 71% | **@1 75%** |
+| A identifier in a sentence | @10 71% · MRR 0.357 | @10 **86%** · MRR 0.263 |
+| C topic question | @10 90% | 80% |
+
+On the fused path B rises to 83% @1 / 96% @10 and K to 64% @1, while **A drops**
+(29% → 7% @1, MRR 0.405 → 0.274).
+
+**A is a genuine loss, not noise.** The identifier sits in the closing record's
+body — weight 1 — while the question's ordinary words ("Entscheidung",
+"Vorgang") hit titles at weight 10. The tokenizer and the column weights pull
+against each other here. It was kept because the largest set (B, n=24) and the
+realistic identifier form (K) both improve, and A is the more contrived phrasing
+of the two; that is a judgement, and the number that argues against it is
+recorded here rather than left out.
+
+**The index and `queryTerms` are one decision.** With the tokenizer changed and
+the query builder left splitting on hyphens, every identifier query returned
+nothing — 0% where it had been 100% at rank 10, and no error anywhere. A test in
+`tests/sqlite/fts-query.test.ts` pins the query half, and `SessionSearch`
+migrates an existing index rather than offering a switch, precisely so the two
+halves cannot drift apart.
