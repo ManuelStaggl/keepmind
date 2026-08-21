@@ -41,6 +41,7 @@
     "plugin/.mcp.json",
     "plugin/package.json",
     "plugin/bun.lock",
+    "plugin/commands",
     "plugin/hooks",
     "plugin/modes",
     "plugin/scripts/*.js",

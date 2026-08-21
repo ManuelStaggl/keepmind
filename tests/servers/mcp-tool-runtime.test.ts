@@ -46,6 +46,8 @@ const WORKER_CORE_TOOLS = [
   'get_observations',
   'session_start_context',
   'delete_observations_by_project',
+  'save_checkpoint',
+  'clear_checkpoint',
 ];
 
 const SMART_TOOLS = ['smart_search', 'smart_unfold', 'smart_outline'];

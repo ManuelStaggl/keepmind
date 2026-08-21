@@ -23,7 +23,9 @@ import {
   getFullObservationIds,
 } from './ObservationCompiler.js';
 import { renderHeader } from './sections/HeaderRenderer.js';
+import { renderCheckpoints } from './sections/CheckpointRenderer.js';
 import { renderTimeline } from './sections/TimelineRenderer.js';
+import type { CheckpointRecord } from '../../shared/checkpoint.js';
 import { shouldShowSummary, renderSummaryFields } from './sections/SummaryRenderer.js';
 import { renderPreviouslySection, renderFooter } from './sections/FooterRenderer.js';
 import { renderAgentEmptyState } from './formatters/AgentFormatter.js';
@@ -68,6 +70,7 @@ function buildContextOutput(
   project: string,
   observations: Observation[],
   summaries: SessionSummary[],
+  checkpoints: CheckpointRecord[],
   config: ContextConfig,
   cwd: string,
   sessionId: string | undefined,
@@ -78,6 +81,10 @@ function buildContextOutput(
   const economics = calculateTokenEconomics(observations);
 
   output.push(...renderHeader(project, economics, config, forHuman));
+
+  // The curated hand-off sits directly under the header, above the timeline, so
+  // it survives the char cap and reads as the session baton.
+  output.push(...renderCheckpoints(checkpoints));
 
   const displaySummaries = summaries.slice(0, config.sessionCount);
   const summariesForTimeline = prepareSummariesForTimeline(displaySummaries, summaries);
@@ -223,6 +230,11 @@ export async function generateContextWithStats(
       ? querySummariesMulti(db, projects, config, platformSource)
       : querySummaries(db, project, config, platformSource);
 
+    // The active checkpoint(s) for this project chain — the curated hand-off,
+    // injected above everything. Independent of the injectSourceKind filter and
+    // of the observation-type whitelist by design.
+    const checkpoints = db.getActiveCheckpoints(projects);
+
     // Record use for the rows we actually inject: resets the expiry TTL and
     // counts the hit. Deliberately NOT gated on expiry.enabled — the usage data
     // is what tells us whether retention is safe to switch on at all, so it has
@@ -234,7 +246,7 @@ export async function generateContextWithStats(
       db.markObservationsUsed(observations.map(o => o.id), 'injection');
     }
 
-    if (observations.length === 0 && summaries.length === 0) {
+    if (observations.length === 0 && summaries.length === 0 && checkpoints.length === 0) {
       return { text: renderEmptyState(project, forHuman), stats: null };
     }
 
@@ -242,6 +254,7 @@ export async function generateContextWithStats(
       project,
       observations,
       summaries,
+      checkpoints,
       config,
       cwd,
       input?.session_id,

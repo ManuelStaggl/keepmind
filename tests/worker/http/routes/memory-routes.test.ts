@@ -175,3 +175,92 @@ describe('MemoryRoutes — POST /api/memory/save (#2116)', () => {
     expect(mockStoreObservation).not.toHaveBeenCalled();
   });
 });
+
+describe('MemoryRoutes — POST /api/checkpoint/*', () => {
+  let routes: MemoryRoutes;
+  let storeCheckpointCalls: any[][];
+  let clearCheckpointCalls: any[][];
+
+  beforeEach(() => {
+    loggerSpies = [
+      spyOn(logger, 'info').mockImplementation(() => {}),
+      spyOn(logger, 'debug').mockImplementation(() => {}),
+      spyOn(logger, 'warn').mockImplementation(() => {}),
+      spyOn(logger, 'error').mockImplementation(() => {}),
+      spyOn(logger, 'failure').mockImplementation(() => {}),
+    ];
+
+    storeCheckpointCalls = [];
+    clearCheckpointCalls = [];
+    const mockDbManager = {
+      getSessionStore: () => ({
+        storeCheckpoint: (...args: any[]) => {
+          storeCheckpointCalls.push(args);
+          return { id: 7, createdAtEpoch: 111 };
+        },
+        clearCheckpoint: (...args: any[]) => {
+          clearCheckpointCalls.push(args);
+          return { cleared: 1 };
+        },
+      }),
+      getChromaSync: () => null,
+    };
+    routes = new MemoryRoutes(mockDbManager as any, 'default-proj');
+  });
+
+  afterEach(() => {
+    loggerSpies.forEach(spy => spy.mockRestore());
+    mock.restore();
+  });
+
+  function buildHandlerFor(targetPath: string): (req: Request, res: Response) => void {
+    const mockApp: any = { get: mock(() => {}), delete: mock(() => {}), use: mock(() => {}) };
+    const handler = captureChain(mockApp, targetPath);
+    routes.setupRoutes(mockApp as any);
+    return handler;
+  }
+
+  it('save passes the explicit project through to storeCheckpoint', () => {
+    const handler = buildHandlerFor('/api/checkpoint/save');
+    const { req, res, jsonSpy } = createMockReqRes({ text: 'baton', focus: 'x', project: 'keepmind' });
+    handler(req as Request, res as Response);
+
+    expect(storeCheckpointCalls).toHaveLength(1);
+    expect(storeCheckpointCalls[0][0]).toBe('keepmind');
+    expect(storeCheckpointCalls[0][1]).toBe('baton');
+    expect(storeCheckpointCalls[0][2]).toMatchObject({ focus: 'x' });
+    expect(jsonSpy).toHaveBeenCalled();
+  });
+
+  it('save falls back to the worker default project when none supplied', () => {
+    const handler = buildHandlerFor('/api/checkpoint/save');
+    const { req, res } = createMockReqRes({ text: 'baton' });
+    handler(req as Request, res as Response);
+
+    expect(storeCheckpointCalls[0][0]).toBe('default-proj');
+  });
+
+  it('save rejects empty text and unknown fields with HTTP 400', () => {
+    const handlerEmpty = buildHandlerFor('/api/checkpoint/save');
+    const empty = createMockReqRes({ text: '   ' });
+    handlerEmpty(empty.req as Request, empty.res as Response);
+    expect(empty.statusSpy).toHaveBeenCalledWith(400);
+
+    const handlerUnknown = buildHandlerFor('/api/checkpoint/save');
+    const unknown = createMockReqRes({ text: 'ok', bogus: 1 });
+    handlerUnknown(unknown.req as Request, unknown.res as Response);
+    expect(unknown.statusSpy).toHaveBeenCalledWith(400);
+
+    expect(storeCheckpointCalls).toHaveLength(0);
+  });
+
+  it('clear calls clearCheckpoint for the resolved project', () => {
+    const handler = buildHandlerFor('/api/checkpoint/clear');
+    const { req, res, jsonSpy } = createMockReqRes({ project: 'keepmind' });
+    handler(req as Request, res as Response);
+
+    expect(clearCheckpointCalls).toHaveLength(1);
+    expect(clearCheckpointCalls[0][0]).toBe('keepmind');
+    expect(jsonSpy).toHaveBeenCalled();
+  });
+});

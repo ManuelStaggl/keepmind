@@ -58,6 +58,28 @@ describe('MCP tool inputSchema declarations', () => {
     expect(section).toContain('colors:');
   });
 
+  it('save_checkpoint declares text as required and posts to the checkpoint route', async () => {
+    const src = await Bun.file(mcpServerPath).text();
+    const section = src.slice(
+      src.indexOf("name: 'save_checkpoint'"),
+      src.indexOf("name: 'clear_checkpoint'"),
+    );
+    expect(section).toContain('text:');
+    expect(section).toContain('project:');
+    expect(section).toContain("required: ['text']");
+    expect(section).toContain('/api/checkpoint/save');
+  });
+
+  it('clear_checkpoint posts to the checkpoint clear route', async () => {
+    const src = await Bun.file(mcpServerPath).text();
+    const section = src.slice(
+      src.indexOf("name: 'clear_checkpoint'"),
+      src.indexOf("name: 'observation_add'"),
+    );
+    expect(section).toContain('project:');
+    expect(section).toContain('/api/checkpoint/clear');
+  });
+
   // Phase 8 — observation_* tools backed by server-beta REST core.
   it('observation_add tool declares content as required', async () => {
     const src = await Bun.file(mcpServerPath).text();
