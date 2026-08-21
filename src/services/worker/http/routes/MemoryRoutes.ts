@@ -19,6 +19,17 @@ const deleteByProjectSchema = z.object({
   dryRun: z.boolean().optional(),
 }).strict();
 
+const saveCheckpointSchema = z.object({
+  text: z.string().trim().min(1),
+  title: z.string().optional(),
+  focus: z.string().optional(),
+  project: z.string().optional(),
+}).strict();
+
+const clearCheckpointSchema = z.object({
+  project: z.string().optional(),
+}).strict();
+
 export class MemoryRoutes extends BaseRouteHandler {
   constructor(
     private dbManager: DatabaseManager,
@@ -30,6 +41,14 @@ export class MemoryRoutes extends BaseRouteHandler {
   setupRoutes(app: express.Application): void {
     app.post('/api/memory/save', validateBody(saveMemorySchema), this.handleSaveMemory.bind(this));
     app.post('/api/memory/delete-by-project', validateBody(deleteByProjectSchema), this.handleDeleteByProject.bind(this));
+    app.post('/api/checkpoint/save', validateBody(saveCheckpointSchema), this.handleSaveCheckpoint.bind(this));
+    app.post('/api/checkpoint/clear', validateBody(clearCheckpointSchema), this.handleClearCheckpoint.bind(this));
+  }
+
+  /** Explicit project wins; otherwise the worker's default project. */
+  private resolveProject(explicit?: string): string {
+    const trimmed = typeof explicit === 'string' && explicit.trim() ? explicit.trim() : undefined;
+    return trimmed || this.defaultProject;
   }
 
   private handleDeleteByProject = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
@@ -144,6 +163,45 @@ export class MemoryRoutes extends BaseRouteHandler {
       title: observation.title,
       project: targetProject,
       message: `Memory saved as observation #${result.id}`
+    });
+  });
+
+  private handleSaveCheckpoint = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
+    const { text, title, focus, project } = req.body as z.infer<typeof saveCheckpointSchema>;
+    const targetProject = this.resolveProject(project);
+    const sessionStore = this.dbManager.getSessionStore();
+
+    // No vector sync on purpose: a checkpoint is injected verbatim at the top of
+    // the next SessionStart, not retrieved by semantic search, and embedding it
+    // would embed the pre-redaction text (storeCheckpoint redacts what it
+    // stores, but returns only the id). Keeping it out of the vector store
+    // avoids a raw-text embedding for zero benefit here.
+    const result = sessionStore.storeCheckpoint(targetProject, text, { title, focus });
+
+    logger.info('HTTP', 'Checkpoint saved', { id: result.id, project: targetProject });
+    res.json({
+      success: true,
+      id: result.id,
+      project: targetProject,
+      message: `Checkpoint saved as observation #${result.id} for ${targetProject}`
+    });
+  });
+
+  private handleClearCheckpoint = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
+    const { project } = req.body as z.infer<typeof clearCheckpointSchema>;
+    const targetProject = this.resolveProject(project);
+    const sessionStore = this.dbManager.getSessionStore();
+
+    const { cleared } = sessionStore.clearCheckpoint(targetProject);
+
+    logger.info('HTTP', 'Checkpoint cleared', { project: targetProject, cleared });
+    res.json({
+      success: true,
+      project: targetProject,
+      cleared,
+      message: cleared > 0
+        ? `Cleared ${cleared} active checkpoint(s) for ${targetProject}`
+        : `No active checkpoint to clear for ${targetProject}`
     });
   });
 }

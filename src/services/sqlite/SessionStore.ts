@@ -25,6 +25,7 @@ import { findRecentDuplicateUserPrompt as findRecentDuplicateUserPromptRecord } 
 import { normalizeStoredPromptText } from './prompt-storage.js';
 import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_JOURNAL_SIZE_LIMIT_BYTES } from './pragmas.js';
 import { envValue } from '../../shared/legacy-env.js';
+import { CHECKPOINT_TYPE, deriveCheckpointTitle, type CheckpointRecord } from '../../shared/checkpoint.js';
 
 interface IndexColumnInfo {
   seqno: number;
@@ -2961,6 +2962,115 @@ export class SessionStore {
         AND COALESCE(valid_from, created_at_epoch) <= ?
         AND (valid_to IS NULL OR valid_to > ?)
     `).all(project, asOfEpoch, asOfEpoch) as ObservationRecord[];
+  }
+
+  /**
+   * Persist a curated session checkpoint — the hand-off block injected at the
+   * top of the next SessionStart for this project.
+   *
+   * Exactly ONE checkpoint stays active per project. The row is written through
+   * the ordinary `storeObservation` path (so it is redacted, hashed and stamped
+   * with `source_kind='curated'` — which keeps the near-dup reconciler away from
+   * it), then every OTHER still-open checkpoint for the project has its validity
+   * window closed. Idempotent: saving byte-identical text reuses the existing
+   * row (content-hash dedup) and re-activates it, so re-running `/checkpoint`
+   * never leaves two batons standing.
+   */
+  storeCheckpoint(
+    project: string,
+    text: string,
+    opts: { title?: string | null; focus?: string | null; generatedByModel?: string | null } = {}
+  ): { id: number; createdAtEpoch: number } {
+    const memorySessionId = this.getOrCreateManualSession(project);
+    const now = Date.now();
+
+    const title = opts.title && opts.title.trim()
+      ? opts.title.trim()
+      : deriveCheckpointTitle(text);
+
+    const metadata: Record<string, unknown> = { checkpoint: true };
+    if (opts.focus && opts.focus.trim()) metadata.focus = opts.focus.trim();
+
+    const stored = this.storeObservation(
+      memorySessionId,
+      project,
+      {
+        type: CHECKPOINT_TYPE,
+        title,
+        subtitle: 'Session checkpoint',
+        facts: [],
+        narrative: text,
+        concepts: [],
+        files_read: [],
+        files_modified: [],
+        metadata: JSON.stringify(metadata),
+        source_kind: 'curated',
+      },
+      0,
+      0,
+      now,
+      opts.generatedByModel ?? undefined
+    );
+
+    // Re-activate the row we just stored. A brand-new row is already active;
+    // this only matters when identical text dedup'd onto a checkpoint that a
+    // later save had already superseded — without this it would stay closed.
+    this.db.prepare(`
+      UPDATE observations
+         SET valid_to = NULL,
+             metadata = json_remove(COALESCE(metadata, '{}'), '$.superseded_by_checkpoint')
+       WHERE id = ? AND type = ?
+    `).run(stored.id, CHECKPOINT_TYPE);
+
+    // Close every other active checkpoint for the project — soft, bi-temporal,
+    // pointing at the row that replaced it (mirrors supersedeObservation).
+    this.db.prepare(`
+      UPDATE observations
+         SET valid_to = ?,
+             metadata = json_set(COALESCE(metadata, '{}'), '$.superseded_by_checkpoint', ?)
+       WHERE project = ? AND type = ? AND valid_to IS NULL AND id != ?
+    `).run(now, stored.id, project, CHECKPOINT_TYPE, stored.id);
+
+    logger.info('DB', 'Saved session checkpoint', { id: stored.id, project, title });
+    return stored;
+  }
+
+  /**
+   * Retire the active checkpoint(s) for a project — the "erledigt → weg" path
+   * ("no baton without an open point"). Soft-closes the window rather than
+   * deleting, so the history stays inspectable. Returns how many were closed.
+   */
+  clearCheckpoint(project: string): { cleared: number } {
+    const now = Date.now();
+    const res = this.db.prepare(`
+      UPDATE observations
+         SET valid_to = ?,
+             metadata = json_set(COALESCE(metadata, '{}'), '$.checkpoint_cleared', 1)
+       WHERE project = ? AND type = ? AND valid_to IS NULL
+    `).run(now, project, CHECKPOINT_TYPE);
+    const cleared = Number(res.changes ?? 0);
+    logger.info('DB', 'Cleared session checkpoint(s)', { project, cleared });
+    return { cleared };
+  }
+
+  /**
+   * Currently-active checkpoints for the given projects, newest first. At most
+   * one per project by construction, but a project chain (worktrees / merged
+   * projects) can surface several — the caller renders each, newest project on
+   * top. Deliberately independent of the `injectSourceKind` origin filter: a
+   * checkpoint is the session baton and always injects.
+   */
+  getActiveCheckpoints(projects: string[]): CheckpointRecord[] {
+    if (projects.length === 0) return [];
+    const placeholders = projects.map(() => '?').join(',');
+    return this.db.prepare(`
+      SELECT id, project, title, narrative, metadata, created_at, created_at_epoch
+        FROM observations
+       WHERE project IN (${placeholders})
+         AND type = ?
+         AND valid_to IS NULL
+       ORDER BY created_at_epoch DESC
+    `).all(...projects, CHECKPOINT_TYPE) as CheckpointRecord[];
   }
 
   /**

@@ -174,7 +174,7 @@ Each descriptor in `src/servers/mcp-server.ts` carries a `runtime` field:
 
 | `runtime` | Tools                                                                                                                            | Listed when            |
 | --------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| `worker`  | `search`, `timeline`, `get_observations`, `session_start_context`, `delete_observations_by_project`, the six `*_corpus`/`list_corpora` tools | `KEEPMIND_RUNTIME=worker` |
+| `worker`  | `search`, `timeline`, `get_observations`, `session_start_context`, `delete_observations_by_project`, `save_checkpoint`, `clear_checkpoint`, the six `*_corpus`/`list_corpora` tools | `KEEPMIND_RUNTIME=worker` |
 | `server`  | `observation_add`, `observation_record_event`, `observation_search`, `observation_context`, `observation_generation_status`, `memory_add`, `memory_search`, `memory_context` | `KEEPMIND_RUNTIME=server` |
 | `any`     | `smart_search`, `smart_unfold`, `smart_outline`                                                                                  | always                 |
 

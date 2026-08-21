@@ -715,6 +715,41 @@ Never call get_observations without narrowing first — that is the 10x differen
       return await callWorkerAPIPost('/api/memory/delete-by-project', args ?? {});
     },
   },
+  {
+    name: 'save_checkpoint',
+    runtime: 'worker',
+    group: 'core',
+    description: `Save a curated session checkpoint — the hand-off block injected at the TOP of the next SessionStart for this project. Exactly ONE checkpoint is active per project; saving a new one replaces the previous.
+Write 'text' as a concise, prioritized hand-off so the next session resumes WITHOUT re-reading: active task + status, done, next steps in order, key files, decisions WITH their rationale, open bugs/risks.
+ALWAYS pass 'project' — the keepmind project name (basename of the git repo root, else the cwd basename). The worker cannot infer the caller's project and would otherwise default to its own.
+Params: text (required), title, focus, project.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'The full curated checkpoint markdown (the hand-off body). Injected verbatim.' },
+        title: { type: 'string', description: 'Optional short title; defaults to the first line of text' },
+        focus: { type: 'string', description: 'Optional focus that scoped this checkpoint (from /checkpoint <focus>)' },
+        project: { type: 'string', description: 'Project name to attach the checkpoint to (basename of the git repo root). Required for correctness in any project other than the worker default.' },
+      },
+      required: ['text'],
+      additionalProperties: false,
+    },
+    handler: async (args: any) => callWorkerAPIPost('/api/checkpoint/save', args ?? {}),
+  },
+  {
+    name: 'clear_checkpoint',
+    runtime: 'worker',
+    group: 'core',
+    description: `Clear (retire) the active session checkpoint for a project once its last open item is done — no baton without an open point. Soft-closes it; history stays inspectable. Pass 'project' (the keepmind project name). Params: project.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project name whose active checkpoint to retire (basename of the git repo root)' },
+      },
+      additionalProperties: false,
+    },
+    handler: async (args: any) => callWorkerAPIPost('/api/checkpoint/clear', args ?? {}),
+  },
   // Phase 8 — observation_* tools backed by server REST core.
   // These are the canonical names. memory_* tools below are kept as
   // compatibility aliases that delegate to these handlers, so existing
