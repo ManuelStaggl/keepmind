@@ -4,6 +4,50 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [4.2.0] - 2026-08-21
+
+# keepmind 4.2.0 — `/checkpoint`: the curated session baton
+
+Add **`/checkpoint [focus]`** — a curated hand-off you write when context fills
+up, injected **at the very top** of your next session. It is the deliberate
+alternative to `/compact` and to external hand-off files: you decide *when* to
+capture state and *what* goes in, and the next session resumes without
+re-reading anything.
+
+## What it does
+
+- **`/checkpoint [focus]`** asks the assistant to write a concise, prioritized
+  hand-off — active task + status, done, next steps in order, key files,
+  decisions *with their rationale*, open bugs/risks — and save it to keepmind.
+  An optional `focus` narrows it.
+- The next **SessionStart** injects the active checkpoint **prominently at the
+  top**, clearly set off, before the normal observations — so a fresh session
+  picks up exactly where the last one left off.
+- **Exactly one active checkpoint per project.** Saving a new one replaces the
+  previous; `clear_checkpoint` retires it once the last open point is done — no
+  baton without an open point.
+
+## How it works
+
+A checkpoint is stored as an ordinary observation with the reserved type
+`session-checkpoint` (`source_kind: 'curated'`), so it inherits the existing
+secret redaction, content hashing and bi-temporal validity window — no second
+write path. The reserved type is never part of a mode's `observation_types`, so
+it stays out of the normal timeline and is rendered in its own block. The
+injected block is placed above the timeline and survives the
+`KEEPMIND_SESSION_START_MAX_CHARS` cap.
+
+## New MCP tools (core)
+
+- **`save_checkpoint`** — persist the curated hand-off for a project.
+- **`clear_checkpoint`** — retire the active checkpoint for a project.
+
+## Also
+
+- `test(install)`: the dependency-fingerprint fixture now records the live `bun`
+  version instead of a hardcoded one, so CI stays green when `bun-version:
+  latest` advances.
+
 ## [4.1.0] - 2026-08-14
 
 ## Search was broken, and nothing was measuring it
