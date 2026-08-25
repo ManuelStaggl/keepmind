@@ -14,7 +14,7 @@
  * rendering.
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join, sep } from 'path';
 import { spawnSync } from 'child_process';
 import pc from 'picocolors';
@@ -38,6 +38,7 @@ import { depsInstallRoot, depsRoot, pluginDepsPresent } from '../../shared/plugi
 import { spoolDepth } from '../../shared/hook-spool.js';
 import { checkSourceTreeDrift } from '../utils/source-tree-drift.js';
 import { curatedHealth, describeCuratedHealth, type CuratedHealth } from '../../services/curated/health.js';
+import { readCuratedRecordCounts } from '../../services/curated/stored-records.js';
 
 export type CheckStatus = 'ok' | 'warn' | 'fail' | 'skip';
 
@@ -771,7 +772,7 @@ export function buildCuratedGroup(probe: WorkerProbe, dataDir: string = resolveD
 
   let entries: CuratedHealth[] = [];
   try {
-    entries = curatedHealth(dataDir);
+    entries = curatedHealth(dataDir, { storedRecords: readCuratedRecordCounts() });
   } catch (error) {
     checks.push({
       name: 'Curated corpus',
@@ -794,18 +795,40 @@ export function buildCuratedGroup(probe: WorkerProbe, dataDir: string = resolveD
     };
   }
 
+  // Configured for a corpus this machine does not have — no sources reachable
+  // and no records held. keepmind is developed on one machine and used on
+  // another, and a settings file that travels ahead of the corpus must not turn
+  // `doctor` red on every machine it reaches first. Nothing here is broken;
+  // there is nothing here.
+  if (entries.every(entry => entry.presence === 'absent')) {
+    return {
+      title: 'Curated Corpus',
+      checks: [{
+        name: 'Curated sources',
+        status: 'skip',
+        detail: `configured for ${entries.map(entry => entry.project).join(', ')}, `
+          + 'but neither the source directories nor any records are on this machine',
+        required: false,
+      }],
+    };
+  }
+
   // Strict here, tolerant elsewhere. A stopped worker is a legitimate state on
   // a machine that only records observations — but it is not one on a machine
-  // that carries a hand-written corpus: nothing imports the sources and nothing
-  // embeds them while it is down, and the corpus silently ages. The strictness
-  // comes from the corpus being present, not from a blanket rule.
+  // that carries a hand-written corpus AND its sources: nothing imports them
+  // and nothing embeds them while it is down, and the corpus silently ages.
+  // A detached corpus cannot age — nothing feeds it — so the same stopped
+  // worker is reported there without failing the run.
+  const feeds = entries.some(entry => entry.presence === 'present' || entry.presence === 'unknown');
   checks.push({
     name: 'Worker (keeps the corpus current)',
-    status: probe.reachable ? 'ok' : 'fail',
+    status: probe.reachable ? 'ok' : feeds ? 'fail' : 'warn',
     detail: probe.reachable
       ? `reachable on port ${probe.port}`
-      : `no response on port ${probe.port} — nothing is importing or indexing the corpus. Start it with \`npx keepmind start\`.`,
-    required: true,
+      : feeds
+        ? `no response on port ${probe.port} — nothing is importing or indexing the corpus. Start it with \`npx keepmind start\`.`
+        : `no response on port ${probe.port} — the held records are not being served while it is down.`,
+    required: feeds,
   });
 
   const { obs, error } = readDbCountsDirect();
@@ -817,17 +840,26 @@ export function buildCuratedGroup(probe: WorkerProbe, dataDir: string = resolveD
   });
 
   for (const entry of entries) {
-    // A source that vanished is reported on its own: it is a broken
-    // configuration, and the import refuses to run at all while it lasts.
-    const absent = entry.sources.filter(source => {
-      try { return !statSync(source.path).isDirectory(); } catch { return true; }
-    });
-    if (absent.length > 0) {
+    if (entry.presence === 'absent') continue;
+
+    // What a missing source MEANS depends on whether the records are here.
+    //
+    //   present  — every configured directory is readable; nothing to report.
+    //   detached — the records are held and searchable, the files are on
+    //              another machine. A real thing to know, not a fault: the
+    //              import is not failing here, it has nothing to do here.
+    //   unknown  — the store could not be counted, so the broken-configuration
+    //              reading cannot be ruled out and keeps its failure.
+    if (entry.absentSources.length > 0) {
+      const detached = entry.presence === 'detached';
       checks.push({
         name: `Sources [${entry.project}]`,
-        status: 'fail',
-        detail: `not readable: ${absent.map(source => source.path).join(', ')}`,
-        required: true,
+        status: detached ? 'warn' : 'fail',
+        detail: detached
+          ? `not on this machine: ${entry.absentSources.map(source => source.path).join(', ')} `
+            + '— the records themselves are held here'
+          : `not readable: ${entry.absentSources.map(source => source.path).join(', ')}`,
+        required: !detached,
       });
     } else if (entry.sources.length > 0) {
       checks.push({
@@ -838,18 +870,23 @@ export function buildCuratedGroup(probe: WorkerProbe, dataDir: string = resolveD
       });
     }
 
+    const detached = entry.presence === 'detached';
     checks.push({
-      name: `Last import [${entry.project}]`,
-      status: entry.ok ? 'ok' : entry.lastSuccessEpoch === null ? 'fail' : 'warn',
+      name: detached ? `Records held [${entry.project}]` : `Last import [${entry.project}]`,
+      status: entry.ok ? 'ok' : detached ? 'warn' : entry.lastSuccessEpoch === null ? 'fail' : 'warn',
       detail: describeCuratedHealth(entry),
-      required: true,
+      required: !detached,
     });
 
-    if (!entry.indexed && entry.lastSuccessEpoch !== null) {
+    // Only where an import can actually run. On a detached machine the flag
+    // records what the last run on THIS machine managed, and the last run had
+    // no sources to read — which says nothing about whether the records are
+    // embedded, and `curated:import` cannot answer it either.
+    if (!entry.indexed && entry.lastSuccessEpoch !== null && !detached) {
       checks.push({
         name: `Semantic index [${entry.project}]`,
         status: 'fail',
-        detail: 'the corpus is stored but not embedded — semantic search cannot see it. Re-run `npx keepmind curated:import`.',
+        detail: 'the last import did not verify the index — semantic search may not see the corpus. Re-run `npx keepmind curated:import`.',
         required: true,
       });
     }

@@ -85,7 +85,32 @@ describe('curated health', () => {
 
     const [health] = curatedHealth(dataDir);
     expect(health.ok).toBe(false);
-    expect(describeCuratedHealth(health)).toContain('semantic search cannot see');
+    const line = describeCuratedHealth(health);
+    // The reason the run gave is what the reader needs, and it is carried
+    // verbatim.
+    expect(line).toContain('the worker could not be started');
+    expect(line).toContain('did not get as far as verifying the semantic index');
+  });
+
+  it('does not claim the store is unindexed on the strength of a stamp', () => {
+    // The stamp records what the last RUN did. It was rendered as a claim about
+    // the index — "semantic search cannot see these records" — and said that
+    // about 333 records the index held in full, because the run had aborted
+    // before it reached the indexing step. Two different claims; only one of
+    // them is knowable from here.
+    writeImportState({
+      project: PROJECT,
+      lastAttemptEpoch: Date.now(),
+      lastSuccessEpoch: null,
+      records: 0,
+      edges: 0,
+      indexed: false,
+      failure: 'source director(y|ies) missing: /nowhere',
+      sources: [],
+    }, dataDir);
+
+    const [health] = curatedHealth(dataDir);
+    expect(describeCuratedHealth(health)).not.toContain('semantic search cannot see');
   });
 });
 

@@ -12,13 +12,14 @@
 // a stale corpus changes what every later answer in the session is worth.
 
 import { curatedHealth, describeCuratedHealth, type CuratedHealth } from '../../curated/health.js';
+import { readCuratedRecordCounts } from '../../curated/stored-records.js';
 import { logger } from '../../../utils/logger.js';
 
 export function renderCuratedHealth(options: { now?: number; entries?: CuratedHealth[] } = {}): string[] {
   const now = options.now ?? Date.now();
   let entries: CuratedHealth[];
   try {
-    entries = options.entries ?? curatedHealth();
+    entries = options.entries ?? curatedHealth(undefined, { storedRecords: readCuratedRecordCounts() });
   } catch (error) {
     // Never let a health check cost the user their session context.
     logger.debug('WORKER', 'Curated health could not be read', {}, error instanceof Error ? error : undefined);
@@ -29,6 +30,25 @@ export function renderCuratedHealth(options: { now?: number; entries?: CuratedHe
   // would be noise in every session of every project that never uses one.
   if (entries.length === 0) return [];
 
+  // A project this machine is configured for but holds nothing of is the same
+  // silence. keepmind is developed on one machine and used on another; a
+  // settings file that travels must not put a warning at the top of every
+  // session on every machine the corpus did not travel to.
+  entries = entries.filter(entry => entry.presence !== 'absent');
+  if (entries.length === 0) return [];
+
+  // Held here but cut off from its sources: worth one line, not the banner.
+  // The banner ends in "fix it with `curated:import`", and that instruction is
+  // useless advice on a machine where the files are not there to import.
+  const detached = entries.filter(entry => entry.presence === 'detached');
+  const attached = entries.filter(entry => entry.presence !== 'detached');
+  const detachedLines = detached.map(entry => `Curated corpus [${entry.project}]: ${describeCuratedHealth(entry, now)}`);
+
+  if (attached.length === 0) {
+    return [...detachedLines, ''];
+  }
+  entries = attached;
+
   const broken = entries.filter(entry => !entry.ok);
   const output: string[] = [];
 
@@ -36,6 +56,7 @@ export function renderCuratedHealth(options: { now?: number; entries?: CuratedHe
     for (const entry of entries) {
       output.push(`Curated corpus [${entry.project}]: ${describeCuratedHealth(entry, now)}`);
     }
+    output.push(...detachedLines);
     output.push('');
     return output;
   }
@@ -48,6 +69,9 @@ export function renderCuratedHealth(options: { now?: number; entries?: CuratedHe
   }
   const healthy = entries.filter(entry => entry.ok);
   for (const entry of healthy) {
+    output.push(`- ${entry.project} — ${describeCuratedHealth(entry, now)}`);
+  }
+  for (const entry of detached) {
     output.push(`- ${entry.project} — ${describeCuratedHealth(entry, now)}`);
   }
   output.push('');

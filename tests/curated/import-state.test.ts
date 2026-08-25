@@ -106,7 +106,11 @@ describe('staleness', () => {
   it('is stale when the last import was not indexed', () => {
     const verdict = importIsStale(successState({ indexed: false }), stampSources(sources));
     expect(verdict.stale).toBe(true);
-    expect(verdict.reason).toContain('not searchable');
+    // Stale, yes — but the reason says what the RUN did, not what the index
+    // contains. The flag cannot distinguish "the rows have no vectors" from
+    // "the run never reached the indexing step", and only the first would
+    // justify telling the reader that search cannot find them.
+    expect(verdict.reason).toContain('did not get as far as verifying the semantic index');
   });
 
   it('is stale when a configured source was added or removed', () => {

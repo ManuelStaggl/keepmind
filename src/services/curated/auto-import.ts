@@ -26,7 +26,8 @@
 // import a person would have run, and stamps what happened where the session
 // start and `keepmind doctor` can read it.
 
-import { realpathSync, watch, type FSWatcher } from 'node:fs';
+import { existsSync, realpathSync, watch, type FSWatcher } from 'node:fs';
+import { basename, dirname, parse, relative, resolve } from 'node:path';
 import { logger } from '../../utils/logger.js';
 import { DATA_DIR } from '../../shared/paths.js';
 import { runCuratedImport, type CuratedImportReport } from './import-run.js';
@@ -73,6 +74,29 @@ function debounceMs(): number {
 
 function watchingEnabled(): boolean {
   return process.env.KEEPMIND_CURATED_WATCH !== 'false';
+}
+
+/** How far up from a missing source to look for a directory that exists. */
+const MAX_ANCESTOR_DEPTH = 6;
+
+/** The deepest existing directory above `target`, or null (root, or too far). */
+function nearestExistingAncestor(target: string): string | null {
+  let candidate = resolve(target);
+  for (let depth = 0; depth < MAX_ANCESTOR_DEPTH; depth++) {
+    const parent = dirname(candidate);
+    if (parent === candidate) return null;
+    candidate = parent;
+    if (parse(candidate).root === candidate) return null;
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** The first path segment of `target` below `ancestor`. */
+function relativeChild(ancestor: string, target: string): string {
+  const rest = relative(ancestor, resolve(target));
+  const [first] = rest.split(/[\/]/);
+  return first || rest;
 }
 
 export class CuratedAutoImport {
@@ -199,12 +223,36 @@ export class CuratedAutoImport {
 
     const absent = missingSources(sources);
     if (absent.length > 0) {
-      // A configured directory that is not there is a broken configuration, not
-      // an empty corpus. Importing the rest would silently retire every record
-      // the missing directory holds.
+      // A configured directory that is not there is not an empty corpus. The
+      // import itself is additive — a directory with no files in it retires
+      // nothing, which is what makes a half-mounted drive harmless — but a run
+      // that COMPLETED over a partial set would stamp the whole configured set
+      // as covered, and the freshness check would then stay quiet about the
+      // directory it never read. So the run does not happen.
+      //
+      // What it MEANS depends on whether the records are here. On the machine
+      // that owns the corpus, a directory that vanished is a broken
+      // configuration and worth a warning. On a machine that never had the
+      // files — this project is developed on one and used on another — there is
+      // simply nothing to do, and a warning per source per startup trains the
+      // reader to ignore the channel that carries the real outage.
+      const held = this.heldRecordCount(store, project);
       const reason = `source director(y|ies) missing: ${absent.map(s => s.path).join(', ')}`;
-      logger.warn('DB', 'Curated import skipped — configured sources are missing', { project, absent: absent.map(s => s.path) });
-      this.stamp(project, sources, null, false, reason);
+      const detached = held > 0;
+      if (detached) {
+        logger.warn('DB', 'Curated import skipped — configured sources are missing', {
+          project, absent: absent.map(s => s.path), heldRecords: held,
+        });
+      } else {
+        logger.info('DB', 'No curated corpus on this machine — nothing to import', {
+          project, absent: absent.map(s => s.path),
+        });
+      }
+      // 'unchanged' and not `false`: a run that never started learned nothing
+      // about the index. Asserting false here wiped a previous run's verified
+      // flag, and the session-start block then reported records that were fully
+      // embedded as missing from the semantic index.
+      this.stamp(project, sources, null, 'unchanged', reason);
       return { project, trigger, ran: false, skipped: reason };
     }
 
@@ -257,23 +305,35 @@ export class CuratedAutoImport {
    * after a failure would mark the sources as covered by an import that did not
    * cover them, and every later freshness check would then stay quiet.
    */
+  /** How many curated rows this machine already holds for a project. */
+  private heldRecordCount(store: CuratedStore, project: string): number {
+    try {
+      return store.curatedObservationIds(project).length;
+    } catch {
+      // An unreadable store is reported by the caller; for this decision it
+      // reads as "cannot tell", and the louder branch is the safer one.
+      return 1;
+    }
+  }
+
   private stamp(
     project: string,
     sources: CuratedSource[],
     report: CuratedImportReport | null,
-    indexed: boolean,
+    indexed: boolean | 'unchanged',
     failure: string | null,
   ): void {
     const previous = readImportState(project, this.dataDir);
     const now = Date.now();
-    const success = failure === null && report !== null && indexed;
+    const indexedNow = indexed === 'unchanged' ? previous?.indexed ?? false : indexed;
+    const success = failure === null && report !== null && indexedNow;
     writeImportState({
       project,
       lastAttemptEpoch: now,
       lastSuccessEpoch: success ? now : previous?.lastSuccessEpoch ?? null,
       records: success ? report.records : previous?.records ?? 0,
       edges: success ? report.edges : previous?.edges ?? 0,
-      indexed,
+      indexed: indexedNow,
       failure,
       sources: success ? stampSources(sources) : previous?.sources ?? [],
     }, this.dataDir);
@@ -281,7 +341,20 @@ export class CuratedAutoImport {
 
   private installWatchers(): void {
     const configured = loadCuratedSources(this.dataDir);
+    const absent = new Set(missingSources(configured.sources).map(source => source.path));
+    const arrivals: string[] = [];
     for (const source of configured.sources) {
+      // A source that is not there yet cannot be watched, and the startup check
+      // has already run — so without this, a corpus that arrives while the
+      // worker is up stays invisible until the next restart. That is the normal
+      // case on a machine where the files live on a drive that gets mounted, or
+      // in a directory that is about to be created. Watching the nearest
+      // existing ancestor turns "it appeared" into the same debounced check a
+      // file edit triggers.
+      if (absent.has(source.path)) {
+        arrivals.push(source.path);
+        continue;
+      }
       try {
         // Watch the path the OS itself uses. On Windows a recursive watch whose
         // directory argument is a short (8.3) or differently-cased form of the
@@ -304,8 +377,69 @@ export class CuratedAutoImport {
           error instanceof Error ? error : undefined);
       }
     }
+    this.watchForArrivals(arrivals);
+
     if (this.watchers.length > 0) {
       logger.info('DB', 'Watching curated sources for changes', { directories: this.watchers.length, debounceMs: debounceMs() });
+    }
+  }
+
+  /**
+   * Watch for sources that are not there YET.
+   *
+   * The startup check has already run, so without this a corpus that arrives
+   * while the worker is up stays invisible until the next restart — the normal
+   * case where the files live on a drive that gets mounted, or in a directory
+   * about to be created. Watching the nearest existing ancestor turns "it
+   * appeared" into the same debounced check a file edit triggers.
+   *
+   * Two things keep this from being expensive. The watch is NON-RECURSIVE: the
+   * only event that matters is the directory itself appearing, and an ancestor
+   * can be somewhere as busy as a desktop. And the callback fires only for the
+   * NAME being waited for — without that filter, every unrelated file dropped
+   * next to it would run a freshness check and rewrite the state file, three
+   * seconds at a time, forever.
+   *
+   * `realpathSync.native` is still applied even though the libuv assertion that
+   * kills the process is specific to recursive watches: an ancestor reached
+   * through a short (8.3) path is exactly as likely as a source reached that
+   * way, and this is not the place to rely on that distinction.
+   *
+   * A drive root is never watched — it is not evidence about this corpus.
+   */
+  private watchForArrivals(sourcePaths: string[]): void {
+    const wanted = new Map<string, Set<string>>();
+    for (const sourcePath of sourcePaths) {
+      const ancestor = nearestExistingAncestor(sourcePath);
+      if (!ancestor) continue;
+      const names = wanted.get(ancestor) ?? new Set<string>();
+      // The child of the ancestor that has to appear — not necessarily the
+      // source itself, when several levels are missing at once.
+      names.add(basename(relativeChild(ancestor, sourcePath)));
+      wanted.set(ancestor, names);
+    }
+
+    for (const [ancestor, names] of wanted) {
+      try {
+        const target = realpathSync.native(ancestor);
+        const watcher = watch(target, { recursive: false, persistent: false }, (_event, filename) => {
+          // A null filename means the platform could not say what changed; the
+          // check is cheap enough to run rather than miss the arrival.
+          if (filename !== null && !names.has(basename(String(filename)))) return;
+          this.onChange();
+        });
+        watcher.on('error', error => {
+          logger.debug('DB', 'Arrival watcher failed', { path: ancestor },
+            error instanceof Error ? error : undefined);
+        });
+        this.watchers.push(watcher);
+        logger.info('DB', 'Curated source is not on this machine — watching for it to appear', {
+          watching: ancestor, waitingFor: [...names],
+        });
+      } catch (error) {
+        logger.debug('DB', 'Could not watch for a curated source to appear', { path: ancestor },
+          error instanceof Error ? error : undefined);
+      }
     }
   }
 

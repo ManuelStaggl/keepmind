@@ -9,14 +9,41 @@
 // two that stay quiet get believed. Same argument as the cost balance — written
 // in one place, read in one place.
 //
-// It answers from the STATE FILE plus the sources as they are right now. It
-// deliberately does not open the database: a session start pays this on every
-// launch, and the question "did the last import cover what is on disk" is
-// answerable from a stamp and a stat.
+// It answers from the STATE FILE plus the sources as they are right now, and
+// optionally a count of what the store holds. It does not open the database
+// itself — a session start pays this on every launch — so a caller that already
+// has one supplies the counts; without them the verdict says "cannot tell"
+// rather than guessing.
 
 import { importIsStale, readAllImportStates, stampSources, type CuratedImportState } from './import-state.js';
-import { loadCuratedProject, loadCuratedSources, sourcesByProject, type CuratedSource } from './sources.js';
+import { loadCuratedProject, loadCuratedSources, missingSources, sourcesByProject, type CuratedSource } from './sources.js';
 import { DATA_DIR } from '../../shared/paths.js';
+
+/**
+ * What this machine's relationship to a corpus is.
+ *
+ * keepmind is developed on one machine and used on another, and the corpus does
+ * not necessarily follow. Everything downstream — whether the doctor fails,
+ * whether a session start says anything at all — hangs on this and not on the
+ * import state, because an import state only ever describes the last RUN.
+ *
+ *   'present'  — the sources are readable here. The strict rules apply: an
+ *                import that stopped running is the four-day outage this whole
+ *                path exists to catch.
+ *   'detached' — the store holds records but their sources are not reachable
+ *                from here. Nothing can refresh them; nothing is broken
+ *                either. The records stay searchable and stay true as of the
+ *                last import, and that is exactly what has to be said.
+ *   'absent'   — sources are configured, none are reachable, and this machine
+ *                holds no records for the project. It is configured for a
+ *                corpus it does not have. Silence is the correct output: a
+ *                machine that never touches the corpus must not be told about
+ *                it at every session start.
+ *   'unknown'  — sources are missing and the store could not be counted. The
+ *                strict reading applies, because the outage cannot be ruled
+ *                out.
+ */
+export type CuratedPresence = 'present' | 'detached' | 'absent' | 'unknown';
 
 export interface CuratedHealth {
   project: string;
@@ -36,6 +63,22 @@ export interface CuratedHealth {
   ok: boolean;
   /** Configured source directories for this project. */
   sources: CuratedSource[];
+  /** Those of them that are not reachable from this machine. */
+  absentSources: CuratedSource[];
+  /** Curated rows this machine holds for the project; null when uncounted. */
+  storedRecords: number | null;
+  /** What this machine's relationship to the corpus is. */
+  presence: CuratedPresence;
+}
+
+export interface CuratedHealthOptions {
+  /**
+   * Curated row counts by project — see `stored-records.ts`.
+   *
+   * Injected rather than read here so this stays a stamp-and-stat question,
+   * and so a test can describe a machine without building one.
+   */
+  storedRecords?: Map<string, number> | null;
 }
 
 /**
@@ -45,7 +88,10 @@ export interface CuratedHealth {
  * configured for it — the second case is what makes "configured but never
  * imported" visible instead of silent.
  */
-export function curatedHealth(dataDir: string = DATA_DIR): CuratedHealth[] {
+export function curatedHealth(
+  dataDir: string = DATA_DIR,
+  options: CuratedHealthOptions = {},
+): CuratedHealth[] {
   const states = new Map<string, CuratedImportState>();
   for (const state of readAllImportStates(dataDir)) states.set(state.project, state);
 
@@ -84,6 +130,10 @@ export function curatedHealth(dataDir: string = DATA_DIR): CuratedHealth[] {
       // its back, so the last import still stands for what it covered.
       : { stale: state === null || state.lastSuccessEpoch === null, reason: state ? null : 'never imported' };
 
+    const absentSources = missingSources(sources);
+    const storedRecords = options.storedRecords ? options.storedRecords.get(project) ?? 0 : null;
+    const presence = resolvePresence(sources, absentSources, storedRecords);
+
     out.push({
       project,
       lastSuccessEpoch: state?.lastSuccessEpoch ?? null,
@@ -96,10 +146,37 @@ export function curatedHealth(dataDir: string = DATA_DIR): CuratedHealth[] {
       staleReason: verdict.reason,
       ok: state !== null && state.lastSuccessEpoch !== null && state.indexed && !state.failure && !verdict.stale,
       sources,
+      absentSources,
+      storedRecords,
+      presence,
     });
   }
 
   return out.sort((a, b) => a.project.localeCompare(b.project));
+}
+
+/**
+ * Which of the three machines this is, for one project.
+ *
+ * Note that a corpus counts as reachable as soon as EVERY configured source is
+ * — a partially reachable set is treated as present and therefore strictly,
+ * because the import refuses to run on it and the records the missing directory
+ * holds really would go stale without anyone noticing. That is the outage case,
+ * not the portability case.
+ */
+function resolvePresence(
+  sources: CuratedSource[],
+  absentSources: CuratedSource[],
+  storedRecords: number | null,
+): CuratedPresence {
+  if (sources.length === 0 || absentSources.length === 0) return 'present';
+  // Some reachable, some not: this machine plainly HAS the corpus, and one of
+  // its directories has gone. The import refuses to run on a partial set, so
+  // the records that directory holds go stale with nobody told — the outage,
+  // not the portability question.
+  if (absentSources.length < sources.length) return 'present';
+  if (storedRecords === null) return 'unknown';
+  return storedRecords > 0 ? 'detached' : 'absent';
 }
 
 /** `2026-08-25 · 3 days ago`, or `never` — the same phrasing everywhere. */
@@ -123,10 +200,32 @@ export function describeCuratedHealth(health: CuratedHealth, now: number = Date.
   if (health.ok) {
     return `last imported ${when} · ${health.records} record(s), ${health.edges} relation(s) · index in sync`;
   }
+
+  // A machine that holds the records but not the files is not a machine with a
+  // broken import, and describing it as one is how a warning stops being read.
+  // Everything the strict wording would say here — "never imported", "not
+  // indexed" — is a statement about a run that could not start on THIS machine,
+  // and says nothing about records that arrived on another one.
+  if (health.presence === 'detached') {
+    const held = health.storedRecords ?? 0;
+    return `${held} record(s) held here, searchable · sources not reachable from this machine `
+      + `(${health.absentSources.map(source => source.path).join(', ')}) — nothing refreshes them here`;
+  }
+  if (health.presence === 'absent') {
+    return 'configured for a corpus this machine does not have';
+  }
+
   const problems = new Set<string>();
   if (health.lastSuccessEpoch === null) problems.add('never imported successfully');
   if (health.failure) problems.add(health.failure);
-  if (!health.indexed) problems.add('NOT in the semantic index — semantic search cannot see these records');
+  // What the stamp knows is what the last RUN did, which is a different claim
+  // from what the index contains. It was phrased as the second — "NOT in the
+  // semantic index — semantic search cannot see these records" — and stated
+  // that about 333 records the index held in full, because a run that aborted
+  // before it reached the indexing step had left the flag false. A genuinely
+  // incomplete index still reports itself, through `failure`, in the words
+  // `ensureObservationsIndexed` used: "N of M curated row(s) have no vector".
+  if (!health.indexed) problems.add('the last import did not get as far as verifying the semantic index');
   // The stale reason often restates one of the above; a reader who is told the
   // same thing three times stops reading the line at all.
   if (health.stale && health.staleReason) problems.add(health.staleReason);

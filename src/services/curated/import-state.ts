@@ -181,7 +181,7 @@ export function importIsStale(
     return { stale: true, reason: 'never imported successfully' };
   }
   if (!state.indexed) {
-    return { stale: true, reason: 'the last import was not indexed — its records are not searchable' };
+    return { stale: true, reason: 'the last import did not get as far as verifying the semantic index' };
   }
 
   const previous = new Map(state.sources.map(source => [source.path, source]));

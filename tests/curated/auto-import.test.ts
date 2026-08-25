@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionStore } from '../../src/services/sqlite/SessionStore.js';
@@ -184,4 +184,64 @@ Bewirtungsbelege brauchen den Anlass.
     expect(outcomes[0].skipped).toContain('missing');
     expect(store.curatedObservationIds(PROJECT)).toHaveLength(0);
   });
+
+  it('leaves a previous index verdict alone when it cannot run at all', async () => {
+    // A skip learns nothing about the index. Asserting `false` here wiped the
+    // flag a successful run had set, and the session-start block then reported
+    // a fully embedded corpus as missing from the semantic index — on a machine
+    // whose only fault was not having the source files.
+    importer = new CuratedAutoImport(host(indexerSpy()), dataDir);
+    await importer.start();
+    importer.stop();
+    expect(readImportState(PROJECT, dataDir)?.indexed).toBe(true);
+
+    rmSync(corpus, { recursive: true, force: true });
+    importer = new CuratedAutoImport(host(indexerSpy()), dataDir);
+    await importer.start();
+
+    const state = readImportState(PROJECT, dataDir);
+    expect(state?.indexed).toBe(true);
+    expect(state?.failure).toContain('missing');
+  });
+
+  it('picks up a corpus that arrives after the worker started', async () => {
+    // The "not there YET" machine: a drive that gets mounted, a directory about
+    // to be created. Without a watch on the nearest existing ancestor, the
+    // startup check has already run and nothing looks again until a restart.
+    const parent = mkdtempSync(join(tmpdir(), 'keepmind-auto-parent-'));
+    const late = join(parent, 'entscheidungen');
+    writeFileSync(join(dataDir, 'settings.json'), JSON.stringify({
+      curatedSources: [{ path: late.replace(/\\/g, '/'), kind: 'akten' }],
+      KEEPMIND_CURATED_PROJECT: PROJECT,
+    }), 'utf8');
+
+    importer = new CuratedAutoImport(host(indexerSpy()), dataDir);
+    const startup = await importer.start();
+    expect(startup[0].ran).toBe(false);
+    expect(store.curatedObservationIds(PROJECT)).toHaveLength(0);
+
+    try {
+      mkdirSync(late, { recursive: true });
+      writeFileSync(join(late, '0007-spaete-regel.md'), `# 0007 — Spaete Regel
+
+**Stand:** gilt · **Datum:** 07.06.2026
+
+Der Bestand kam erst nach dem Start an.
+`, 'utf8');
+
+      await waitFor(() => store.getCuratedRecord(PROJECT, '0007') !== null);
+      expect(store.getCuratedRecord(PROJECT, '0007')).not.toBeNull();
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
 });
+
+/** Poll until `ready` or the deadline — the watcher path is asynchronous. */
+async function waitFor(ready: () => boolean, timeoutMs = 8_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (ready()) return;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+}
