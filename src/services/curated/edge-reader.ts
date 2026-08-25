@@ -290,6 +290,58 @@ export function extractEdges(
 }
 
 /**
+ * The reason a supersession from a row-less file carries in `rejected`.
+ * Exported so the importer can count them without matching prose.
+ */
+export const WITHHELD_SUPERSESSION = 'supersession declared by a file that stores no row';
+
+export interface ControlFileOptions {
+  /**
+   * May a file that stores no row retire a record?
+   *
+   * Default NO, and that default is the fix for a corruption that reached the
+   * delivered corpus. A file with no record number is one of three things: an
+   * index the tooling GENERATES from the records (LIESMICH.md), a brief that
+   * DISCUSSES them (ANTWORT-…md, PLAN-…md), or a control file that genuinely
+   * declares something. Only the third is a source, and nothing in the text
+   * tells them apart — a filename rule would need a second list to keep in
+   * sync, and the corpus renames files freely.
+   *
+   * What separates them is what they are ALLOWED to say. A generated index is
+   * a copy of the records, so any supersession in it is a duplicate; a brief
+   * quotes supersessions in order to discuss them, and one of those quotes is
+   * a statement the brief itself calls wrong — ANTWORT-keepmind-2026-08-14
+   * quotes "0011 ersetzt 0012" to report that it was corrected, and the reader
+   * built exactly that edge, against the true 0012→0011 the two records carry.
+   * A corpus explaining its own history must not thereby rewrite it.
+   *
+   * So a row-less file may still state that one record CONCERNS, EXTENDS or
+   * RESTRICTS another — none of that changes what is in force. Retiring a
+   * record is different in kind: it closes a validity window, and only the
+   * record that did the superseding can declare that. Withheld supersessions
+   * go into `rejected`, so the graph loses them and the operator does not.
+   *
+   * `keepmind akten:check` sets this true on purpose: its whole job is to
+   * report where a control file claims something the records do not.
+   */
+  allowSupersessions?: boolean;
+}
+
+/**
+ * Blank inline code spans, keeping every offset.
+ *
+ * In a record header a backtick is emphasis, and blanking it there would drop
+ * real edges — so this is applied to prose only. In a document ABOUT the
+ * corpus it is the opposite: `` `0011 ersetzt 0012` `` is a citation, marked as
+ * one by the author, and reading it as a claim is how a brief that reports a
+ * mistake reproduces it. A fenced block was already treated this way; an
+ * inline span said the same thing and was not.
+ */
+function blankInlineCode(line: string): string {
+  return line.replace(/`+[^`]*`+/g, match => ' '.repeat(match.length));
+}
+
+/**
  * Read edges out of a file that is NOT a record — an index, a control file, a
  * status report.
  *
@@ -301,15 +353,37 @@ export function extractEdges(
  *
  * The declaring side is the FILE, not a record, so `from` is the target and
  * the edge is marked `vermutet`: a third party asserting a relation between
- * two records is weaker than a record asserting it about itself.
+ * two records is weaker than a record asserting it about itself. Supersessions
+ * are withheld altogether unless the caller asks for them — see
+ * `ControlFileOptions.allowSupersessions`.
  */
 export function extractEdgesFromControlFile(
   content: string,
   sourcePath: string,
+  options: ControlFileOptions = {},
 ): EdgeExtraction {
   const edges: DecisionEdge[] = [];
   const rejected: EdgeExtraction['rejected'] = [];
+  const allowSupersessions = options.allowSupersessions === true;
   const lines = stripSoftHyphens(content.replace(/\r\n/g, '\n')).split('\n');
+
+  /**
+   * The one place a control-file edge enters the result. Routing every push
+   * through it is what makes "a row-less file cannot retire a record" a
+   * property of the code rather than of two remembered call sites.
+   */
+  const emit = (edge: DecisionEdge): void => {
+    if (edge.relation === 'supersedes' && !allowSupersessions) {
+      rejected.push({
+        to: edge.to,
+        reason: WITHHELD_SUPERSESSION,
+        line: edge.sourceLine,
+        rawText: edge.rawText,
+      });
+      return;
+    }
+    edges.push(edge);
+  };
 
   // A fenced code block is quoted material, never an assertion. Documents that
   // discuss the corpus put SAMPLE header lines in fences, and reading them as
@@ -321,7 +395,7 @@ export function extractEdgesFromControlFile(
   let inFence = false;
 
   for (let index = 0; index < lines.length; index++) {
-    const rawLine = prepare(lines[index]);
+    const rawLine = prepare(blankInlineCode(lines[index]));
     const lineNumber = index + 1;
 
     if (/^\s*(```|~~~)/.test(lines[index])) {
@@ -399,7 +473,7 @@ export function extractEdgesFromControlFile(
       }
       for (const target of refs) {
         if (target.id === rowSubject) continue;
-        edges.push({
+        emit({
           from: relation.forward ? rowSubject : target.id,
           to: relation.forward ? target.id : rowSubject,
           relation: relation.relation,
@@ -444,7 +518,7 @@ export function extractEdgesFromControlFile(
     const subject = subjects[subjects.length - 1].id;
     for (const target of targets) {
       if (target.id === subject) continue;
-      edges.push({
+      emit({
         from: relation.forward ? subject : target.id,
         to: relation.forward ? target.id : subject,
         relation: relation.relation,

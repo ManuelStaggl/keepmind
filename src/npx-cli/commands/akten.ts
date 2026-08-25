@@ -108,8 +108,13 @@ export async function runAktenCheckCommand(options: AktenImportOptions): Promise
         records.push({ id: parsed.id, status: parsed.status, sourcePath: file, sourceLine: parsed.headingLine });
         edges.push(...extractEdges(parsed, file).edges);
       } else {
-        // Not a record, still a source of relations.
-        edges.push(...extractEdgesFromControlFile(content, file).edges);
+        // Not a record, still a source of relations — and here, unlike in the
+        // importer, a supersession declared by a control file is exactly what
+        // this command is for. It never writes: it reports that a file claims
+        // a record was retired while the record still reads `Stand: gilt`.
+        // Withholding those edges here would silence the finding rather than
+        // the corruption.
+        edges.push(...extractEdgesFromControlFile(content, file, { allowSupersessions: true }).edges);
       }
     }
   }

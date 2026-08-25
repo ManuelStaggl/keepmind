@@ -68,11 +68,11 @@ Bleibt in Kraft.
 Steht im Widerspruch zu nichts.
 `);
   // A control file: not a record, but it asserts a supersession that 0004
-  // itself knows nothing about. This is the shape the whole "read control files
-  // too" rule exists for. Note that the edge it yields is 'vermutet' — a third
-  // party asserting a relation about two records is weaker evidence than a
-  // record asserting it about itself — so nothing APPLIES it. That is the point
-  // of including it here: both sides have to reach that same conclusion.
+  // itself knows nothing about. Since 4.3.1 that assertion yields NO edge at
+  // all — only a record may retire a record, because a generated index and a
+  // brief quoting a supersession are indistinguishable from a file with no row
+  // number. It stays in the corpus precisely so both sides of the comparison
+  // keep reaching that same conclusion: 0004 is still in force.
   write('UEBERSICHT.md', `# Übersicht über die Regeln
 
 0003 löst 0004 ab.
@@ -128,10 +128,10 @@ describe('migration round trip — did the file archive arrive complete?', () =>
     const report = verifyMigration(store.db as never, PROJECT, sources());
 
     // 0001 is retired by the record that says so. 0004 is NOT — the only thing
-    // claiming it is a control file, whose assertion is 'vermutet', and an
-    // uncertain supersession is reported for a human and never applied. Both
-    // sides reach that conclusion independently, which is exactly what makes
-    // the comparison worth anything.
+    // claiming it is a control file, and a file that stores no row cannot
+    // retire a record, so no such edge is ever written. Both sides reach that
+    // conclusion independently, which is exactly what makes the comparison
+    // worth anything.
     expect(report.currentInSource).toEqual(['0002', '0003', '0004']);
     expect(report.currentInStore).toEqual(['0002', '0003', '0004']);
   });

@@ -150,6 +150,7 @@ export async function runCuratedImportCommand(options: CuratedImportOptions): Pr
         // relations.
         edges: report.imported.reduce((sum, r) => sum + (r.edges ?? 0), 0) + report.controlFileEdges,
         controlFileEdges: report.controlFileEdges,
+        withheldSupersessions: report.withheldSupersessions,
       });
     } else {
       const report = importVorgaengeDirectory(store as never, source.path, { project, dryRun: options.dryRun, nowEpoch });
@@ -173,9 +174,8 @@ export async function runCuratedImportCommand(options: CuratedImportOptions): Pr
   }
 
   // Close the validity window of every record a later one supersedes. This
-  // runs after ALL sources, because an edge routinely lives in a different
-  // directory than the record it retires — a control file declaring two
-  // records obsolete is the measured case.
+  // runs after ALL sources, because a record and the record it retires do not
+  // have to sit in the same directory.
   let supersession: Awaited<ReturnType<typeof applySupersessionsSafely>> = null;
   if (!options.dryRun) {
     supersession = await applySupersessionsSafely(store, project, nowEpoch);
@@ -220,6 +220,18 @@ export async function runCuratedImportCommand(options: CuratedImportOptions): Pr
     if (unknown?.length) {
       console.log(`    ⚠ ${unknown.length} unknown event kind(s) — state left underived:`);
       for (const item of unknown) console.log(`        line ${item.line}: "${item.art}" on ${item.vorgang}`);
+    }
+    // Not a warning and not an error: a statement the importer declined to
+    // act on, with the place it was written. Printed because the alternative
+    // is a graph that quietly holds less than the files say, which is
+    // indistinguishable from a reader that stopped working.
+    const withheld = entry.withheldSupersessions as Array<{ file: string; to: string; line: number; rawText: string }> | undefined;
+    if (withheld?.length) {
+      console.log(`    ${withheld.length} supersession(s) declared by files that store no row — not written (only a record may retire a record):`);
+      for (const item of withheld.slice(0, 10)) {
+        console.log(`        → ${item.to}  ${item.file}:${item.line}`);
+      }
+      if (withheld.length > 10) console.log(`        … ${withheld.length - 10} more (--json for all)`);
     }
     const selfEdges = entry.selfEdges as Array<{ vorgang: string; field: string; sourceLine: number }> | undefined;
     if (selfEdges?.length) {

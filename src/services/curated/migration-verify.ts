@@ -138,8 +138,11 @@ function readSources(sources: VerifySource[], failed: VerifyReport['failed']) {
           records.push({ id: parsed.id, status: parsed.status, sourcePath: file, sourceLine: parsed.headingLine });
           edges.push(...extractEdges(parsed, file).edges);
         } else {
-          // Not a record, still a source of relations — the measured case
-          // where a control file retires two records that both read "gilt".
+          // Not a record, still a source of relations. Supersessions are left
+          // to the records themselves — the default of
+          // `extractEdgesFromControlFile`, and the same default the importer
+          // writes under, so the two sides of this comparison can never
+          // disagree about what a row-less file is allowed to say.
           edges.push(...extractEdgesFromControlFile(content, file).edges);
         }
       } catch (error) {

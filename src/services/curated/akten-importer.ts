@@ -16,7 +16,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve, extname } from 'node:path';
 import { parseAkte, type ParsedAkte } from './akten-parser.js';
-import { extractEdges, extractEdgesFromControlFile, type DecisionEdge } from './edge-reader.js';
+import { extractEdges, extractEdgesFromControlFile, WITHHELD_SUPERSESSION, type DecisionEdge } from './edge-reader.js';
 import { logger } from '../../utils/logger.js';
 
 export interface ImportedRecord {
@@ -54,6 +54,16 @@ export interface ImportReport {
    * number.
    */
   controlFileEdges: number;
+  /**
+   * Supersessions a row-less file declared and the importer did NOT write.
+   *
+   * Only a record may retire a record — see `ControlFileOptions`. Listed
+   * rather than counted, because the two things that produce them look
+   * identical from here and read very differently to a person: a generated
+   * index repeating what the records already say, and a brief quoting a
+   * supersession in order to call it wrong.
+   */
+  withheldSupersessions: Array<{ file: string; to: string; line: number; rawText: string }>;
 }
 
 /**
@@ -152,7 +162,7 @@ export function importAkteFile(
   memorySessionId: string,
   absolutePath: string,
   options: ImportOptions,
-): { record?: ImportedRecord; skipped?: string; controlFileEdges?: number } {
+): { record?: ImportedRecord; skipped?: string; controlFileEdges?: number; withheldSupersessions?: ImportReport['withheldSupersessions'] } {
   const content = readFileSync(absolutePath, 'utf8');
   const parsed = parseAkte(content);
 
@@ -161,16 +171,27 @@ export function importAkteFile(
     // the missing number rather than by filename — filename rules need a
     // second list to keep in sync, and the corpus renames files freely.
     //
-    // NOT A RECORD IS NOT THE SAME AS NOT A SOURCE. In the measured corpus a
-    // control file declares two records obsolete, and nothing inside those
-    // records knows it; another names a supersession that the superseded
-    // record does carry. Skipping these files as RECORDS is right — they are
-    // not decisions and must not become rows — but their edges are read all
-    // the same, or the graph provably misses relations that exist in writing.
+    // NOT A RECORD IS NOT THE SAME AS NOT A SOURCE. Skipping these files as
+    // RECORDS is right — they are not decisions and must not become rows —
+    // but their edges are read all the same, or the graph provably misses
+    // relations that exist in writing.
+    //
+    // WITH ONE EXCEPTION, and it is the fix for a wrong edge that reached the
+    // corpus: a file with no row cannot retire a record. See
+    // `ControlFileOptions` for why the distinction is "what may it say" rather
+    // than "which file is it" — the alternative needs a filename list, and the
+    // corpus renames files freely.
     if (!options.dryRun && store.replaceEdgesForSource) {
-      const { edges } = extractEdgesFromControlFile(content, absolutePath);
+      const { edges, rejected } = extractEdgesFromControlFile(content, absolutePath);
       store.replaceEdgesForSource(options.project, absolutePath, toEdgeRows(edges), options.nowEpoch);
-      return { skipped: `no record number in heading (read ${edges.length} edge(s) anyway)`, controlFileEdges: edges.length };
+      const withheld = rejected
+        .filter(r => r.reason === WITHHELD_SUPERSESSION)
+        .map(r => ({ file: absolutePath, to: r.to, line: r.line, rawText: r.rawText }));
+      return {
+        skipped: `no record number in heading (read ${edges.length} edge(s) anyway)`,
+        controlFileEdges: edges.length,
+        withheldSupersessions: withheld,
+      };
     }
     return { skipped: 'no record number in heading' };
   }
@@ -266,7 +287,7 @@ export function importAktenDirectory(
   options: ImportOptions,
 ): ImportReport {
   const root = resolve(directory);
-  const report: ImportReport = { imported: [], skipped: [], failed: [], controlFileEdges: 0 };
+  const report: ImportReport = { imported: [], skipped: [], failed: [], controlFileEdges: 0, withheldSupersessions: [] };
 
   let entries: string[];
   try {
@@ -292,6 +313,7 @@ export function importAktenDirectory(
       if (outcome.skipped) {
         report.skipped.push({ file: entry, reason: outcome.skipped });
         report.controlFileEdges += outcome.controlFileEdges ?? 0;
+        report.withheldSupersessions.push(...(outcome.withheldSupersessions ?? []));
       } else if (outcome.record) {
         report.imported.push(outcome.record);
       }
@@ -307,6 +329,7 @@ export function importAktenDirectory(
     skipped: report.skipped.length,
     failed: report.failed.length,
     controlFileEdges: report.controlFileEdges,
+    withheldSupersessions: report.withheldSupersessions.length,
     dryRun: options.dryRun === true,
   });
 

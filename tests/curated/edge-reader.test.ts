@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { parseAkte } from '../../src/services/curated/akten-parser.js';
-import { extractEdges, extractEdgesFromControlFile } from '../../src/services/curated/edge-reader.js';
+import { extractEdges, extractEdgesFromControlFile, WITHHELD_SUPERSESSION } from '../../src/services/curated/edge-reader.js';
 import { negatesRelation, matchRelation } from '../../src/services/curated/relation-lexicon.js';
 
 function edgesOf(header: string, path = 'C:/akten/0090-x.md') {
@@ -135,6 +135,24 @@ describe('certainty', () => {
     expect(edges.every(e => e.relation === 'based_on')).toBe(true);
   });
 
+  it('a VERB label is a declaration, not a heading', () => {
+    // `**Löst ab:** 0093` and `**Vermerk:** löst 0093 ab` are the same
+    // statement laid out two ways. Counting the first as `vermutet` meant
+    // supersession.ts never applied it, so a record declaring its supersession
+    // in the canonical header form retired nothing — silently, and the retired
+    // record kept answering as current.
+    for (const header of ['**Löst ab:** 0093', '**Ersetzt:** 0093', '**Schliesst:** 0093']) {
+      const { edges } = edgesOf(header);
+      expect(edges).toHaveLength(1);
+      expect(edges[0].certainty).toBe('sicher');
+    }
+  });
+
+  it('a NOUN label stays a heading — nobody wrote what the relation is', () => {
+    expect(edgesOf('**Grundlage:** 0002').edges[0].certainty).toBe('vermutet');
+    expect(edgesOf('**Anwendung von:** 0002').edges[0].certainty).toBe('vermutet');
+  });
+
   it('a reference with no relation anywhere produces nothing at all', () => {
     const { edges } = edgesOf('**Datum:** 09.08.2026 · **Entschieden von:** Manuel');
     expect(edges).toHaveLength(0);
@@ -152,11 +170,8 @@ describe('provenance', () => {
 
 describe('control files', () => {
   it('reads edges from a file that is not a record at all', () => {
-    // A control file declares two records obsolete while both still read
-    // `Stand: gilt`. Nothing inside those records knows it, so an importer
-    // that only reads the records folder misses the relation entirely.
     const { edges } = extractEdgesFromControlFile(
-      'Die Akte 0110 ersetzt 0093 und 0094 in diesem Punkt.\n',
+      'Die Akte 0110 ergänzt 0093 und 0094 in diesem Punkt.\n',
       'C:/nachtrag/LEGALISIERUNG.md',
     );
     expect(edges.map(e => `${e.from}->${e.to}`)).toEqual(['0110->0093', '0110->0094']);
@@ -168,6 +183,44 @@ describe('control files', () => {
 
   it('needs two references in one clause — there is no implicit subject', () => {
     const { edges } = extractEdgesFromControlFile('Akte 0110 gilt weiterhin.\n', 'C:/x.md');
+    expect(edges).toHaveLength(0);
+  });
+
+  it('withholds a SUPERSESSION — only a record may retire a record', () => {
+    // The graph gets nothing, the operator gets the line it was written on.
+    // A file with no row is a generated index, a brief, or a control file, and
+    // nothing in the text tells them apart; what separates them is what they
+    // are allowed to say.
+    const { edges, rejected } = extractEdgesFromControlFile(
+      'Die Akte 0110 ersetzt 0093 und 0094 in diesem Punkt.\n',
+      'C:/nachtrag/LIESMICH.md',
+    );
+    expect(edges).toHaveLength(0);
+    expect(rejected.map(r => r.to)).toEqual(['0093', '0094']);
+    expect(rejected.every(r => r.reason === WITHHELD_SUPERSESSION)).toBe(true);
+  });
+
+  it('hands supersessions over when the caller asks — that is what akten:check does', () => {
+    const { edges, rejected } = extractEdgesFromControlFile(
+      'Die Akte 0110 ersetzt 0093 und 0094 in diesem Punkt.\n',
+      'C:/nachtrag/LEGALISIERUNG.md',
+      { allowSupersessions: true },
+    );
+    expect(edges.map(e => `${e.from}->${e.to}`)).toEqual(['0110->0093', '0110->0094']);
+    expect(rejected).toHaveLength(0);
+  });
+
+  it('an inline code span is a quotation, not a claim', () => {
+    // ANTWORT-keepmind-2026-08-14-4.1.0.md quotes the WRONG direction in order
+    // to report that it was corrected. Reading the quote built exactly that
+    // edge, against the true 0012→0011 both records carry. A fenced block was
+    // already treated as quoted material; an inline span said the same thing
+    // and was not.
+    const { edges } = extractEdgesFromControlFile(
+      'Die alte Fehlaussage `0011 ersetzt 0012` ist mit 4.1.0 behoben.\n',
+      'C:/briefe/ANTWORT-keepmind-2026-08-14-4.1.0.md',
+      { allowSupersessions: true },
+    );
     expect(edges).toHaveLength(0);
   });
 });
