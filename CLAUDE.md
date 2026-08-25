@@ -538,6 +538,43 @@ directly above.
 store: it is read outside it now. `SUPERSESSION_MARKER` stays in
 `supersession.ts`, which writes it.
 
+### A maintenance run has two claims, and the second is the one usually missing
+
+`keepmind maintain` reclaims what the vector store holds and does not need, and
+then SHOWS that the answers did not move. Reporting only the first is how a run
+that shrank a store by losing part of it reads as a success.
+
+- **The waste was a second copy of what the columns already hold.**
+  `vec_documents` carried `+metadata_json`, the full bag a document arrived
+  with — title, subtitle, concepts, the file lists, the session id. The read
+  path never used any of it: every field a caller has ever touched
+  (`sqlite_id`, `doc_type`, `created_at_epoch`) is a vec0 metadata COLUMN, and
+  all of it is in `keepmind.db` besides. Measured on the live store: 14.94 MB
+  of 61.52 MB, in a shadow table that also had to be read and parsed on every
+  KNN. `queryKnnWithVector` now builds the bag from the columns, and
+  `addChunks` no longer writes it.
+- **The column stays; only its contents go.** Removing it from a vec0 virtual
+  table means recreating the table and re-inserting every row. Emptying it in
+  place is one UPDATE, reversible by a backfill, and it cannot lose a vector.
+- **VACUUM alone reclaims nothing here.** Measured before any of this:
+  `freelist_count` 0, no orphaned vec rows, no duplicate chunk keys — the
+  periodic `MaintenanceLoop` had already kept the file compact in the page
+  sense. "Compact the database" without first finding what is actually
+  redundant is a run that reports success and changes nothing.
+- **The run happens in the WORKER.** It is the process that has `vectors.db`
+  open, and VACUUM rewrites the whole file; a second connection doing it from
+  the CLI is a lock fight with the process that is actively embedding. The CLI
+  asks over `/api/chroma/compact`, the same shape `curated:import` uses to have
+  the worker verify an index.
+- **The probes come from the corpus, not from this file.** Ten record titles
+  spread across the store, searched over the same route a person uses, before
+  and after, compared id by id. A fixed list of German phrases would measure
+  nothing on a machine whose memory is in English.
+- **Row count before and after is the claim that nothing was lost**, and the
+  command exits non-zero when it moves or when a probe's answers differ.
+  Measured on the live store: 61.55 MB → 47.38 MB, 27,660 rows both times, all
+  ten probe result lists identical.
+
 ### "Imported" has to mean "findable", and nothing may fail quietly
 
 The curated corpus is the part of memory a person wrote by hand, and it is

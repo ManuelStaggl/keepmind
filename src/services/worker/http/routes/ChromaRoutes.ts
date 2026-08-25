@@ -22,7 +22,52 @@ export class ChromaRoutes extends BaseRouteHandler {
   setupRoutes(app: express.Application): void {
     app.get('/api/chroma/status', this.handleGetStatus.bind(this));
     app.post('/api/chroma/backfill', this.handleBackfill.bind(this));
+    app.post('/api/chroma/compact', this.handleCompact.bind(this));
   }
+
+  /**
+   * Reclaim what the vector store holds and does not need.
+   *
+   * IT RUNS HERE RATHER THAN IN THE CLI because the worker is the process that
+   * has `vectors.db` open. VACUUM rewrites the whole file and wants no other
+   * transaction; a second connection doing it from outside is a lock fight with
+   * the process that is actively embedding. The same reason `MaintenanceLoop`
+   * owns the periodic version — this endpoint is the on-demand one, for someone
+   * who wants to see the number rather than wait a day for it.
+   *
+   * The row count is reported before AND after for one reason: it is the claim
+   * that nothing was lost, and a maintenance run that shrinks a store by losing
+   * part of it is the failure this whole endpoint has to be able to rule out.
+   */
+  private handleCompact = this.wrapHandler(async (_req: Request, res: Response): Promise<void> => {
+    const vec = SqliteVecManager.instance();
+    try {
+      vec.load();
+    } catch (error) {
+      // Not an error: vector search can be off, or the native module missing.
+      // A silent 200 here would read as "nothing to reclaim".
+      res.json({ success: false, reason: `the vector store is not available — ${error instanceof Error ? error.message : error}` });
+      return;
+    }
+
+    const bytesBefore = vec.fileSizeBytes();
+    const rowsBefore = vec.countRows();
+
+    const compacted = vec.compactStoredMetadata();
+    vec.maintain({ vacuum: true });
+
+    const bytesAfter = vec.fileSizeBytes();
+    const rowsAfter = vec.countRows();
+
+    res.json({
+      success: true,
+      bytesBefore,
+      bytesAfter,
+      rowsBefore,
+      rowsAfter,
+      compacted,
+    });
+  });
 
   /**
    * Index rows that were written straight to SQLite.

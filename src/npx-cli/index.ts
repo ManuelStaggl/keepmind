@@ -56,6 +56,7 @@ ${pc.bold('Runtime Commands')} (requires Bun, delegates to installed plugin):
   ${pc.cyan('npx keepmind curated:supersede <new> <old>')}   Declare and apply a supersession
   ${pc.cyan('npx keepmind curated:close <id>')}    Retire an entry that no longer applies ${pc.dim('--reason')}
   ${pc.cyan('npx keepmind curated:show <id>')}     Read the current text ${pc.dim('--all for every revision')}
+  ${pc.cyan('npx keepmind maintain')}             Reclaim what the vector store does not need, and show the answers did not move ${pc.dim('--project --probes --json')}
   ${pc.cyan('npx keepmind export <dir>')}          Write the whole memory to a readable, verifiable bundle ${pc.dim('--project --no-settings --json')}
   ${pc.cyan('npx keepmind import <dir>')}          Restore a bundle on another machine and rebuild the semantic index ${pc.dim('--merge --replace --dry-run')}
   ${pc.cyan('npx keepmind migrate --purge --yes')}    Import, then remove claude-mem entirely (archives it first; requires a verified-complete migration)
@@ -182,6 +183,12 @@ async function main(): Promise<void> {
         day: rest.includes('--day') ? readFlag(rest, '--day') : undefined,
         days: daysFlag ? parseInt(daysFlag, 10) : undefined,
       });
+      break;
+    }
+
+    case 'maintain': {
+      const { runMaintainCommand, parseMaintainOptions } = await import('./commands/maintain.js');
+      await runMaintainCommand(parseMaintainOptions(args.slice(1)));
       break;
     }
 

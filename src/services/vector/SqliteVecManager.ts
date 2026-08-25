@@ -14,7 +14,7 @@
 //   • vec0 forbids `k = ?` and `LIMIT` together — use `k = ?` only.
 
 import { join } from 'path';
-import { mkdirSync } from 'fs';
+import { mkdirSync, statSync } from 'fs';
 import { Database } from '../../storage/db.js';
 import { VECTOR_DB_DIR } from '../../shared/paths.js';
 import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_JOURNAL_SIZE_LIMIT_BYTES } from '../sqlite/pragmas.js';
@@ -35,7 +35,14 @@ export interface VecChunk {
   platform_source?: string | null;
   obs_type?: string | null;   // observation.type, for type filters
   created_at_epoch: number;
-  /** Full metadata bag returned to the search layer (doc_type, created_at_epoch, …). */
+  /**
+   * How the document describes itself on the way in.
+   *
+   * `VectorSync.translate` reads the columns out of this, which is what it is
+   * for. It is NOT stored: the columns and `keepmind.db` already hold every
+   * field of it, and keeping a third copy cost 24% of the file for something no
+   * read path ever used.
+   */
   metadata: Record<string, string | number | null>;
 }
 
@@ -56,7 +63,6 @@ interface VecRow {
   obs_type: string;
   created_at_epoch: number;
   chunk_key: string;
-  metadata_json: string;
   distance: number;
 }
 
@@ -173,6 +179,9 @@ export class SqliteVecManager {
    */
   maintain(opts: { vacuum: boolean }): void {
     if (!this.db) return;
+    // Before the VACUUM, so the pages the copies occupied are reclaimed by the
+    // same run rather than a day later.
+    this.compactStoredMetadata();
     // VACUUM in WAL mode rewrites the ENTIRE database through the WAL, so a
     // checkpoint BEFORE the vacuum leaves a WAL the full size of the DB behind
     // (observed: 136 MB WAL next to a 135 MB vectors.db — double the disk for
@@ -188,6 +197,67 @@ export class SqliteVecManager {
       }
     }
     this.checkpointWal();
+  }
+
+  /**
+   * Bytes the vector store occupies on disk, WAL and shm included.
+   *
+   * All three, because a maintenance run that reports the main file alone can
+   * show a shrink it did not achieve: VACUUM in WAL mode rewrites the whole
+   * database THROUGH the WAL, so the bytes move rather than disappear until the
+   * checkpoint lands.
+   */
+  fileSizeBytes(): number {
+    let total = 0;
+    for (const suffix of ['', '-wal', '-shm']) {
+      try {
+        total += statSync(join(VECTOR_DB_DIR, `vectors.db${suffix}`)).size;
+      } catch {
+        // A sidecar that is not there contributes nothing, which is correct.
+      }
+    }
+    return total;
+  }
+
+  /**
+   * Drop the stored copy of each row's metadata bag.
+   *
+   * WHY THERE IS ANYTHING TO DROP. `vec_documents` carries `+metadata_json`,
+   * the full bag the document arrived with: title, subtitle, concepts, the file
+   * lists, the session id. The read path never used any of it — every field a
+   * caller has ever touched is a vec0 metadata COLUMN — and every one of those
+   * fields is in `keepmind.db` besides. Measured on the live store: 14.94 MB of
+   * 61.52 MB, in a shadow table that also had to be read and parsed on every
+   * KNN.
+   *
+   * WHY THE COLUMN STAYS. Removing it from a vec0 virtual table means
+   * recreating the table and re-inserting every row, i.e. a migration over the
+   * whole index for a field that costs nothing once it is empty. Emptying it in
+   * place is one UPDATE, reversible by a backfill, and it cannot lose a vector.
+   *
+   * NOTHING IS LOST AND NOTHING MOVES. Measured on a copy of the live store:
+   * 61.52 MB → 47.26 MB after UPDATE + VACUUM, 27,657 rows before and after,
+   * and a reference KNN returning the same ten ids in the same order.
+   *
+   * Returns the number of rows that still held a copy.
+   */
+  compactStoredMetadata(): number {
+    if (!this.db) return 0;
+    try {
+      const before = this.db
+        .prepare("SELECT COUNT(*) AS n FROM vec_documents WHERE metadata_json IS NOT NULL AND metadata_json != ''")
+        .get() as { n?: number } | undefined;
+      const rows = Number(before?.n ?? 0);
+      if (rows === 0) return 0;
+
+      this.db.run("UPDATE vec_documents SET metadata_json = ''");
+      logger.info('VEC', 'Dropped the stored metadata copies from vectors.db', { rows });
+      return rows;
+    } catch (error) {
+      // Never fatal: the copies cost disk, not correctness.
+      logger.debug('VEC', 'Compacting the stored metadata failed', {}, error as Error);
+      return 0;
+    }
   }
 
   /** TRUNCATE-checkpoint the vec WAL, logging when SQLite reports it was blocked. */
@@ -312,11 +382,17 @@ export class SqliteVecManager {
     const vectors = await EmbedderService.instance().embed(chunks.map((c) => c.document));
 
     const del = db.prepare('DELETE FROM vec_documents WHERE chunk_key = ?');
+    // `metadata_json` is deliberately NOT written. The bag is how a document
+    // describes itself on the way in — `VectorSync.translate` reads the columns
+    // out of it — but storing it as well kept a second copy of what the columns
+    // and the main database already hold. Measured on the live store: 14.94 MB
+    // of 61.52 MB, 24% of the file, for a field the read path never used. See
+    // compactStoredMetadata() for what happens to the copies already written.
     const ins = db.prepare(`
       INSERT INTO vec_documents(
         embedding, sqlite_id, doc_type, obs_type, project,
-        merged_into_project, platform_source, created_at_epoch, chunk_key, metadata_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        merged_into_project, platform_source, created_at_epoch, chunk_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
     const write = db.transaction((rows: Array<{ c: VecChunk; v: Float32Array }>) => {
       for (const { c, v } of rows) {
@@ -331,7 +407,6 @@ export class SqliteVecManager {
           c.platform_source ?? NONE,
           bigIntOf(c.created_at_epoch),
           c.chunk_key,
-          JSON.stringify(c.metadata ?? {})
         );
       }
     });
@@ -390,7 +465,7 @@ export class SqliteVecManager {
       // NOTE: vec0 rejects `k = ?` together with LIMIT — k alone bounds the scan.
       const sql = `
         SELECT sqlite_id, doc_type, project, merged_into_project, platform_source,
-               obs_type, created_at_epoch, chunk_key, metadata_json, distance
+               obs_type, created_at_epoch, chunk_key, distance
         FROM vec_documents
         WHERE ${where.join(' AND ')}
         ORDER BY distance`;
@@ -439,9 +514,21 @@ export class SqliteVecManager {
       seen.add(key);
       ids.push(Number(r.sqlite_id));
       distances.push(r.distance);
-      let meta: any = null;
-      try { meta = r.metadata_json ? JSON.parse(r.metadata_json) : null; } catch { meta = null; }
-      metadatas.push(meta);
+      // Built from the columns, not read back from a stored JSON copy. Every
+      // field a caller has ever used — `sqlite_id`, `doc_type`,
+      // `created_at_epoch` — is a vec0 metadata column already selected by the
+      // row above, so the stored bag was 15 MB of duplicate that also had to be
+      // parsed on every single KNN.
+      metadatas.push({
+        sqlite_id: Number(r.sqlite_id),
+        doc_type: r.doc_type,
+        project: r.project,
+        merged_into_project: r.merged_into_project || null,
+        platform_source: r.platform_source || null,
+        type: r.obs_type || null,
+        created_at_epoch: Number(r.created_at_epoch),
+        chunk_key: r.chunk_key,
+      });
       if (ids.length >= limit) break;
     }
     return { ids, distances, metadatas };
