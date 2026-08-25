@@ -28,7 +28,7 @@ import { normalizeStoredPromptText } from './prompt-storage.js';
 import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_JOURNAL_SIZE_LIMIT_BYTES } from './pragmas.js';
 import { envValue } from '../../shared/legacy-env.js';
 import { CHECKPOINT_TYPE, deriveCheckpointTitle, type CheckpointRecord } from '../../shared/checkpoint.js';
-import { CURATED_ID_SQL, curatedKindOfRow, type CuratedKindLabel } from '../curated/record-key.js';
+import { CURATED_ID_SQL, curatedKindOfRow, AUTHORED_SOURCE_SCHEME, type CuratedKindLabel } from '../curated/record-key.js';
 
 interface IndexColumnInfo {
   seqno: number;
@@ -3228,11 +3228,13 @@ export class SessionStore {
   }
 
   /**
-   * Close every OTHER active revision of one curated entry.
+   * Make the row a file import just wrote the ONE active revision of its entry
+   * — unless an entry authored here holds the number, in which case leave that
+   * one in force and say so.
    *
    * WHY THE FILE IMPORTERS NEED THIS. Direct authoring goes through
-   * `storeCuratedRecord`, which closes the previous revision as part of the
-   * write. The file importers do not: they call `storeObservation`, whose
+   * `storeCuratedRecord`, which settles the revisions as part of the write.
+   * The file importers do not: they call `storeObservation`, whose
    * de-duplication is by wording — so an UNCHANGED file reuses its row (right)
    * while a CHANGED one inserts a second row and leaves the first one active
    * (wrong). Measured: editing a record's file and re-importing left two rows
@@ -3245,15 +3247,65 @@ export class SessionStore {
    * it. "Exactly one revision per record has `valid_to IS NULL`" is the
    * invariant every curated read path is written against.
    *
-   * Nothing is deleted. The previous revision keeps its text and gets its
-   * window closed, marked with the revision that replaced it.
+   * RE-ACTIVATION IS PART OF THE JOB, and leaving it out cost an entry its
+   * whole existence. De-duplication lands an unchanged file back on its own
+   * row — INCLUDING a row some earlier edit had already closed. Closing every
+   * other revision then left NONE active: measured on the sequence "import a
+   * file, edit the record here, import again", `getCuratedRecord` answered
+   * null about a record whose two revisions both sat in the table, readable,
+   * with nothing deleted and nothing logged. The same trap is documented on
+   * `storeCuratedRecord`; the file path simply never had the second half.
+   *
+   * AN AUTHORED REVISION IS NOT A STALE ONE. Re-activating alone would have
+   * turned the vanishing into a silent revert — the file's older wording back
+   * in force over the entry a person wrote HERE. Both halves of the acceptance
+   * ("an authored entry must neither disappear nor be overwritten by the next
+   * file import") fail on their own. So when the active revision was authored
+   * here, this closes the file's row instead and reports `authoredWins`: two
+   * independent claims on one number is not something an importer can settle,
+   * and the corpus is mid-hand-over precisely when it happens.
+   *
+   * Nothing is deleted either way. A revision that loses keeps its text and
+   * gets its window closed, marked with the revision that replaced it.
    */
-  closeOtherCuratedRevisions(
+  settleCuratedRevisions(
     project: string,
     curatedId: string,
     keepId: number,
     nowEpoch: number = Date.now(),
-  ): { closed: number } {
+  ): { closed: number; reactivated: boolean; authoredWins: string | null } {
+    const authored = this.db.prepare(`
+      SELECT id, source_path FROM observations
+       WHERE project = ? AND source_kind = 'curated'
+         AND ${CURATED_ID_SQL} = ?
+         AND valid_to IS NULL AND id != ?
+         AND source_path LIKE '${AUTHORED_SOURCE_SCHEME}%'
+       ORDER BY id DESC LIMIT 1
+    `).get(project, curatedId, keepId) as { id: number; source_path: string } | undefined;
+
+    if (authored) {
+      // The file does not take the number. Its row is closed rather than left
+      // active beside the authored one — two active revisions is the very
+      // thing this method exists to rule out.
+      this.db.prepare(`
+        UPDATE observations
+           SET valid_to = COALESCE(valid_to, ?),
+               metadata = json_set(COALESCE(metadata, '{}'), '$.${SessionStore.REVISION_MARKER}', ?)
+         WHERE id = ?
+      `).run(nowEpoch, authored.id, keepId);
+      return { closed: 0, reactivated: false, authoredWins: authored.source_path };
+    }
+
+    // Re-open the row just stored before closing the rest. Order matters: the
+    // other direction leaves a window in which no revision is active, and a
+    // failure in between would leave the entry unreachable.
+    const reopened = this.db.prepare(`
+      UPDATE observations
+         SET valid_to = NULL,
+             metadata = json_remove(COALESCE(metadata, '{}'), '$.${SessionStore.REVISION_MARKER}')
+       WHERE id = ? AND valid_to IS NOT NULL
+    `).run(keepId) as { changes?: number };
+
     const result = this.db.prepare(`
       UPDATE observations
          SET valid_to = ?,
@@ -3262,7 +3314,11 @@ export class SessionStore {
          AND ${CURATED_ID_SQL} = ?
          AND valid_to IS NULL AND id != ?
     `).run(nowEpoch, keepId, project, curatedId, keepId) as { changes?: number };
-    return { closed: Number(result?.changes ?? 0) };
+    return {
+      closed: Number(result?.changes ?? 0),
+      reactivated: Number(reopened?.changes ?? 0) > 0,
+      authoredWins: null,
+    };
   }
 
   /**

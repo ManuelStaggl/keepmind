@@ -24,7 +24,7 @@
 // nothing here can see it. `tests/curated/authoring.test.ts` enforces that with
 // the same Proxy the importer test uses.
 
-import { VORGANG_ID_PATTERN } from './record-key.js';
+import { VORGANG_ID_PATTERN, authoredSourcePath } from './record-key.js';
 import { parseAkte, type ParsedAkte } from './akten-parser.js';
 import { extractEdges, type DecisionEdge } from './edge-reader.js';
 import { matchRelation, type RelationName } from './relation-lexicon.js';
@@ -45,17 +45,7 @@ import { logger } from '../../utils/logger.js';
  * project (`WHERE project = ? AND source_path = ?`), so adding the project
  * here would only make the identifier churn when a project is renamed.
  */
-export const AUTHORED_SOURCE_SCHEME = 'keepmind://curated/';
-
-/** The synthetic source path for a record number. Stable for its lifetime. */
-export function authoredSourcePath(recordId: string): string {
-  return `${AUTHORED_SOURCE_SCHEME}${recordId}`;
-}
-
-/** True for a record that lives in keepmind rather than in a file. */
-export function isAuthoredSourcePath(sourcePath: string | null | undefined): boolean {
-  return typeof sourcePath === 'string' && sourcePath.startsWith(AUTHORED_SOURCE_SCHEME);
-}
+export { AUTHORED_SOURCE_SCHEME, authoredSourcePath, isAuthoredSourcePath } from './record-key.js';
 
 /**
  * A relation the author declares, as a STATEMENT about this record.

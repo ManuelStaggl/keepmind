@@ -75,11 +75,12 @@ describe('importAktenDirectory — the model-free guarantee', () => {
           return { id: stored.length, createdAtEpoch: 1 };
         },
         replaceEdgesForSource: () => ({ inserted: 0, removed: 0 }),
-        // Checked when it was added: a single UPDATE that closes the validity
-        // window of an earlier revision of the same record. It writes to the
-        // observations table and enqueues nothing, so the model-free property
-        // is unchanged.
-        closeOtherCuratedRevisions: () => ({ closed: 0 }),
+        // Re-checked when it grew: three UPDATEs over the observations table —
+        // re-open the row just stored, close the other revisions, or stand
+        // down when an authored entry holds the number. It reads and writes
+        // that one table and enqueues nothing, so the model-free property is
+        // unchanged.
+        settleCuratedRevisions: () => ({ closed: 0, reactivated: false, authoredWins: null }),
       } as any,
       {
         get(target, prop: string) {

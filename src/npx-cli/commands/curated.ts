@@ -243,6 +243,20 @@ export async function runCuratedImportCommand(options: CuratedImportOptions): Pr
       }
       if (withheld.length > 10) console.log(`        … ${withheld.length - 10} more (--json for all)`);
     }
+    // The sharpest of the "declined to act" reports: the file was read and
+    // stored, but the number already answers with something a person wrote
+    // here. Left silent, the run reads as clean while two sources disagree
+    // about what a record says — and the file wording would have taken the
+    // number without anyone being told.
+    const conflicts = entry.authoredConflicts as Array<{ file: string; recordId: string; authoredSource: string }> | undefined;
+    if (conflicts?.length) {
+      console.log(`    ⚠ ${conflicts.length} record number(s) claimed by a file while an entry written here holds them:`);
+      for (const item of conflicts.slice(0, 10)) {
+        console.log(`        ${item.recordId}  ${item.file} — kept: ${item.authoredSource}`);
+      }
+      if (conflicts.length > 10) console.log(`        … ${conflicts.length - 10} more (--json for all)`);
+      console.log('        The file was stored but is NOT the current revision. Renumber one of the two.');
+    }
     const selfEdges = entry.selfEdges as Array<{ vorgang: string; field: string; sourceLine: number }> | undefined;
     if (selfEdges?.length) {
       console.log(`    ⚠ ${selfEdges.length} relation field(s) pointing at their own item, not written:`);

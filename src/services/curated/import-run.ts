@@ -25,6 +25,11 @@ export interface CuratedSourceReport {
   edges: number;
   /** Akten only: edges contributed by files that store no row of their own. */
   controlFileEdges?: number;
+  /**
+   * Akten only: records a file claims while an entry authored here holds the
+   * number. The file's row is stored but does not become current.
+   */
+  authoredConflicts?: Array<{ file: string; recordId: string; authoredSource: string }>;
   /** Akten only: supersessions a control file declared and was not allowed to write. */
   withheldSupersessions?: Array<{ file: string; to: string; line: number; rawText: string }>;
   /** Vorgänge only. */
@@ -106,6 +111,7 @@ export async function runCuratedImport(
         // relations.
         edges: report.imported.reduce((sum, r) => sum + (r.edges ?? 0), 0) + report.controlFileEdges,
         controlFileEdges: report.controlFileEdges,
+        authoredConflicts: report.authoredConflicts,
         withheldSupersessions: report.withheldSupersessions,
       });
     } else {

@@ -31,6 +31,16 @@ export interface ImportedRecord {
   unchanged: boolean;
   /** Declared relations read out of this record's header. */
   edges?: number;
+  /**
+   * Set when this file's number is held by an entry authored in keepmind.
+   *
+   * The file's row is stored — nothing is ever dropped — but it does NOT
+   * become the current revision, and the value is the authored source path so
+   * the report can name what won. Two independent claims on one number is not
+   * something an importer can settle; the corpus is mid-hand-over exactly when
+   * it happens, and silence here reads as a clean import.
+   */
+  authoredWins?: string;
 }
 
 export interface ImportReport {
@@ -54,6 +64,15 @@ export interface ImportReport {
    * number.
    */
   controlFileEdges: number;
+  /**
+   * Records whose number a file claims while an entry authored here holds it.
+   *
+   * Rolled up rather than left inside `imported`, for the same reason
+   * `controlFileEdges` is: a caller summarising the report would otherwise
+   * count these as ordinary imports and report a run in which two sources
+   * disagree about a record as a clean one.
+   */
+  authoredConflicts: Array<{ file: string; recordId: string; authoredSource: string }>;
   /**
    * Supersessions a row-less file declared and the importer did NOT write.
    *
@@ -118,17 +137,18 @@ export interface CuratedStore {
     fields: { subtitle?: string | null; metadata?: string | null; lastVerifiedAt?: number | null },
   ): void;
   /**
-   * Optional for the same reason. Closes the window of any EARLIER active
-   * revision of the entry just written — the file importers reach
-   * `storeObservation` directly, which does not do it, so a changed source file
-   * used to leave two revisions active at once.
+   * Optional for the same reason. Makes the row just written the ONE active
+   * revision of its entry — the file importers reach `storeObservation`
+   * directly, which neither closes the previous revision nor re-opens the row
+   * de-duplication landed on. Returns `authoredWins` when the number is held
+   * by an entry authored in keepmind, which the import must not take over.
    */
-  closeOtherCuratedRevisions?(
+  settleCuratedRevisions?(
     project: string,
     curatedId: string,
     keepId: number,
     nowEpoch?: number,
-  ): { closed: number };
+  ): { closed: number; reactivated: boolean; authoredWins: string | null };
   /** The same, for a source that carries no entry number — the event log. */
   closeOtherCuratedRowsForSource?(
     project: string,
@@ -280,12 +300,13 @@ export function importAkteFile(
 
   // Exactly one revision of a record may be active. `storeObservation`
   // de-duplicates on the wording, so an unchanged file lands back on its own
-  // row and this closes nothing; a CHANGED file inserts a new row, and without
-  // this the previous wording stayed active beside it — invisible in a read
-  // (which takes the newest) and very visible in search, where both are
-  // embedded and the record answers twice.
-  if (parsed.id && store.closeOtherCuratedRevisions) {
-    store.closeOtherCuratedRevisions(options.project, parsed.id, result.id, options.nowEpoch);
+  // row — INCLUDING one an edit here already closed, which is why settling
+  // re-opens it — while a CHANGED file inserts a new row whose predecessor
+  // would otherwise stay active beside it, invisible in a read (which takes
+  // the newest) and very visible in search, where both are embedded.
+  let authoredWins: string | null = null;
+  if (parsed.id && store.settleCuratedRevisions) {
+    authoredWins = store.settleCuratedRevisions(options.project, parsed.id, result.id, options.nowEpoch).authoredWins;
   }
 
   // Edges are replaced per file, so re-reading one changed record neither
@@ -306,6 +327,7 @@ export function importAkteFile(
       sourceLine: parsed.headingLine,
       unchanged: false,
       edges: edgeCount,
+      ...(authoredWins ? { authoredWins } : {}),
     },
   };
 }
@@ -326,7 +348,10 @@ export function importAktenDirectory(
   options: ImportOptions,
 ): ImportReport {
   const root = resolve(directory);
-  const report: ImportReport = { imported: [], skipped: [], failed: [], controlFileEdges: 0, withheldSupersessions: [] };
+  const report: ImportReport = {
+    imported: [], skipped: [], failed: [], controlFileEdges: 0,
+    authoredConflicts: [], withheldSupersessions: [],
+  };
 
   let entries: string[];
   try {
@@ -355,6 +380,13 @@ export function importAktenDirectory(
         report.withheldSupersessions.push(...(outcome.withheldSupersessions ?? []));
       } else if (outcome.record) {
         report.imported.push(outcome.record);
+        if (outcome.record.authoredWins) {
+          report.authoredConflicts.push({
+            file: entry,
+            recordId: outcome.record.recordId,
+            authoredSource: outcome.record.authoredWins,
+          });
+        }
       }
     } catch (error) {
       report.failed.push({ file: entry, error: error instanceof Error ? error.message : String(error) });
@@ -368,6 +400,7 @@ export function importAktenDirectory(
     skipped: report.skipped.length,
     failed: report.failed.length,
     controlFileEdges: report.controlFileEdges,
+    authoredConflicts: report.authoredConflicts.length,
     withheldSupersessions: report.withheldSupersessions.length,
     dryRun: options.dryRun === true,
   });

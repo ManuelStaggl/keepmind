@@ -103,3 +103,24 @@ export function curatedKindOfRow(metadata: string | null, id: string | null): Cu
   }
   return (id && curatedKindOfId(id)) === 'vorgang' ? 'vorgang' : 'akte';
 }
+
+/**
+ * The source path an entry authored in keepmind cites, rather than a file.
+ *
+ * It lives HERE, next to the id rule, because it is the second half of the
+ * same question: `CURATED_ID_SQL` says how an entry is addressed, this says
+ * where it came from. Both are read by the store and by the curated services,
+ * and a second spelling of either is how one rule becomes two that are merely
+ * supposed to agree.
+ */
+export const AUTHORED_SOURCE_SCHEME = 'keepmind://curated/';
+
+/** The synthetic source path for a record number. Stable for its lifetime. */
+export function authoredSourcePath(recordId: string): string {
+  return `${AUTHORED_SOURCE_SCHEME}${recordId}`;
+}
+
+/** True for an entry that lives in keepmind rather than in a file. */
+export function isAuthoredSourcePath(sourcePath: string | null | undefined): boolean {
+  return typeof sourcePath === 'string' && sourcePath.startsWith(AUTHORED_SOURCE_SCHEME);
+}

@@ -292,7 +292,7 @@ export function importVorgaengeDirectory(
 
       // Exactly one revision of an item may be active — see the same call in
       // the record importer.
-      store.closeOtherCuratedRevisions?.(options.project, parsed.id!, result.id, options.nowEpoch);
+      store.settleCuratedRevisions?.(options.project, parsed.id!, result.id, options.nowEpoch);
 
       // Declared relations. These are FIELDS, not prose — no lexicon, no
       // guessing, certainty 'sicher' because the corpus wrote them as data.
