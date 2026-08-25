@@ -37,6 +37,11 @@
 // rather than for anything lost in transit. It is reported as a count, and
 // `keepmind akten:check` is the command that examines it.
 //
+// BOTH CURATED NAMESPACES ARE COMPARED. Decision records and work items are
+// stored under different metadata keys on purpose, and a check that reads only
+// one of them reports the other as lost — 200 work items imported and 200
+// reported missing, in the same run.
+//
 // Nothing here writes. It reads files, reads the store, and reports.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -164,11 +169,26 @@ export function verifyMigration(
 
   const sourceIds = [...new Set([...records.map(r => r.id), ...vorgaenge])].sort();
 
+  // BOTH curated namespaces, or the check reports the one it cannot see as
+  // lost. Decision records carry `$.record_id`, work items carry
+  // `$.vorgang_id` — two keys because the two are deliberately never
+  // conflated (a work item is where a decision is carried out, and merging
+  // them makes "what did we decide" answer with open tasks). Reading only the
+  // first key made a complete import of 200 work items report 200 records
+  // MISSING and exit 1, with the importer's own line saying "Imported 200"
+  // three lines further up. The rows were there the whole time; the query was
+  // looking under one of the two names they are stored under.
   const storedRows = db.prepare(`
-    SELECT json_extract(metadata, '$.record_id') AS record_id, valid_to
+    SELECT COALESCE(
+             json_extract(metadata, '$.record_id'),
+             json_extract(metadata, '$.vorgang_id')
+           ) AS record_id, valid_to
       FROM observations
      WHERE project = ? AND source_kind = 'curated'
-       AND json_extract(metadata, '$.record_id') IS NOT NULL
+       AND COALESCE(
+             json_extract(metadata, '$.record_id'),
+             json_extract(metadata, '$.vorgang_id')
+           ) IS NOT NULL
      ORDER BY (valid_to IS NULL) ASC
   `).all(project) as Array<{ record_id: string; valid_to: number | null }>;
 

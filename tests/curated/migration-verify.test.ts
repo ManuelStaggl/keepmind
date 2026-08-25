@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionStore } from '../../src/services/sqlite/SessionStore.js';
 import { importAktenDirectory } from '../../src/services/curated/akten-importer.js';
+import { importVorgaengeDirectory } from '../../src/services/curated/vorgang-importer.js';
 import { applySupersessions } from '../../src/services/curated/supersession.js';
 import { verifyMigration } from '../../src/services/curated/migration-verify.js';
 import { authorCuratedRecord, type AuthoringStore } from '../../src/services/curated/authoring.js';
@@ -84,6 +85,27 @@ function importCorpus(): void {
 }
 
 const sources = () => [{ path: dir, kind: 'akten' as const }];
+
+/**
+ * The other half of the archive. Written into its own directory because the
+ * two kinds are declared, never sniffed — see `sources.ts`.
+ */
+function writeVorgaenge(target: string): void {
+  for (const [id, titel] of [['V-0001', 'Erster Vorgang'], ['V-0002', 'Zweiter Vorgang']]) {
+    writeFileSync(join(target, `${id.toLowerCase()}-${titel.toLowerCase().replace(/ /g, '-')}.md`),
+      `---
+id: ${id}
+titel: "${titel}"
+entscheidet: "offen"
+erstellt: "2026-08-01"
+herkunft: "Prüfstand"
+---
+
+Text des Vorgangs.
+`,
+      'utf8');
+  }
+}
 
 describe('migration round trip — did the file archive arrive complete?', () => {
   it('reports a full import as complete', () => {
@@ -212,5 +234,68 @@ Gilt nicht mehr, und nichts löst sie ab.
     const report = verifyMigration(store.db as never, PROJECT, sources());
     expect(report.missingRecords).toEqual([]);
     expect(report.extraRecords).toEqual(['0004']);
+  });
+});
+
+describe('both curated namespaces — the blocker of the 4.3.0 hand-over', () => {
+  let vorgaengeDir: string;
+
+  beforeEach(() => {
+    vorgaengeDir = mkdtempSync(join(tmpdir(), 'keepmind-vorgaenge-'));
+    writeVorgaenge(vorgaengeDir);
+  });
+
+  afterEach(() => {
+    rmSync(vorgaengeDir, { recursive: true, force: true });
+  });
+
+  const bothSources = () => [
+    { path: dir, kind: 'akten' as const },
+    { path: vorgaengeDir, kind: 'vorgaenge' as const },
+  ];
+
+  it('counts work items that the importer stored', () => {
+    // The failure this pins: the importer reported "Imported 200", every row
+    // was written, and the verifier reported all 200 MISSING and exited 1 —
+    // because it read `$.record_id` only, and a work item is stored under
+    // `$.vorgang_id`. A hand-over cannot proceed past a check that says the
+    // corpus did not arrive, so this was the blocker, not a cosmetic count.
+    importAktenDirectory(store as never, dir, { project: PROJECT, nowEpoch: 1_700_000_000_000 });
+    importVorgaengeDirectory(store as never, vorgaengeDir, { project: PROJECT, nowEpoch: 1_700_000_000_000 });
+    applySupersessions(store.db as never, PROJECT, 1_700_000_000_000);
+
+    const report = verifyMigration(store.db as never, PROJECT, bothSources());
+
+    expect(report.sourceRecords).toEqual(['0001', '0002', '0003', '0004', 'V-0001', 'V-0002']);
+    expect(report.storedRecords).toEqual(['0001', '0002', '0003', '0004', 'V-0001', 'V-0002']);
+    expect(report.missingRecords).toEqual([]);
+    expect(report.complete).toBe(true);
+  });
+
+  it('still catches a work item that did NOT arrive', () => {
+    // The fix must not turn into "count everything, notice nothing".
+    importAktenDirectory(store as never, dir, { project: PROJECT, nowEpoch: 1_700_000_000_000 });
+    importVorgaengeDirectory(store as never, vorgaengeDir, { project: PROJECT, nowEpoch: 1_700_000_000_000 });
+    store.db.prepare(
+      `DELETE FROM observations WHERE project = ? AND json_extract(metadata, '$.vorgang_id') = 'V-0002'`,
+    ).run(PROJECT);
+
+    const report = verifyMigration(store.db as never, PROJECT, bothSources());
+    expect(report.missingRecords).toEqual(['V-0002']);
+    expect(report.complete).toBe(false);
+  });
+
+  it('keeps the two namespaces apart when deciding what is in force', () => {
+    // A work item has no validity window of its own — its state comes from the
+    // event log. Folding it into the record comparison would make every item
+    // look like a rule that is still in force, or like one that vanished.
+    importAktenDirectory(store as never, dir, { project: PROJECT, nowEpoch: 1_700_000_000_000 });
+    importVorgaengeDirectory(store as never, vorgaengeDir, { project: PROJECT, nowEpoch: 1_700_000_000_000 });
+    applySupersessions(store.db as never, PROJECT, 1_700_000_000_000);
+
+    const report = verifyMigration(store.db as never, PROJECT, bothSources());
+    expect(report.currentInSource).toEqual(['0002', '0003', '0004']);
+    expect(report.wronglyRetired).toEqual([]);
+    expect(report.wronglyActive).toEqual([]);
   });
 });
