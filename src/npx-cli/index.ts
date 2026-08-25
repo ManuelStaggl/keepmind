@@ -54,6 +54,8 @@ ${pc.bold('Runtime Commands')} (requires Bun, delegates to installed plugin):
   ${pc.cyan('npx keepmind curated:supersede <new> <old>')}   Declare and apply a supersession
   ${pc.cyan('npx keepmind curated:close <id>')}    Retire an entry that no longer applies ${pc.dim('--reason')}
   ${pc.cyan('npx keepmind curated:show <id>')}     Read the current text ${pc.dim('--all for every revision')}
+  ${pc.cyan('npx keepmind export <dir>')}          Write the whole memory to a readable, verifiable bundle ${pc.dim('--project --no-settings --json')}
+  ${pc.cyan('npx keepmind import <dir>')}          Restore a bundle on another machine and rebuild the semantic index ${pc.dim('--merge --replace --dry-run')}
   ${pc.cyan('npx keepmind migrate --purge --yes')}    Import, then remove claude-mem entirely (archives it first; requires a verified-complete migration)
   ${pc.cyan('npx keepmind transcript watch')}     Start transcript watcher
 
@@ -230,6 +232,22 @@ async function main(): Promise<void> {
     case 'curated:alter': {
       const { runAlterCommand, parseAlterOptions } = await import('./commands/alter.js');
       await runAlterCommand(parseAlterOptions(args.slice(1)));
+      break;
+    }
+
+    // Portability. The one thing that makes keepmind safe to rely on as the
+    // only place lasting knowledge lives: it can leave the machine.
+    case 'export': {
+      const { runExportCommand, parseExportOptions, exportUsage } = await import('./commands/portability.js');
+      if (args.includes('--help') || args.includes('-h')) { console.log(exportUsage()); break; }
+      await runExportCommand(parseExportOptions(args.slice(1)));
+      break;
+    }
+
+    case 'import': {
+      const { runImportCommand, parseImportOptions, importUsage } = await import('./commands/portability.js');
+      if (args.includes('--help') || args.includes('-h')) { console.log(importUsage()); break; }
+      await runImportCommand(parseImportOptions(args.slice(1)));
       break;
     }
 
