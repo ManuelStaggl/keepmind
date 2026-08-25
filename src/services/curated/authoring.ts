@@ -24,6 +24,7 @@
 // nothing here can see it. `tests/curated/authoring.test.ts` enforces that with
 // the same Proxy the importer test uses.
 
+import { VORGANG_ID_PATTERN } from './record-key.js';
 import { parseAkte, type ParsedAkte } from './akten-parser.js';
 import { extractEdges, type DecisionEdge } from './edge-reader.js';
 import { matchRelation, type RelationName } from './relation-lexicon.js';
@@ -582,6 +583,23 @@ export function authorCuratedRecord(
     throw new Error(
       `curated authoring: "${draft.recordId}" is not a record number the edge reader recognises. ` +
       `Use a zero-padded four-digit number (0001…0999) or a V- reference (V-0187).`,
+    );
+  }
+
+  // A V- number is a valid REFERENCE — a record may declare a relation to a
+  // work item — but it cannot be authored here, and the refusal is explicit
+  // rather than emergent. The canonical record heading the renderer produces
+  // (`# V-0001 — …`) does not read back as an id: the decision-record reader
+  // recognises digits only, and widening it is not a small change. Which
+  // headings carry a number decides which files count as CONTROL files, and
+  // "a file without a row of its own cannot retire a record" rests on that.
+  // Until work items can be authored properly, say so here instead of failing
+  // three layers down with `reads back as id "null"`.
+  if (draft.recordId !== undefined && VORGANG_ID_PATTERN.test(draft.recordId.trim())) {
+    throw new Error(
+      `curated authoring: ${draft.recordId.trim()} is a work item, and work items are not authored here yet — ` +
+      `they come from their own importer (\`curated:import\` over a "vorgaenge" source). ` +
+      `Its number is still usable as a relation target from a decision record.`,
     );
   }
 

@@ -26,6 +26,7 @@
 // leaving a record retired forever by a line nobody can find any more.
 
 import { logger } from '../../utils/logger.js';
+import { CURATED_ID_SQL, curatedIdSql } from './record-key.js';
 
 /** Marker written into metadata so a later run can tell its own work apart. */
 export const SUPERSESSION_MARKER = 'superseded_by_record';
@@ -111,8 +112,8 @@ export function applySupersessions(
          SELECT 1 FROM observations newer
           WHERE newer.project = observations.project
             AND newer.source_kind = 'curated'
-            AND json_extract(newer.metadata, '$.record_id')
-                = json_extract(observations.metadata, '$.record_id')
+            AND ${curatedIdSql('newer')}
+                = ${curatedIdSql('observations')}
             AND (newer.created_at_epoch > observations.created_at_epoch
                  OR (newer.created_at_epoch = observations.created_at_epoch
                      AND newer.id > observations.id))
@@ -141,10 +142,10 @@ export function applySupersessions(
   // one, with closed revisions kept only as a fallback for a record whose
   // author closed it by hand.
   const rows = db.prepare(`
-    SELECT id, json_extract(metadata, '$.record_id') AS record_id, created_at_epoch
+    SELECT id, ${CURATED_ID_SQL} AS record_id, created_at_epoch
       FROM observations
      WHERE project = ? AND source_kind = 'curated'
-       AND json_extract(metadata, '$.record_id') IS NOT NULL
+       AND ${CURATED_ID_SQL} IS NOT NULL
      ORDER BY (valid_to IS NULL) ASC, created_at_epoch ASC, id ASC
   `).all(project) as RecordRow[];
 

@@ -18,6 +18,8 @@
 // distance measure, and the moment a threshold decides what "same topic" means
 // the number stops being arithmetic and starts being a guess.
 
+import { CURATED_ID_SQL, curatedKindOfId } from './record-key.js';
+
 export interface AgingStore {
   prepare(sql: string): { all: (...params: unknown[]) => unknown[] };
 }
@@ -105,7 +107,7 @@ export function ageReport(
 ): AgingEntry[] {
   let rows = db.prepare(`
     SELECT id,
-           json_extract(metadata, '$.record_id') AS record_id,
+           ${CURATED_ID_SQL} AS record_id,
            title,
            created_at_epoch,
            json_extract(metadata, '$.date')      AS written_on,
@@ -115,8 +117,15 @@ export function ageReport(
            source_line
       FROM observations
      WHERE project = ? AND source_kind = 'curated'
-       AND json_extract(metadata, '$.record_id') IS NOT NULL
+       AND ${CURATED_ID_SQL} IS NOT NULL
   `).all(project) as Row[];
+
+  // DECISIONS only, and decided by the id's shape rather than by which metadata
+  // key it happens to sit under. This report answers "how much has happened
+  // since this was decided", which is not a question about an open work item —
+  // and a work item authored here rather than imported carries its number under
+  // the decision key, so filtering by key would have let it in.
+  rows = rows.filter(row => curatedKindOfId(String(row.record_id ?? '')) === 'akte');
 
   if (rows.length === 0) return [];
 

@@ -866,12 +866,12 @@ Params: recordId (required), project, and any of title/status/date/decidedBy/sum
     name: 'curated_get',
     runtime: 'worker',
     group: 'core',
-    description: `Read a lasting entry by its record number — its current text, and optionally every earlier revision with the window each one was valid for. Read this before curated_edit so the change is made against what the entry actually says. Params: recordId (required), project, revisions (boolean).`,
+    description: `Read a lasting entry by its number — a decision record ("0138") or a work item ("V-0001"), both addressable the same way. Returns its current text, a "kind" of "akte" (a decision) or "vorgang" (an open item), and optionally every earlier revision with the window each one was valid for. Read this before curated_edit so the change is made against what the entry actually says. Params: recordId (required), project, revisions (boolean).`,
     inputSchema: {
       type: 'object',
       properties: {
         project: { type: 'string' },
-        recordId: { type: 'string', description: 'Record number, e.g. "0068" (required)' },
+        recordId: { type: 'string', description: 'Entry number: "0068" for a decision, "V-0187" for a work item (required)' },
         revisions: { type: 'boolean', description: 'Include every earlier revision' },
       },
       required: ['recordId'],

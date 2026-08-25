@@ -26,6 +26,7 @@ import { normalizeStoredPromptText } from './prompt-storage.js';
 import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_JOURNAL_SIZE_LIMIT_BYTES } from './pragmas.js';
 import { envValue } from '../../shared/legacy-env.js';
 import { CHECKPOINT_TYPE, deriveCheckpointTitle, type CheckpointRecord } from '../../shared/checkpoint.js';
+import { CURATED_ID_SQL, curatedKindOfRow, type CuratedKindLabel } from '../curated/record-key.js';
 
 interface IndexColumnInfo {
   seqno: number;
@@ -3086,6 +3087,8 @@ export class SessionStore {
     narrative: string | null; metadata: string | null; source_path: string | null;
     source_line: number | null; valid_from: number | null; valid_to: number | null;
     created_at_epoch: number;
+    /** `akte` (a decision) or `vorgang` (an open item) — never inferred by the caller. */
+    kind: CuratedKindLabel;
   } | null {
     // `includeClosed` answers a different question: not "what does this record
     // currently say" but "does this record exist at all". An edit needs the
@@ -3094,17 +3097,21 @@ export class SessionStore {
     // it. The ordering puts the active revision first when there is one.
     const activeOnly = opts.includeClosed ? '' : 'AND valid_to IS NULL';
     const row = this.db.prepare(`
-      SELECT id, project, json_extract(metadata, '$.record_id') AS record_id,
+      SELECT id, project, ${CURATED_ID_SQL} AS record_id,
              title, subtitle, narrative, metadata, source_path, source_line,
              valid_from, valid_to, created_at_epoch
         FROM observations
        WHERE project = ? AND source_kind = 'curated'
-         AND json_extract(metadata, '$.record_id') = ?
+         AND ${CURATED_ID_SQL} = ?
          ${activeOnly}
        ORDER BY (valid_to IS NULL) DESC, created_at_epoch DESC, id DESC
        LIMIT 1
-    `).get(project, recordId) as never;
-    return (row ?? null) as never;
+    `).get(project, recordId) as { metadata: string | null; record_id: string | null } | undefined;
+    if (!row) return null;
+    // What it IS travels with it. The two namespaces share this lookup on
+    // purpose; what must never blur is the answer to "is this a decision or an
+    // open item", and a caller that only ever sees the text cannot tell.
+    return { ...row, kind: curatedKindOfRow(row.metadata, row.record_id) } as never;
   }
 
   /**
@@ -3120,9 +3127,139 @@ export class SessionStore {
       SELECT id, title, narrative, metadata, valid_from, valid_to, created_at_epoch
         FROM observations
        WHERE project = ? AND source_kind = 'curated'
-         AND json_extract(metadata, '$.record_id') = ?
+         AND ${CURATED_ID_SQL} = ?
        ORDER BY created_at_epoch DESC, id DESC
     `).all(project, recordId) as never;
+  }
+
+  /**
+   * Projects that already hold curated rows.
+   *
+   * The unattended import uses this to answer "where does this corpus go?"
+   * without guessing: exactly one such project is an observed fact about the
+   * store, several are a question only the operator can settle.
+   */
+  curatedProjects(): string[] {
+    const rows = this.db.prepare(`
+      SELECT DISTINCT project FROM observations
+       WHERE source_kind = 'curated' AND project IS NOT NULL AND project != ''
+       ORDER BY project ASC
+    `).all() as Array<{ project: string }>;
+    return rows.map(row => String(row.project));
+  }
+
+  /**
+   * Close every OTHER active revision of one curated entry.
+   *
+   * WHY THE FILE IMPORTERS NEED THIS. Direct authoring goes through
+   * `storeCuratedRecord`, which closes the previous revision as part of the
+   * write. The file importers do not: they call `storeObservation`, whose
+   * de-duplication is by wording — so an UNCHANGED file reuses its row (right)
+   * while a CHANGED one inserts a second row and leaves the first one active
+   * (wrong). Measured: editing a record's file and re-importing left two rows
+   * with `valid_to IS NULL`, holding both the old and the new wording on the
+   * surface at once.
+   *
+   * Reads happen to survive that — `getCuratedRecord` takes the newest — but
+   * the vector index does not: both rows are embedded, so the record answers
+   * twice and the older answer wins as often as the ranker happens to prefer
+   * it. "Exactly one revision per record has `valid_to IS NULL`" is the
+   * invariant every curated read path is written against.
+   *
+   * Nothing is deleted. The previous revision keeps its text and gets its
+   * window closed, marked with the revision that replaced it.
+   */
+  closeOtherCuratedRevisions(
+    project: string,
+    curatedId: string,
+    keepId: number,
+    nowEpoch: number = Date.now(),
+  ): { closed: number } {
+    const result = this.db.prepare(`
+      UPDATE observations
+         SET valid_to = ?,
+             metadata = json_set(COALESCE(metadata, '{}'), '$.${SessionStore.REVISION_MARKER}', ?)
+       WHERE project = ? AND source_kind = 'curated'
+         AND ${CURATED_ID_SQL} = ?
+         AND valid_to IS NULL AND id != ?
+    `).run(nowEpoch, keepId, project, curatedId, keepId) as { changes?: number };
+    return { closed: Number(result?.changes ?? 0) };
+  }
+
+  /**
+   * Close every OTHER active curated row that came from one source file.
+   *
+   * The id-based counterpart above cannot serve a source that carries no entry
+   * number of its own — the work-item event log is one file for a whole
+   * directory, and it is stored so its wording survives the file. A changed log
+   * writes a new row, and this closes the one it replaced.
+   */
+  closeOtherCuratedRowsForSource(
+    project: string,
+    sourcePath: string,
+    keepId: number,
+    nowEpoch: number = Date.now(),
+  ): { closed: number } {
+    const result = this.db.prepare(`
+      UPDATE observations
+         SET valid_to = ?,
+             metadata = json_set(COALESCE(metadata, '{}'), '$.${SessionStore.REVISION_MARKER}', ?)
+       WHERE project = ? AND source_kind = 'curated'
+         AND source_path = ?
+         AND valid_to IS NULL AND id != ?
+    `).run(nowEpoch, keepId, project, sourcePath, keepId) as { changes?: number };
+    return { closed: Number(result?.changes ?? 0) };
+  }
+
+  /**
+   * Refresh the DERIVED parts of a stored curated row.
+   *
+   * WHY THIS IS NEEDED. `storeObservation` de-duplicates on (session, title,
+   * narrative) — deliberately, so re-importing an unchanged file reuses its row
+   * instead of stacking a revision that says the same thing. Metadata is not in
+   * that key. For a work item that is precisely wrong: its state is derived
+   * from `EREIGNISSE.log`, which moves without the item's own file changing at
+   * all. Measured: an event log that moved an item to `wartet` produced an
+   * import that REPORTED `wartet` while the stored row kept saying `unbekannt`
+   * — the report and the store disagreeing, which is the failure this whole
+   * path exists to prevent.
+   *
+   * Only derived fields move. The title and the narrative — the wording, the
+   * part a person wrote — are not touched here, and nothing is deleted: the
+   * event log remains the history of how the state got where it is.
+   */
+  refreshCuratedDerived(
+    id: number,
+    fields: { subtitle?: string | null; metadata?: string | null; lastVerifiedAt?: number | null },
+  ): void {
+    const sets: string[] = [];
+    const values: Array<string | number | null> = [];
+    // Through the same redaction as the write path, or a value could reach the
+    // store here that the insert would have stripped.
+    if (fields.subtitle !== undefined) { sets.push('subtitle = ?'); values.push(this.rt(fields.subtitle) ?? null); }
+    if (fields.metadata !== undefined) { sets.push('metadata = ?'); values.push(this.rt(fields.metadata) ?? null); }
+    if (fields.lastVerifiedAt !== undefined) { sets.push('last_verified_at = ?'); values.push(fields.lastVerifiedAt ?? null); }
+    if (sets.length === 0) return;
+    values.push(id);
+    this.db.prepare(`UPDATE observations SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+  }
+
+  /**
+   * Every curated observation id in a project — retired revisions included.
+   *
+   * Used to check that the curated corpus is actually searchable. Closed and
+   * superseded revisions are in the list on purpose: nothing on this path is
+   * ever deleted, so "what did this say before it was replaced" has to stay
+   * findable, and a revision that is in the store but not in the index is
+   * exactly the kind of silent hole this list exists to expose.
+   */
+  curatedObservationIds(project: string): number[] {
+    const rows = this.db.prepare(`
+      SELECT id FROM observations
+       WHERE project = ? AND source_kind = 'curated'
+       ORDER BY id ASC
+    `).all(project) as Array<{ id: number }>;
+    return rows.map(row => Number(row.id));
   }
 
   /**
@@ -3135,10 +3272,10 @@ export class SessionStore {
    */
   nextCuratedRecordId(project: string): string {
     const rows = this.db.prepare(`
-      SELECT DISTINCT json_extract(metadata, '$.record_id') AS record_id
+      SELECT DISTINCT ${CURATED_ID_SQL} AS record_id
         FROM observations
        WHERE project = ? AND source_kind = 'curated'
-         AND json_extract(metadata, '$.record_id') IS NOT NULL
+         AND ${CURATED_ID_SQL} IS NOT NULL
     `).all(project) as Array<{ record_id: string | null }>;
 
     let max = 0;
@@ -3237,7 +3374,7 @@ export class SessionStore {
          SET valid_to = ?,
              metadata = json_set(COALESCE(metadata, '{}'), '$.${SessionStore.REVISION_MARKER}', ?)
        WHERE project = ? AND source_kind = 'curated'
-         AND json_extract(metadata, '$.record_id') = ?
+         AND ${CURATED_ID_SQL} = ?
          AND valid_to IS NULL AND id != ?
     `).run(nowEpoch, stored.id, project, record.recordId, stored.id) as { changes?: number };
 
@@ -3270,7 +3407,7 @@ export class SessionStore {
                '$.closed_reason', ?
              )
        WHERE project = ? AND source_kind = 'curated'
-         AND json_extract(metadata, '$.record_id') = ?
+         AND ${CURATED_ID_SQL} = ?
          AND valid_to IS NULL
     `).run(now, opts.reason ?? null, project, recordId) as { changes?: number };
     const closed = Number(res?.changes ?? 0);
@@ -3288,7 +3425,7 @@ export class SessionStore {
          SET valid_to = NULL,
              metadata = json_remove(COALESCE(metadata, '{}'), '$.closed_by_author', '$.closed_reason')
        WHERE project = ? AND source_kind = 'curated'
-         AND json_extract(metadata, '$.record_id') = ?
+         AND ${CURATED_ID_SQL} = ?
          AND json_extract(metadata, '$.closed_by_author') IS NOT NULL
     `).run(project, recordId) as { changes?: number };
     return { reopened: Number(res?.changes ?? 0) };
