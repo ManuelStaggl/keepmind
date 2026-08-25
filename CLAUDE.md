@@ -77,6 +77,122 @@ is deleted, which is the invariant the whole curated path rests on. Anything
 that reads curated rows must collapse to the current revision the way
 `aging.ts` and `supersession.ts` do, or it counts one record several times.
 
+### Two namespaces, one lookup
+
+The corpus holds decision records (`0138`, under `$.record_id`) and work items
+(`V-0001`, under `$.vorgang_id`). The two keys are deliberate: a work item is
+where a decision is carried out, and merging the namespaces makes "what did we
+decide" answer with open tasks.
+
+But every read path was written against `$.record_id` alone, so half the corpus
+was addressable and half was not — `curated_get "V-0001"` answered "No record"
+about 200 items the importer had just reported as imported.
+`src/services/curated/record-key.ts` is now the ONE place that says how a
+curated entry is addressed (`CURATED_ID_SQL`), and everything that filters
+curated rows by number goes through it: `getCuratedRecord`,
+`getCuratedRevisions`, `nextCuratedRecordId`, the revision-closing UPDATE,
+`closeCuratedRecord`, `reopenCuratedRecord`, `supersession.ts`, `aging.ts`.
+`migration-verify.ts` had already grown its own copy of the same COALESCE — that
+is how one rule becomes two that are merely supposed to agree.
+
+**The id is shared; the kind is not.** Every read returns `kind` (`akte` /
+`vorgang`), derived from `metadata.kind` and falling back to the id's shape.
+Reports that are ABOUT decisions filter on that — `aging.ts` keeps decisions
+only, and by id shape rather than by which key the number sits under, because an
+entry authored here carries its number under the decision key whatever it is.
+
+**Exactly one revision may be active, and the file importers have to say so
+themselves.** Direct authoring goes through `storeCuratedRecord`, which closes
+the previous revision as part of the write; the file importers call
+`storeObservation`, which does not. Measured: editing a record's file and
+re-importing left TWO rows with `valid_to IS NULL`. Reads happened to survive it
+(`getCuratedRecord` takes the newest), the vector index did not — both rows are
+embedded, so the record answered twice and the older wording won as often as the
+ranker preferred it. Both importers now call `closeOtherCuratedRevisions` (by
+entry number) or `closeOtherCuratedRowsForSource` (for the event log, which
+carries no number). Nothing is deleted: the previous revision keeps its text and
+gets its window closed.
+
+**Derived fields are refreshed even when the row is reused.**
+`storeObservation` de-duplicates on the WORDING (session, title, narrative),
+which is right for a file that has not changed — but a work item's state comes
+from `EREIGNISSE.log`, and the log moves without the item's own file changing.
+Measured: a log entry moving an item to `wartet` produced an import that
+reported `wartet` while the stored row kept saying `unbekannt`, and every later
+read believed the row. `refreshCuratedDerived` writes state and subtitle back
+after the insert; the title and narrative are never touched there.
+
+**The event log survives its file.** `EREIGNISSE.log` is a SOURCE, and the rule
+for sources is that their wording outlives them. It is stored twice over, for
+two different questions: verbatim as ONE row per log file (`kind:
+'ereignis-log'`, carrying no entry number, so it can never answer as an item),
+and per item as `metadata.events` — each event with its raw line, next to the
+state derived from it. Neutral events are kept too: the history is not filtered
+down to what moved the state. `verifyMigration` compares the stored log against
+the file AS TEXT — not as a count of parsed events, because the whole point is
+that a line the reader misunderstands is still readable afterwards — and a log
+that is on disk but not in the store makes the result INCOMPLETE. Before this,
+only the derived state was kept, so a corpus could pass verify while the history
+of how every work item got there lived in one file nobody had been told to keep.
+
+Events naming an item the directory holds no file for are reported, never
+dropped; their wording is in the stored log regardless.
+
+**Work items cannot be authored yet, and the refusal is explicit.**
+`authorCuratedRecord` rejects a `V-` id up front. The canonical heading the
+renderer produces (`# V-0001 — …`) does not read back as an id — the
+decision-record reader recognises digits only — so the round-trip guard would
+otherwise fail three layers down with `reads back as id "null"`. Widening that
+reader is NOT a small change: which headings carry a number decides which files
+count as control files, and "a file without a row of its own cannot retire a
+record" rests on exactly that. A `V-` number remains valid as the TARGET of a
+relation from a decision record.
+
+### "Imported" has to mean "findable", and nothing may fail quietly
+
+The curated corpus is the part of memory a person wrote by hand, and it is
+answered from as if it were current. Three rules keep that claim honest. Each
+one was paid for by the same four-day outage: an import stopped running, the
+only evidence was an absence, and every answer in between was confidently out
+of date.
+
+- **An import that did not index has failed.** `ensureCuratedIndexed`
+  (`src/npx-cli/commands/curated.ts`) STARTS the worker rather than noticing it
+  is absent, then asks `/api/curated/ensure-indexed` to verify — not to try.
+  `VectorSync.ensureObservationsIndexed` checks the rows against the vec store
+  itself, because a backfill reports what its own run did, which is a different
+  claim. When rows are missing it rewinds the watermark (`rewindWatermarkTo`)
+  and retries once: the backfill only looks at `id > watermark`, so a row that
+  was written and never embedded sits below the mark forever, and the hole is
+  indistinguishable from an empty result. Every curated write path — file
+  import, `curated:add`, `curated:edit` — exits non-zero when the corpus is not
+  searchable.
+- **Nothing outside keepmind has to remember to import.** `CuratedAutoImport`
+  runs in the worker: once at startup, and on a debounced watch of the source
+  directories. `runCuratedImport` (`src/services/curated/import-run.ts`) is the
+  ONE run both it and the CLI use — two implementations of "read the corpus"
+  would drift the way the four scripts that once defined the source set drifted.
+  Watch paths go through `realpathSync.native`: a recursive Windows watch on a
+  short (8.3) or differently-cased path trips an assertion inside libuv that
+  ABORTS the process — not an exception, not catchable.
+- **The state of the corpus is visible without being asked for.**
+  `import-state.ts` stamps every run (attempt and success separately, so a
+  repeatedly failing import cannot look like one nobody triggered), and only a
+  clean run may move the source fingerprint. `health.ts` computes the verdict
+  once; the session-start block and `keepmind doctor` both read it. The doctor
+  group is REQUIRED — including a stopped worker — on a machine that has a
+  curated corpus, and skipped entirely on one that does not: the strictness
+  comes from the corpus being present, not from a blanket rule.
+
+Where an unattended import files records is DECLARED, never guessed:
+`KEEPMIND_CURATED_PROJECT`, or a `project` on the source entry. Failing both, it
+uses the one project that already holds curated rows — an observed fact — and
+otherwise refuses to run and says so. Same rule as the source `kind`: a corpus
+filed under the wrong project is invisible to every project-filtered read, and
+that looks exactly like an import that never ran. The CLI resolves the project
+in the same order (`--project`, then the setting, then the directory) so the
+same corpus cannot land under two names depending on who started the import.
+
 ### Portability is a precondition, not a feature
 
 `keepmind export` / `keepmind import` (`src/services/portability/`) carry the
