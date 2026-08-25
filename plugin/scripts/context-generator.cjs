@@ -807,7 +807,18 @@ ${o.stack}`:` ${o.message}`;else if(this.getLevel()===0&&typeof o=="object")try{
          ${n}
        ORDER BY (valid_to IS NULL) DESC, created_at_epoch DESC, id DESC
        LIMIT 1
-    `).get(e,t);return o?{...o,kind:Ft(o.metadata,o.record_id)}:null}getCuratedRevisions(e,t){return this.db.prepare(`
+    `).get(e,t);return o?{...o,kind:Ft(o.metadata,o.record_id)}:null}getCuratedRelations(e,t){return this.db.prepare(`
+      SELECT 'outgoing' AS direction, to_record AS other,
+             relation, certainty, source_path, source_line, raw_text
+        FROM decision_edges
+       WHERE project = ? AND from_record = ?
+      UNION ALL
+      SELECT 'incoming' AS direction, from_record AS other,
+             relation, certainty, source_path, source_line, raw_text
+        FROM decision_edges
+       WHERE project = ? AND to_record = ?
+       ORDER BY direction, relation, other
+    `).all(e,t,e,t)}getCuratedRevisions(e,t){return this.db.prepare(`
       SELECT id, title, narrative, metadata, valid_from, valid_to, created_at_epoch
         FROM observations
        WHERE project = ? AND source_kind = 'curated'
