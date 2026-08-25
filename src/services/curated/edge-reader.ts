@@ -15,7 +15,7 @@
 //   sentence claims.
 
 import { stripMarkdownLinks, stripSoftHyphens, type ParsedAkte } from './akten-parser.js';
-import { matchRelation, negatesRelation, type RelationName } from './relation-lexicon.js';
+import { matchRelation, negatesRelation, type RelationName, type RelationPattern } from './relation-lexicon.js';
 
 export type EdgeCertainty = 'sicher' | 'vermutet';
 
@@ -26,11 +26,14 @@ export interface DecisionEdge {
   to: string;
   relation: RelationName;
   /**
-   * 'sicher' — the relation verb and the reference sit in the same clause.
-   * 'vermutet' — the reference was found under a relation-bearing FIELD NAME
-   * with no verb of its own next to it. Kept apart because A2 forbids
-   * inventing edges, and "the label said so" is weaker evidence than "the
-   * sentence said so" without being worthless.
+   * 'sicher' — the record WROTE the relation: the verb sits in the clause
+   * (`löst 0093 ab`) or in the field label that introduces it (`Löst ab:
+   * 0093`). Those two are the same declaration laid out differently.
+   * 'vermutet' — nobody wrote a verb. The reference sits under a NOUN heading
+   * (`Grundlage: 0002`), or a third party asserts it about two other records.
+   * Kept apart because A2 forbids inventing edges, and "it was filed under
+   * this heading" is weaker evidence than "the record said so" without being
+   * worthless.
    */
   certainty: EdgeCertainty;
   sourcePath: string;
@@ -108,6 +111,19 @@ function expandSpan(prefix: string, first: string, last: string): string[] | nul
   return out;
 }
 
+/**
+ * How strong is an edge whose relation came from `relation`?
+ *
+ * `fromVerb` is true when the phrase stood inside the sentence. When it stood
+ * in the field LABEL instead, the phrase itself decides: a verb label states
+ * the relation, a noun label only files the reference under a heading. See
+ * `RelationPattern.declarative` for what that cost while both counted as
+ * `vermutet`.
+ */
+function certaintyFor(relation: RelationPattern, fromVerb: boolean): EdgeCertainty {
+  return fromVerb || relation.declarative ? 'sicher' : 'vermutet';
+}
+
 /** Normalise one line before any rule looks at it. */
 function prepare(line: string): string {
   // Link text first: the href is a slug built from the target's title and
@@ -166,7 +182,8 @@ export function extractEdges(
     let span: RegExpExecArray | null;
     while ((span = SPAN.exec(line)) !== null) {
       const before = line.slice(0, span.index);
-      const relation = matchRelation(before) ?? labelRelation;
+      const spanVerb = matchRelation(before);
+      const relation = spanVerb ?? labelRelation;
       if (!relation) continue;
       const expanded = expandSpan(span[1] ?? '', span[2], span[4]);
       const clause = line.slice(Math.max(0, span.index - 60), span.index + span[0].length + 40);
@@ -191,7 +208,7 @@ export function extractEdges(
           from: relation.forward ? from : target,
           to: relation.forward ? target : from,
           relation: relation.relation,
-          certainty: matchRelation(before) ? 'sicher' : 'vermutet',
+          certainty: certaintyFor(relation, spanVerb !== null),
           sourcePath,
           sourceLine: lineNumber,
           rawText: clause.trim(),
@@ -258,8 +275,9 @@ export function extractEdges(
         relation: relation.relation,
         // The whole enumeration inherits the strength of the verb that
         // introduced it — the second item in `betrifft A, B` is stated just as
-        // plainly as the first.
-        certainty: activeIsVerb ? 'sicher' : 'vermutet',
+        // plainly as the first. With no verb in the sentence the LABEL decides,
+        // and a verb label is a declaration however it is laid out.
+        certainty: certaintyFor(relation, activeIsVerb),
         sourcePath,
         sourceLine: lineNumber,
         rawText: clause.trim(),

@@ -224,3 +224,46 @@ describe('control files', () => {
     expect(edges).toHaveLength(0);
   });
 });
+
+describe('aufheben — a verb the lexicon did not know', () => {
+  it('`hebt 0135 auf` retires 0135', () => {
+    // Until 4.3.1 this matched no pattern at all, so 0135 stayed in force with
+    // 0140 plainly saying otherwise — not an uncertain edge, no edge.
+    const { edges } = edgesOf('**Vermerk:** hebt 0135 auf', 'C:/akten/0140-x.md');
+    expect(edges).toHaveLength(1);
+    expect(edges[0]).toMatchObject({ from: '0090', to: '0135', relation: 'supersedes', certainty: 'sicher' });
+  });
+
+  it('`Hebt auf:` reads the same as the sentence form', () => {
+    const { edges } = edgesOf('**Hebt auf:** 0135');
+    expect(edges[0]).toMatchObject({ from: '0090', to: '0135', relation: 'supersedes', certainty: 'sicher' });
+  });
+
+  it('`aufgehoben durch 0140` points the other way, like every reversing form', () => {
+    const { edges } = edgesOf('**Stand:** aufgehoben durch 0140');
+    expect(edges[0]).toMatchObject({ from: '0140', to: '0090', relation: 'supersedes' });
+  });
+});
+
+describe('a partial supersession is still a supersession', () => {
+  it('a scope qualifier between the verb and the reference does not hide the verb', () => {
+    // Every pattern is anchored at the end of the text in front of the
+    // reference, so `löst in diesem Umfang 0054 ab` pushed `löst` out of reach
+    // and fell back to whatever the label said. The corpus writes the
+    // qualifier on both sides of the reference and only this side broke, which
+    // is why it read as an occasional fault rather than a missing rule.
+    const { edges } = edgesOf('**Vermerk:** löst in diesem Umfang 0054 ab');
+    expect(edges).toHaveLength(1);
+    expect(edges[0]).toMatchObject({ to: '0054', relation: 'supersedes', certainty: 'sicher' });
+  });
+
+  it('`teilweise` narrows the scope, not the evidence', () => {
+    const { edges } = edgesOf('**Vermerk:** ersetzt teilweise 0072');
+    expect(edges[0]).toMatchObject({ to: '0072', relation: 'supersedes', certainty: 'sicher' });
+  });
+
+  it('the qualifier is stripped only when nothing matched — it cannot change an existing reading', () => {
+    expect(matchRelation('abgelöst durch ')?.forward).toBe(false);
+    expect(matchRelation('nur ')).toBeNull();
+  });
+});
