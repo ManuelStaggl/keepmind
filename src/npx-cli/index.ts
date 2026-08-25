@@ -49,6 +49,7 @@ ${pc.bold('Runtime Commands')} (requires Bun, delegates to installed plugin):
   ${pc.cyan('npx keepmind akten:check <dir>…')}    Report structural contradictions; exits non-zero. For pre-commit ${pc.dim('--json')}
   ${pc.cyan('npx keepmind curated:import')}        Import the configured curated source set — records AND work items ${pc.dim('--dry-run --json')}
   ${pc.cyan('npx keepmind curated:alter')}         Which decisions have the most happened around since they were written ${pc.dim('--limit --all --json')}
+  ${pc.cyan('npx keepmind curated:verify')}        Did the file corpus arrive complete? Records, relations and validity windows vs. the files ${pc.dim('--json')}
   ${pc.cyan('npx keepmind curated:add')}           Write a lasting entry straight into keepmind — no source file ${pc.dim('--title --status --rel --body-stdin --dry-run')}
   ${pc.cyan('npx keepmind curated:edit <id>')}     Change that entry IN PLACE; the previous revision keeps its text ${pc.dim('--title --status --body-file --rel')}
   ${pc.cyan('npx keepmind curated:supersede <new> <old>')}   Declare and apply a supersession
@@ -198,6 +199,14 @@ async function main(): Promise<void> {
     case 'curated:import': {
       const { runCuratedImportCommand, parseCuratedImportOptions } = await import('./commands/curated.js');
       await runCuratedImportCommand(parseCuratedImportOptions(args.slice(1)));
+      break;
+    }
+
+    // Did the file corpus arrive complete? Run between the one-time import and
+    // the removal of the files — the only window in which both sides exist.
+    case 'curated:verify': {
+      const { runCuratedVerifyCommand, parseCuratedImportOptions } = await import('./commands/curated.js');
+      await runCuratedVerifyCommand(parseCuratedImportOptions(args.slice(1)));
       break;
     }
 

@@ -99,6 +99,22 @@ export function statusSaysValid(status: string | null): boolean | null {
 /** Relations whose presence means the target stopped applying. */
 const SUPERSEDING = new Set(['supersedes']);
 
+/**
+ * Records that a DECLARED, certain supersession retires.
+ *
+ * Exported because this is the half of "still in force" that the store also
+ * computes — `applySupersessions` closes exactly these windows, and
+ * deliberately does not act on a status word alone (a supersession needs the
+ * record that replaced it). Anything comparing the files with the store has to
+ * compare on this half only, or it reports a deliberate design decision as a
+ * migration failure.
+ */
+export function supersededRecords(edges: GraphEdge[]): Set<string> {
+  return new Set(
+    edges.filter(e => SUPERSEDING.has(e.relation) && e.certainty === 'sicher').map(e => e.to),
+  );
+}
+
 export function checkContradictions(
   edges: GraphEdge[],
   records: RecordState[],
@@ -220,9 +236,7 @@ export function checkContradictions(
  * answer, and never edits a record to match.
  */
 export function currentRecords(edges: GraphEdge[], records: RecordState[]): string[] {
-  const superseded = new Set(
-    edges.filter(e => SUPERSEDING.has(e.relation) && e.certainty === 'sicher').map(e => e.to),
-  );
+  const superseded = supersededRecords(edges);
   return records
     .filter(r => !superseded.has(r.id))
     .filter(r => statusSaysValid(r.status) !== false)
