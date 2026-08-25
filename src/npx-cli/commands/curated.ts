@@ -420,12 +420,18 @@ export async function runCuratedVerifyCommand(options: CuratedImportOptions): Pr
   if (report.extraEdges.length > 0) {
     console.log(`  ${report.extraEdges.length} relation(s) in the graph that these sources do not declare.`);
   }
+  if (report.endedWithoutSuccessor.length > 0) {
+    // A resting state, not an open question. Named as one, because the earlier
+    // wording sent someone looking for a successor that was never meant to
+    // exist — 0036 expired with its one run, 0109 was withdrawn as a duplicate.
+    console.log(`  ${report.endedWithoutSuccessor.length} record(s) ended on their own terms (withdrawn, expired, used up) — no successor expected: ${report.endedWithoutSuccessor.slice(0, 20).join(', ')}${report.endedWithoutSuccessor.length > 20 ? ' …' : ''}`);
+  }
   if (report.statusRetiredWithoutSupersession.length > 0) {
     // A property of the corpus, not of the migration: the importer stores
     // `Stand:` verbatim and does not turn a status word into a closed window,
     // because closing one is a supersession and a supersession needs the record
     // that replaced it. `akten:check` is the command that examines this.
-    console.log(`  ${report.statusRetiredWithoutSupersession.length} record(s) call themselves retired with nothing superseding them — \`keepmind akten:check\` examines those: ${report.statusRetiredWithoutSupersession.slice(0, 20).join(', ')}${report.statusRetiredWithoutSupersession.length > 20 ? ' …' : ''}`);
+    console.log(`  ${report.statusRetiredWithoutSupersession.length} record(s) say they were REPLACED while naming no replacement — \`keepmind akten:check\` examines those: ${report.statusRetiredWithoutSupersession.slice(0, 20).join(', ')}${report.statusRetiredWithoutSupersession.length > 20 ? ' …' : ''}`);
   }
 
   if (report.complete) {

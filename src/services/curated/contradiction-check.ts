@@ -80,7 +80,33 @@ export interface Finding {
 /** Words in a `Stand:` value that mean the record still applies. */
 const VALID_STATUS = /\bgilt\b/i;
 /** Words that mean it does not. Checked first — `gilt` occurs inside both. */
-const INVALID_STATUS = /\b(abgel(?:ö|oe)st|ersetzt\s+durch|zur(?:ü|ue)ckgezogen|erloschen|nicht\s+mehr\s+g(?:ü|ue)ltig|(?:ü|ue)berholt)\b/i;
+const INVALID_STATUS = /\b(abgel(?:ö|oe)st|ersetzt\s+durch|zur(?:ü|ue)ckgezogen|erloschen|verbraucht|gegenstandslos|ausgelaufen|nicht\s+mehr\s+g(?:ü|ue)ltig|(?:ü|ue)berholt)\b/i;
+
+/**
+ * A status that ends the record BY ITSELF, with no successor to name.
+ *
+ * Two ways for a record to stop applying, and only one of them implies another
+ * record. "abgelöst", "ersetzt durch" and "überholt" are relational: something
+ * took its place, so a supersession should exist and its absence is a gap
+ * worth reporting. "zurückgezogen", "erloschen", "verbraucht" and
+ * "gegenstandslos" are not: the record was withdrawn, or it was a one-off that
+ * has been used up, and there is nothing to point at. The delivered corpus
+ * holds one of each — 0036 expired with the run of 08.08.2026, 0109 was a
+ * duplicate of 0047 and was withdrawn — and both were reported as records that
+ * "call themselves retired with nothing superseding them", as though a
+ * relation had gone missing in the migration. Nothing had. A resting state is
+ * not an unfinished one, and a check that says otherwise trains its reader to
+ * scroll past it.
+ */
+const ENDS_WITHOUT_SUCCESSOR = /\b(zur(?:ü|ue)ckgezogen|erloschen|verbraucht|gegenstandslos|ausgelaufen|nicht\s+mehr\s+g(?:ü|ue)ltig)\b/i;
+
+/**
+ * The other half: a status that names, or implies, a replacement. Checked
+ * FIRST, because a status can carry both — `zurückgezogen, ersetzt durch 0047`
+ * still promises a successor, and letting the resting word win would hide the
+ * one case worth reporting behind the word that makes it look settled.
+ */
+const SUCCESSOR_IMPLIED = /\b(abgel(?:ö|oe)st|ersetzt\s+durch|(?:ü|ue)berholt)\b/i;
 
 /**
  * Does this status say the record still applies?
@@ -94,6 +120,20 @@ export function statusSaysValid(status: string | null): boolean | null {
   if (INVALID_STATUS.test(status)) return false;
   if (VALID_STATUS.test(status)) return true;
   return null;
+}
+
+/**
+ * Does this status close the record on its own terms?
+ *
+ * Only meaningful for a status that already says the record no longer applies
+ * — see `ENDS_WITHOUT_SUCCESSOR`. A record with such a status needs no
+ * supersession, and asking for one is asking for a record that does not exist.
+ */
+export function statusEndsWithoutSuccessor(status: string | null): boolean {
+  if (!status) return false;
+  if (statusSaysValid(status) !== false) return false;
+  if (SUCCESSOR_IMPLIED.test(status)) return false;
+  return ENDS_WITHOUT_SUCCESSOR.test(status);
 }
 
 /** Relations whose presence means the target stopped applying. */

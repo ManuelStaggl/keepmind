@@ -49,7 +49,7 @@ import { join, resolve, extname } from 'node:path';
 import { parseAkte } from './akten-parser.js';
 import { parseVorgang } from './vorgang-parser.js';
 import { extractEdges, extractEdgesFromControlFile, type DecisionEdge } from './edge-reader.js';
-import { supersededRecords, statusSaysValid, type RecordState } from './contradiction-check.js';
+import { supersededRecords, statusSaysValid, statusEndsWithoutSuccessor, type RecordState } from './contradiction-check.js';
 
 export interface VerifySource {
   path: string;
@@ -85,12 +85,18 @@ export interface VerifyReport {
   /** Retired in the files, in force in the store — a rule that came back. */
   wronglyActive: string[];
   /**
-   * Records whose own status says they no longer apply while nothing declares
-   * a supersession. Informational: this is a property of the CORPUS, present
-   * before and after the migration, and `keepmind akten:check` reports it as
-   * the contradiction it is.
+   * Records whose status promises a replacement ("abgelöst", "ersetzt durch")
+   * while nothing declares a supersession. Informational: this is a property
+   * of the CORPUS, present before and after the migration, and `keepmind
+   * akten:check` reports it as the contradiction it is.
    */
   statusRetiredWithoutSupersession: string[];
+  /**
+   * Records that ended on their own terms — withdrawn, expired, used up. A
+   * valid resting state, listed so the count is visible and NOT as something
+   * to chase: there is no successor to find. See `statusEndsWithoutSuccessor`.
+   */
+  endedWithoutSuccessor: string[];
   /** Files that could not be read at all. */
   failed: Array<{ file: string; error: string }>;
   /** True when records, relations and validity all agree. */
@@ -238,9 +244,17 @@ export function verifyMigration(
   const missingRecords = sourceIds.filter(id => !storedSet.has(id));
   const extraRecords = storedIds.filter(id => !sourceSet.has(id));
 
-  // A corpus property, not a migration result — see the header.
-  const statusRetiredWithoutSupersession = records
-    .filter(r => !superseded.has(r.id) && statusSaysValid(r.status) === false)
+  // A corpus property, not a migration result — see the header. Split in two,
+  // because only one half is a question: a record that says it was REPLACED
+  // and names no replacement has a relation missing somewhere, while one that
+  // says it was withdrawn or used up is simply finished.
+  const retiredByStatus = records.filter(r => !superseded.has(r.id) && statusSaysValid(r.status) === false);
+  const endedWithoutSuccessor = retiredByStatus
+    .filter(r => statusEndsWithoutSuccessor(r.status))
+    .map(r => r.id)
+    .sort();
+  const statusRetiredWithoutSupersession = retiredByStatus
+    .filter(r => !statusEndsWithoutSuccessor(r.status))
     .map(r => r.id)
     .sort();
 
@@ -259,6 +273,7 @@ export function verifyMigration(
     wronglyRetired,
     wronglyActive,
     statusRetiredWithoutSupersession,
+    endedWithoutSuccessor,
     failed,
     complete:
       missingRecords.length === 0 &&

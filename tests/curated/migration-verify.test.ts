@@ -204,6 +204,12 @@ describe('migration round trip — did the file archive arrive complete?', () =>
     // The importer stores `Stand:` verbatim and deliberately does not turn it
     // into a closed window. Failing the migration over that would fail it for
     // a design decision rather than for anything lost.
+    //
+    // "zurückgezogen" ends the record on its own terms, so there is no
+    // successor to look for and it is NOT listed as one to chase. The corpus
+    // holds two of these (0036 expired with its single run, 0109 was a
+    // withdrawn duplicate) and both were reported as though a relation had
+    // gone missing in the migration.
     write('0005-zurueckgezogen.md', `# 0005 — Zurückgezogene Regel
 
 **Stand:** zurückgezogen · **Datum:** 03.08.2026
@@ -215,8 +221,29 @@ Gilt nicht mehr, und nichts löst sie ab.
     importCorpus();
 
     const report = verifyMigration(store.db as never, PROJECT, sources());
-    expect(report.statusRetiredWithoutSupersession).toEqual(['0005']);
+    expect(report.endedWithoutSuccessor).toEqual(['0005']);
+    expect(report.statusRetiredWithoutSupersession).toEqual([]);
     expect(report.wronglyActive).toEqual([]);
+    expect(report.complete).toBe(true);
+  });
+
+  it('a record that says it was REPLACED and names nobody stays a question', () => {
+    // The other half of the split: "abgelöst" promises a successor, so its
+    // absence is a gap worth reporting. Folding both halves together is what
+    // made the resting states look like defects.
+    write('0006-abgeloest-ohne-nachfolger.md', `# 0006 — Regel mit Lücke
+
+**Stand:** abgelöst · **Datum:** 04.08.2026
+
+## Entscheidung
+
+Text.
+`);
+    importCorpus();
+
+    const report = verifyMigration(store.db as never, PROJECT, sources());
+    expect(report.statusRetiredWithoutSupersession).toEqual(['0006']);
+    expect(report.endedWithoutSuccessor).toEqual([]);
     expect(report.complete).toBe(true);
   });
 
