@@ -16,8 +16,13 @@
 // WHAT IT MAY AND MAY NOT SAY. It offers candidates. It never says "this was
 // already decided", and it never says "there is no decision on this" — the
 // second sentence may only come from the relation graph, never from a distance
-// measure, because real hits and false hits sit 0.001 apart in similarity.
-// So: no threshold, no verdict, a short list and the word "candidates".
+// measure. So: no threshold, no verdict, a short list and the word
+// "candidates". That "no threshold" was originally an assertion; it is now
+// three measurements, in `decision-candidates.ts`. One of them killed a
+// threshold that had already been drafted.
+//
+// What the candidates ARE is therefore load-bearing, because the reader is the
+// only filter there is. They show what each record says, in its own words.
 //
 // Only records that still apply are offered. A superseded one answering a live
 // question is worse than no answer at all.
@@ -28,6 +33,9 @@ import { logger } from '../../utils/logger.js';
 import { getProjectContext } from '../../utils/project-name.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { paths } from '../../shared/paths.js';
+import {
+  toCandidates, type CandidateRow, type DecisionCandidate,
+} from '../../services/curated/decision-candidates.js';
 
 /** Tool names that put a question to a person. */
 const ASK_TOOLS = new Set(['AskUserQuestion']);
@@ -76,53 +84,41 @@ export function questionsFrom(toolInput: unknown): string[] {
   return out;
 }
 
-interface CandidateRow {
-  title?: string;
-  subtitle?: string;
-  type?: string;
-  source_path?: string;
-  source_line?: number;
-  source_kind?: string;
-  valid_to?: number | null;
-}
+// `usable` and the reasoning behind its three exclusions moved to
+// `decision-candidates.ts`, together with the finding extraction and the
+// measurements that say why there is no relevance threshold. Re-exported so
+// the handler's own tests keep their entry point.
+export { usable } from '../../services/curated/decision-candidates.js';
 
 /**
- * Curated DECISIONS only, and only the ones that still apply.
+ * Render the candidates so a READER can tell a real one from a false one.
  *
- * Three exclusions, each for its own reason:
+ * This shows what each record SAYS, not what it is filed under. The previous
+ * rendering showed the title and the SUBTITLE, and a record's subtitle is its
+ * header line (`Stand: gilt · 11.08.2026 · Manuel`) — metadata about the
+ * decision rather than the decision. So a false candidate looked exactly like
+ * a real one, and the reader had to open the file to find out which it was.
  *
- * Observed rows, though they are the bulk of the store: the question is "did we
- * already DECIDE this", and an observation records what happened, not what was
- * resolved. Mixing them buries the one kind of row that can answer.
- *
- * Work items, though they are curated too. A work item is the thing a decision
- * is carried out in — offering one as an answer to "has this been decided" is
- * answering with the task instead of the ruling. Observed in the first run:
- * three of six candidates were work items, one of them already closed.
- *
- * Retired records, because a superseded decision answering a live question is
- * worse than no answer at all.
+ * The reader IS the filter, and not by preference: three measurements say
+ * these candidates cannot be filtered by similarity with the embedder this
+ * store runs on. They are written out in `decision-candidates.ts` — read them
+ * before adding a threshold here.
  */
-export function usable(row: CandidateRow): boolean {
-  return row.source_kind === 'curated'
-    && row.type === 'decision'
-    && (row.valid_to === null || row.valid_to === undefined);
-}
-
-function render(question: string, rows: CandidateRow[]): string {
+function render(question: string, candidates: DecisionCandidate[]): string {
   const lines: string[] = [];
   lines.push(`[keepmind] Before asking: "${question.slice(0, 120)}"`);
   lines.push('');
   lines.push('Candidate decisions that may already cover this. They are candidates —');
   lines.push('nothing here claims the question is settled, and their absence would not');
-  lines.push('mean it is open.');
+  lines.push('mean it is open. Judge them by what they say:');
   lines.push('');
-  for (const row of rows) {
-    lines.push(`  ${row.title ?? '(untitled)'}`);
-    if (row.subtitle) lines.push(`      ${row.subtitle}`);
-    if (row.source_path) lines.push(`      ${row.source_path}:${row.source_line ?? 1}`);
+  for (const candidate of candidates) {
+    lines.push(`  ${candidate.title}`);
+    if (candidate.finding) lines.push(`      ${candidate.finding}`);
+    if (candidate.sourcePath) lines.push(`      ${candidate.sourcePath}:${candidate.sourceLine ?? 1}`);
+    lines.push('');
   }
-  return lines.join('\n');
+  return lines.join('\n').trimEnd();
 }
 
 async function checkDecisions(input: NormalizedHookInput): Promise<HookResult> {
@@ -146,12 +142,18 @@ async function checkDecisions(input: NormalizedHookInput): Promise<HookResult> {
   const blocks: string[] = [];
   for (const question of questions) {
     try {
-      const url = `/api/search?query=${encodeURIComponent(question)}&project=${encodeURIComponent(project)}&limit=${config.maxRows * 4}&format=json`;
+      // `sourceKind=curated` so the result cap is spent on rows that can
+      // answer. Measured: no difference on the corpus this runs against, where
+      // the curated project holds nothing else — which is exactly why it is
+      // passed rather than relied on. `usable` discards the rest either way,
+      // and a cap filled with rows about to be discarded is the failure
+      // `filterObservationIdsBySourceKind` exists to prevent one layer down.
+      const url = `/api/search?query=${encodeURIComponent(question)}&project=${encodeURIComponent(project)}&sourceKind=curated&limit=${config.maxRows * 4}&format=json`;
       const result = await executeWithWorkerFallback<{ observations?: CandidateRow[] }>(url, 'GET');
       if (isWorkerFallback(result)) continue;
 
-      const rows = (result?.observations ?? []).filter(usable).slice(0, config.maxRows);
-      if (rows.length > 0) blocks.push(render(question, rows));
+      const candidates = toCandidates(result?.observations ?? [], config.maxRows);
+      if (candidates.length > 0) blocks.push(render(question, candidates));
     } catch (error) {
       // A question must never fail to be asked because this lookup broke.
       logger.debug('HOOK', 'decision-check lookup failed', {}, error instanceof Error ? error : undefined);

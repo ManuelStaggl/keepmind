@@ -324,6 +324,54 @@ excluded them.
   `observationGroupLabel`, so a hit marked in step 1 of the three-layer sequence
   cannot arrive unmarked in step 2.
 
+### Before a question reaches a person, the reader is the filter
+
+`decision-check` offers candidate decisions when a question is about to be put
+to a human, because deciding the same thing twice costs a person's judgement
+and the second answer need not match the first. It showed its top three for
+EVERY question ever asked, listing each record's title and SUBTITLE — and a
+record's subtitle is its header line, `Stand: gilt · 11.08.2026 · Manuel`.
+Metadata about the decision, not the decision. Measured live on a question
+about whether to push two git commits, it offered `0110 — Die Grenze ist das
+Firmennetz`, `0115 — Ohne offizielle Regeln und Ansprechpartner ruhen die
+externen Punkte` and `0029 — Die Form wird am Entwurf geprüft`, with nothing on
+screen to tell them from real hits.
+
+**There is no relevance threshold, and that is a measured result rather than an
+omission.** `decision-candidates.ts` carries the three measurements; read them
+before adding one.
+
+1. **There is no score to threshold.** `rrfFuse` ranks by RECIPROCAL RANK —
+   rank 1 scores the same whether the match is perfect or absurd.
+2. **The raw distance does not separate.** multilingual-e5-small packs the
+   neighbourhood into a ~0.03 band, already measured independently in
+   `SqliteVecManager`. Measured again on the live corpus: a question the corpus
+   cannot answer sat at distance 0.1467, BETWEEN two it answers well (0.1345
+   and 0.1642).
+3. **Neither does the gap to the next neighbour — and this one nearly
+   shipped.** A first run showed real questions gapping ≥ 0.0128 against noise
+   ≤ 0.0086, and a cut at 0.009 was drafted on it. The "real" questions were
+   work-item TITLES, i.e. text already in the corpus: each retrieved ITSELF at
+   distance ≈ 0 and the gap was an artefact. Re-measured with independently
+   phrased questions against decision rows only, real n=12 spans 0.0017-0.0328
+   and noise n=15 spans 0-0.0094 — heavy overlap. A cut at 0.003 still admits a
+   third of the noise while already swallowing a real candidate.
+
+Swallowing a real candidate is the expensive error, so nothing is suppressed.
+What changed instead is what a candidate SHOWS: `findingOf` renders the
+record's own statement — the author's `summary`, else the prose under
+`## Entscheidung`, else the first paragraph — with markdown marks removed,
+clipped at a word boundary. Two rules were each paid for by a wrong reading of
+the live corpus: the colon that marks a lead-in is tested on the text with
+emphasis STRIPPED (the corpus writes lead-ins bold, so the raw line ends
+`Entscheidung:**` and a raw test misses every one of them), and a lead-in is
+followed only when what follows is prose — record 0002 introduces a five-row
+table, and half a table row spliced onto a sentence reads worse than the
+lead-in alone.
+
+Making this check selective needs a different retrieval stage — a re-ranker, or
+an embedder whose distances spread. Not a constant.
+
 ### A search says whether the entry it returns still applies
 
 `supersession.ts` decides which of two records about one subject holds, from a
