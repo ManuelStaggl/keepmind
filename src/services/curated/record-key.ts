@@ -124,3 +124,15 @@ export function authoredSourcePath(recordId: string): string {
 export function isAuthoredSourcePath(sourcePath: string | null | undefined): boolean {
   return typeof sourcePath === 'string' && sourcePath.startsWith(AUTHORED_SOURCE_SCHEME);
 }
+
+/**
+ * Metadata key naming the revision that replaced this row.
+ *
+ * Here rather than private to the store because it is READ outside it: a
+ * search result carrying `valid_to` has to say WHY it is closed, and "an
+ * earlier wording of an entry that still applies" and "a record another record
+ * superseded" are different statements to a reader. Written by
+ * `settleCuratedRevisions`; its counterpart for the other reason is
+ * `SUPERSESSION_MARKER` in supersession.ts, which stays where it is written.
+ */
+export const REVISION_MARKER = 'revised_by';

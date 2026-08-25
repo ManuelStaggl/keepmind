@@ -173,8 +173,8 @@ describe('search: origin filter', () => {
       const rows = search.searchObservations('Belege', { project: PROJECT, sourceKind: 'curated' });
       const byTitle = new Map(rows.map((r) => [r.title, curatedHitOf(r)]));
 
-      expect(byTitle.get('0138 — Belegfrist')).toEqual({ kind: 'akte', recordId: '0138' });
-      expect(byTitle.get('V-0110 — Ablage neu ordnen')).toEqual({ kind: 'vorgang', recordId: 'V-0110' });
+      expect(byTitle.get('0138 — Belegfrist')).toEqual({ kind: 'akte', recordId: '0138', validity: 'current' });
+      expect(byTitle.get('V-0110 — Ablage neu ordnen')).toEqual({ kind: 'vorgang', recordId: 'V-0110', validity: 'current' });
     });
 
     it('labels a curated row carrying no number without calling it a decision', () => {
@@ -184,7 +184,7 @@ describe('search: origin filter', () => {
       // it a decision record, which is a wrong answer rather than a rough one.
       const hit = curatedHitOf({ source_kind: 'curated', metadata: JSON.stringify({ kind: 'ereignis-log' }) });
 
-      expect(hit).toEqual({ kind: 'verbatim', recordId: null });
+      expect(hit).toEqual({ kind: 'verbatim', recordId: null, validity: 'current' });
       expect(curatedGroupLabel(hit!)).not.toContain('decisions');
     });
 
@@ -195,7 +195,7 @@ describe('search: origin filter', () => {
         metadata: JSON.stringify({ checkpoint: true, focus: 'weg-b' }),
       });
 
-      expect(hit).toEqual({ kind: 'checkpoint', recordId: null });
+      expect(hit).toEqual({ kind: 'checkpoint', recordId: null, validity: 'current' });
       expect(curatedGroupLabel(hit!)).toContain('session hand-off');
     });
 

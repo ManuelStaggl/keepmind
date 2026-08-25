@@ -304,6 +304,16 @@ export interface ObservationSearchResult extends ObservationRow {
   source_kind?: string | null;
   /** Raw metadata blob — carries the curated entry number and its kind. */
   metadata?: string | null;
+  /**
+   * End of the row's validity window, or null while it still applies.
+   *
+   * Selected by every `SELECT o.*` search query and declared here for the same
+   * reason `source_kind` is: a caller rendering a hit has to be able to say
+   * whether the entry it is holding still applies. A retired decision that
+   * reads like a current one is the stale-fact failure the supersession layer
+   * exists to prevent — prevented at injection, and until now not at search.
+   */
+  valid_to?: number | null;
 }
 
 export interface SessionSummarySearchResult extends SessionSummaryRow {

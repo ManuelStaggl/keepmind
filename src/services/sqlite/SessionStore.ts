@@ -28,7 +28,7 @@ import { normalizeStoredPromptText } from './prompt-storage.js';
 import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_JOURNAL_SIZE_LIMIT_BYTES } from './pragmas.js';
 import { envValue } from '../../shared/legacy-env.js';
 import { CHECKPOINT_TYPE, deriveCheckpointTitle, type CheckpointRecord } from '../../shared/checkpoint.js';
-import { CURATED_ID_SQL, curatedKindOfRow, AUTHORED_SOURCE_SCHEME, type CuratedKindLabel } from '../curated/record-key.js';
+import { CURATED_ID_SQL, curatedKindOfRow, AUTHORED_SOURCE_SCHEME, REVISION_MARKER, type CuratedKindLabel } from '../curated/record-key.js';
 
 interface IndexColumnInfo {
   seqno: number;
@@ -3110,7 +3110,6 @@ export class SessionStore {
   // ───────────────────────────────────────────────────────────────────────
 
   /** Marker on a revision that a later revision of the same record replaced. */
-  private static readonly REVISION_MARKER = 'revised_by';
 
   /**
    * The active revision of one curated record, or null.
@@ -3290,7 +3289,7 @@ export class SessionStore {
       this.db.prepare(`
         UPDATE observations
            SET valid_to = COALESCE(valid_to, ?),
-               metadata = json_set(COALESCE(metadata, '{}'), '$.${SessionStore.REVISION_MARKER}', ?)
+               metadata = json_set(COALESCE(metadata, '{}'), '$.${REVISION_MARKER}', ?)
          WHERE id = ?
       `).run(nowEpoch, authored.id, keepId);
       return { closed: 0, reactivated: false, authoredWins: authored.source_path };
@@ -3302,14 +3301,14 @@ export class SessionStore {
     const reopened = this.db.prepare(`
       UPDATE observations
          SET valid_to = NULL,
-             metadata = json_remove(COALESCE(metadata, '{}'), '$.${SessionStore.REVISION_MARKER}')
+             metadata = json_remove(COALESCE(metadata, '{}'), '$.${REVISION_MARKER}')
        WHERE id = ? AND valid_to IS NOT NULL
     `).run(keepId) as { changes?: number };
 
     const result = this.db.prepare(`
       UPDATE observations
          SET valid_to = ?,
-             metadata = json_set(COALESCE(metadata, '{}'), '$.${SessionStore.REVISION_MARKER}', ?)
+             metadata = json_set(COALESCE(metadata, '{}'), '$.${REVISION_MARKER}', ?)
        WHERE project = ? AND source_kind = 'curated'
          AND ${CURATED_ID_SQL} = ?
          AND valid_to IS NULL AND id != ?
@@ -3338,7 +3337,7 @@ export class SessionStore {
     const result = this.db.prepare(`
       UPDATE observations
          SET valid_to = ?,
-             metadata = json_set(COALESCE(metadata, '{}'), '$.${SessionStore.REVISION_MARKER}', ?)
+             metadata = json_set(COALESCE(metadata, '{}'), '$.${REVISION_MARKER}', ?)
        WHERE project = ? AND source_kind = 'curated'
          AND source_path = ?
          AND valid_to IS NULL AND id != ?
@@ -3500,14 +3499,14 @@ export class SessionStore {
       UPDATE observations
          SET valid_from = ?,
              valid_to = ?,
-             metadata = json_remove(COALESCE(metadata, '{}'), '$.${SessionStore.REVISION_MARKER}')
+             metadata = json_remove(COALESCE(metadata, '{}'), '$.${REVISION_MARKER}')
        WHERE id = ?
     `).run(record.validFrom, record.validTo, stored.id);
 
     const closed = this.db.prepare(`
       UPDATE observations
          SET valid_to = ?,
-             metadata = json_set(COALESCE(metadata, '{}'), '$.${SessionStore.REVISION_MARKER}', ?)
+             metadata = json_set(COALESCE(metadata, '{}'), '$.${REVISION_MARKER}', ?)
        WHERE project = ? AND source_kind = 'curated'
          AND ${CURATED_ID_SQL} = ?
          AND valid_to IS NULL AND id != ?

@@ -324,6 +324,52 @@ excluded them.
   `observationGroupLabel`, so a hit marked in step 1 of the three-layer sequence
   cannot arrive unmarked in step 2.
 
+### A search says whether the entry it returns still applies
+
+`supersession.ts` decides which of two records about one subject holds, from a
+declared relation and a date rather than from a distance measure — retrieval
+alone carries a stale-fact error of 15-40% precisely when both records are
+about the same subject, which is why the newer one exists. That decision was
+made and then not used where a model reads. Measured against the running
+worker on the live corpus: a search returned `0137 — Ein Gedächtnis, und die
+Rollenteilung war eine Fehlannahme` and, one row below it, `0064 — Zwei
+Gedächtnisse mit geteilten Rollen`, the record 0137 had explicitly superseded.
+Same list, same spelling, nothing saying 0064 no longer applies. Acting on
+0064 means acting on a withdrawn rule with the record that withdrew it sitting
+directly above.
+
+- **Marked, never filtered.** `curated_get` answering "No record 0064" about a
+  record that exists was its own measured failure: a retired entry is not a
+  missing one, and a supersession chain you cannot follow to its far end is
+  half built. The mark rides on the group heading, like the origin label and
+  for the same reason — a fixed string per group instead of one per row, in
+  output a model pays for by the row.
+- **Retired and revised are different statements.** `retired` means another
+  RECORD superseded this one: read the successor. `revised` means an earlier
+  WORDING of an entry that is still in force: the entry applies, this text is
+  not what it says now. Both rows are embedded, so both surface. Collapsing
+  them would make one of the two labels a lie, and the reader's next move
+  differs — one goes looking for a successor, the other for a current wording.
+- **The reason comes from the marker, not from `valid_to`.** `valid_to` says
+  only "not current". `SUPERSESSION_MARKER` (written by `supersession.ts`) and
+  `REVISION_MARKER` (written by `settleCuratedRevisions`) say which. A row
+  closed with NEITHER marker reads as `retired` — the conservative side,
+  because the next move on a `revised` label is to look for a current wording
+  that may not exist.
+- **A row with no `valid_to` field at all is current, not closed.** Callers
+  predating the column pass rows without it, and resolving that to "closed"
+  marks the entire corpus retired — the same shape of failure as the
+  `source_kind IS NULL` folding in `source-kind.ts`.
+- **Ranking is NOT this.** Making an exact-wording hit rank above a loosely
+  similar one is its own piece of work; this one only makes the deterministic
+  decision visible. Demoting a retired row in the fusion was considered and not
+  done: `rrfFuse` caps at 100, and a record searched for BY NAME must not fall
+  off the end of its own result.
+
+`REVISION_MARKER` therefore lives in `record-key.ts` rather than private to the
+store: it is read outside it now. `SUPERSESSION_MARKER` stays in
+`supersession.ts`, which writes it.
+
 ### "Imported" has to mean "findable", and nothing may fail quietly
 
 The curated corpus is the part of memory a person wrote by hand, and it is
