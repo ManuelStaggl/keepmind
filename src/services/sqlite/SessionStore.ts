@@ -3156,6 +3156,44 @@ export class SessionStore {
   }
 
   /**
+   * Every declared relation touching one record, from BOTH ends.
+   *
+   * An edge is stored once, in the direction the record wrote it. That is
+   * correct — only one end declared anything — but it means a record can only
+   * be asked what IT said, and the far end of every edge is unreachable. The
+   * consequence is not subtle: `0090` was superseded by `0138`, the store knew
+   * it, `decision_edges` had carried an `idx_edges_to` index for it since the
+   * table was created, and every read path answered `0090` without mentioning
+   * it. A retired record that does not say it was retired reads as current.
+   *
+   * `direction` is derived here rather than by the caller so that "which way
+   * does this point" is answered once. Both namespaces are matched, because an
+   * edge may name a work item (`V-0001`) as readily as a decision.
+   */
+  getCuratedRelations(project: string, recordId: string): Array<{
+    direction: 'outgoing' | 'incoming';
+    other: string;
+    relation: string;
+    certainty: string;
+    source_path: string;
+    source_line: number;
+    raw_text: string | null;
+  }> {
+    return this.db.prepare(`
+      SELECT 'outgoing' AS direction, to_record AS other,
+             relation, certainty, source_path, source_line, raw_text
+        FROM decision_edges
+       WHERE project = ? AND from_record = ?
+      UNION ALL
+      SELECT 'incoming' AS direction, from_record AS other,
+             relation, certainty, source_path, source_line, raw_text
+        FROM decision_edges
+       WHERE project = ? AND to_record = ?
+       ORDER BY direction, relation, other
+    `).all(project, recordId, project, recordId) as never;
+  }
+
+  /**
    * Every revision of one record, newest first — the history the bi-temporal
    * columns exist to carry. Closed revisions are included by definition; that
    * is what makes this different from `getCuratedRecord`.

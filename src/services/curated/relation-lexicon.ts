@@ -27,6 +27,41 @@ export type RelationName =
   | 'reverses'        // kehrt um
   | 'resolves';       // löst eine Kollision zwischen
 
+/**
+ * How each relation reads from either end.
+ *
+ * An edge is stored once, `from -> to`, and that is the right way to store it:
+ * the record WROTE one direction and the other is derived, never declared. But
+ * a reader arriving at the far end needs the derived voice — a record that was
+ * replaced does not say "supersedes 0138", it says "superseded by 0138" — and
+ * without it the only way to present an incoming edge is to print the raw
+ * relation name and let the reader work out which way it points. Half of those
+ * guesses are backwards, and a backwards supersession makes a retired record
+ * look current.
+ *
+ * Here rather than in a renderer because the direction is a property of the
+ * relation, not of any one view, and this file is already the one place
+ * allowed to enumerate the closed set.
+ */
+export const RELATION_PHRASES: Record<RelationName, { outgoing: string; incoming: string }> = {
+  supersedes:   { outgoing: 'supersedes',   incoming: 'superseded by' },
+  restricts:    { outgoing: 'restricts',    incoming: 'restricted by' },
+  sharpens:     { outgoing: 'sharpens',     incoming: 'sharpened by' },
+  continues:    { outgoing: 'continues',    incoming: 'continued by' },
+  corrects:     { outgoing: 'corrects',     incoming: 'corrected by' },
+  closes:       { outgoing: 'closes',       incoming: 'closed by' },
+  extends:      { outgoing: 'extends',      incoming: 'extended by' },
+  applies:      { outgoing: 'applies',      incoming: 'applied by' },
+  confirms:     { outgoing: 'confirms',     incoming: 'confirmed by' },
+  concerns:     { outgoing: 'concerns',     incoming: 'concerned by' },
+  based_on:     { outgoing: 'based on',     incoming: 'basis for' },
+  // Already an inverse-shaped name: the record that carries it was triggered
+  // by the other one, so from the OTHER end it reads as the plain verb.
+  triggered_by: { outgoing: 'triggered by', incoming: 'triggered' },
+  reverses:     { outgoing: 'reverses',     incoming: 'reversed by' },
+  resolves:     { outgoing: 'resolves a collision with', incoming: 'collision resolved by' },
+};
+
 export interface RelationPattern {
   relation: RelationName;
   /**

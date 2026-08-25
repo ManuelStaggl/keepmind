@@ -872,7 +872,9 @@ Params: recordId (required), project, and any of title/status/date/decidedBy/sum
     name: 'curated_get',
     runtime: 'worker',
     group: 'core',
-    description: `Read a lasting entry by its number — a decision record ("0138") or a work item ("V-0001"), both addressable the same way. Returns its current text, a "kind" of "akte" (a decision) or "vorgang" (an open item), and optionally every earlier revision with the window each one was valid for. Read this before curated_edit so the change is made against what the entry actually says. Params: recordId (required), project, revisions (boolean).`,
+    description: `Read a lasting entry by its number — a decision record ("0138") or a work item ("V-0001"), both addressable the same way. Returns its current text, a "kind" of "akte" (a decision) or "vorgang" (an open item), and optionally every earlier revision with the window each one was valid for.
+Also returns "relations" in BOTH directions: what this entry declared about others ("supersedes 0090") and what others declared about IT ("superseded by 0138"). The second direction is the one you cannot know to ask for — an entry that was replaced still reads as current until something says otherwise. Each relation carries the counterpart's title, whether that counterpart is itself still current, and a "certainty" of "sicher" (the entry wrote the verb) or "vermutet" (a reference filed under a heading, with nobody saying what it means — these never retire anything).
+A retired entry is returned like any other, with "status":"retired" and the time its window closed — nothing is ever deleted here, and "not current" is a different answer from "does not exist". Read this before curated_edit so the change is made against what the entry actually says. Params: recordId (required), project, revisions (boolean).`,
     inputSchema: {
       type: 'object',
       properties: {

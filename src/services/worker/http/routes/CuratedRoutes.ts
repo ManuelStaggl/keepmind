@@ -23,6 +23,7 @@ import {
 import type { RelationName } from '../../../curated/relation-lexicon.js';
 import type { DatabaseManager } from '../../DatabaseManager.js';
 import { curatedKindOfId } from '../../../curated/record-key.js';
+import { curatedRelationsOf } from '../../../curated/relations.js';
 
 const relationSchema = z.object({
   relation: z.string().refine(r => (RELATION_NAMES as string[]).includes(r), {
@@ -257,11 +258,32 @@ export class CuratedRoutes extends BaseRouteHandler {
     const project = this.resolveProject(raw);
     const store = this.dbManager.getSessionStore();
     const current = store.getCuratedRecord(project, recordId);
+    // A retired entry is not a missing one, and the difference is the whole
+    // promise the curated path rests on: nothing is deleted, a superseded or
+    // closed entry keeps its text and stays searchable, it just stops counting
+    // as current. `getCuratedRecord` filters to the active revision, so this
+    // route answered "No record 0064" about a record that exists, still reads,
+    // and was retired for a reason recorded right there — and the caller's next
+    // move on that answer is to write a new entry under a number already taken,
+    // or to conclude the decision was never made.
+    //
+    // It matters here more than anywhere else: `supersedes` edges point at
+    // retired entries BY CONSTRUCTION, so a relation graph you cannot follow to
+    // the far end is half built.
+    const retired = current ? null : store.getCuratedRecord(project, recordId, { includeClosed: true });
+    const entry = current ?? retired;
     const all = revisions ? store.getCuratedRevisions(project, recordId) : undefined;
-    if (!current && (!all || all.length === 0)) {
+    if (!entry && (!all || all.length === 0)) {
       res.status(404).json({ success: false, error: `No record ${recordId} in project "${project}".` });
       return;
     }
+    // Relations are not behind a flag, and that is the whole point. The
+    // direction a reader cannot know to ask for is the INCOMING one: arriving
+    // at 0090 you have no reason to suspect that 0138 replaced it, and a
+    // retired record that does not say so reads as current. A flag would put
+    // the burden of suspicion back on the reader.
+    const relations = curatedRelationsOf(store as never, project, recordId);
+
     // `kind` at the top level, not buried in the metadata blob: a decision and
     // an open work item read almost identically as text, and a caller that
     // cannot tell them apart will answer "what did we decide" with open tasks.
@@ -269,9 +291,18 @@ export class CuratedRoutes extends BaseRouteHandler {
       success: true,
       project,
       recordId,
-      kind: current?.kind ?? curatedKindOfId(recordId) ?? 'akte',
+      kind: entry?.kind ?? curatedKindOfId(recordId) ?? 'akte',
+      // Stated, not left to be inferred from a null. Why it was retired is not
+      // repeated here: an entry replaced by another says so through its own
+      // incoming `superseded by` relation below, and one closed by hand carries
+      // its reason in its metadata. Restating either would be a second source
+      // for the same fact.
+      status: current ? 'current' : 'retired',
+      entry,
       current,
+      retiredAt: entry?.valid_to ?? null,
       revisions: all,
+      relations,
     });
   });
 
