@@ -108,10 +108,42 @@ the previous revision as part of the write; the file importers call
 re-importing left TWO rows with `valid_to IS NULL`. Reads happened to survive it
 (`getCuratedRecord` takes the newest), the vector index did not — both rows are
 embedded, so the record answered twice and the older wording won as often as the
-ranker preferred it. Both importers now call `closeOtherCuratedRevisions` (by
+ranker preferred it. Both importers now call `settleCuratedRevisions` (by
 entry number) or `closeOtherCuratedRowsForSource` (for the event log, which
 carries no number). Nothing is deleted: the previous revision keeps its text and
 gets its window closed.
+
+**"Exactly one" is a floor as well as a ceiling, and closing alone gives only
+the ceiling.** De-duplication lands an unchanged file back on its own row —
+INCLUDING a row an earlier edit already closed. Closing "every other revision"
+then leaves NONE active. Measured on `import a file → edit the record here →
+import again`: `getCuratedRecord` answered null about a record whose two
+revisions both sat in the table, readable, nothing deleted and nothing logged.
+The same sequence without any authoring does it too (a file's wording changing
+A → B → A), which is why the fix is not about authoring: `settleCuratedRevisions`
+RE-OPENS the row it was told to keep before it closes the rest, in that order —
+the other order leaves a window with no active revision, and a failure inside it
+leaves the entry unreachable. `storeCuratedRecord` documents this trap and has
+always handled it; the file path simply never had the second half. On the live
+corpus the bug was latent, not realised: no entry there has more than one
+revision yet, so no de-duplication onto a closed row had happened.
+
+**An authored revision is not a stale one.** Re-opening alone would have turned
+the vanishing into a silent revert — the file's older wording back in force over
+what a person wrote HERE. So when the active revision carries an authored source
+path (`keepmind://curated/…`), the import stores its own row, closes it, leaves
+the authored one current, and REPORTS the collision (`authoredConflicts`, per
+file and record number, printed by `curated:import`). Two independent claims on
+one number is not something an importer can settle, and the corpus is
+mid-hand-over exactly when it happens — a run that reads as clean while two
+sources disagree about what a record says is the failure, not the collision.
+
+`AUTHORED_SOURCE_SCHEME` therefore lives in `record-key.ts`, next to
+`CURATED_ID_SQL`: one says how an entry is addressed, the other where it came
+from, and both are now read by the store as well as the curated services.
+Note that the importers declare these store methods as OPTIONAL (so the Proxy
+tests can omit them) — renaming one without updating the call sites disables the
+settling SILENTLY rather than failing to compile.
 
 **Derived fields are refreshed even when the row is reused.**
 `storeObservation` de-duplicates on the WORDING (session, title, narrative),
