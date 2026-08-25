@@ -148,6 +148,56 @@ count as control files, and "a file without a row of its own cannot retire a
 record" rests on exactly that. A `V-` number remains valid as the TARGET of a
 relation from a decision record.
 
+### keepmind runs on machines that do not have the curated corpus
+
+The corpus is developed on one machine and used on another, and it does not
+necessarily follow: the source directories may live on a drive that is not
+mounted, may not exist yet, or may belong to a different computer entirely.
+Three relationships, and the code could only tell two of them apart — a
+development machine holding 333 fully indexed records whose source directory had
+been deleted reported two REQUIRED doctor failures and put
+"NOT in the semantic index — semantic search cannot see these records" at the
+top of every session, about records semantic search could see in full.
+
+`CuratedPresence` (`health.ts`) is the one place that decides which machine this
+is, and everything downstream hangs on it rather than on the import state — an
+import state only ever describes the last RUN.
+
+- **`present`** — every configured source is readable. Strict, unchanged: a
+  stopped worker fails, an import that stopped running fails. A PARTLY reachable
+  set counts as present too, deliberately: the import refuses to run on a
+  partial set, so the records the missing directory holds would go stale with
+  nobody told. That is the outage, not the portability question.
+- **`detached`** — records held, sources unreachable. Warn, never fail. Nothing
+  refreshes them and nothing needs to; they stay searchable and stay true as of
+  the last import. The session start says so in ONE line and not under the
+  out-of-step banner, because that banner ends in "fix it with `curated:import`"
+  and there is nothing here to import.
+- **`absent`** — no sources, no records. Silence: the doctor group skips and the
+  session start says nothing. A settings file that travels ahead of the corpus
+  must not turn every other machine red.
+- **`unknown`** — sources missing and the store could not be counted. Strict,
+  because the outage cannot be ruled out. "Cannot tell" must never resolve to
+  "nothing here".
+
+Two supporting rules:
+
+- **A run that did not start learned nothing about the index.** The
+  missing-sources skip stamps `indexed: 'unchanged'`, not `false`. Asserting
+  false wiped a previous successful run's verified flag, which is how the false
+  sentence above came to be printed at all.
+- **What the stamp knows is what the last run DID.** `state.indexed` was
+  rendered as a claim about the store's contents; those are different claims and
+  only the first is knowable from a state file. A genuinely incomplete index
+  still reports itself through `failure`, in the words
+  `ensureObservationsIndexed` used ("N of M curated row(s) have no vector").
+- **A corpus that arrives later is picked up.** The startup check has already
+  run by then, so `CuratedAutoImport` watches the nearest existing ancestor of
+  each missing source — non-recursive, and firing only for the NAME it is
+  waiting for. Without that name filter every unrelated file dropped beside it
+  would run a freshness check and rewrite the state file, three seconds at a
+  time, forever; the ancestor of a real source was `~/Desktop`.
+
 ### A search can ask for the wording, and says which hits are the wording
 
 Memory holds two kinds of text and answers from both. An observation is a
