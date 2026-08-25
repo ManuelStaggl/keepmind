@@ -49,6 +49,7 @@ ${pc.bold('Runtime Commands')} (requires Bun, delegates to installed plugin):
   ${pc.cyan('npx keepmind akten:check <dir>…')}    Report structural contradictions; exits non-zero. For pre-commit ${pc.dim('--json')}
   ${pc.cyan('npx keepmind curated:import')}        Import the configured curated source set — records AND work items ${pc.dim('--dry-run --json')}
   ${pc.cyan('npx keepmind curated:alter')}         Which decisions have the most happened around since they were written ${pc.dim('--limit --all --json')}
+  ${pc.cyan('npx keepmind curated:alter --vorgaenge')} The open items, most-overtaken first — each one claims something is still unresolved ${pc.dim('--limit --json')}
   ${pc.cyan('npx keepmind curated:verify')}        Did the file corpus arrive complete? Records, relations and validity windows vs. the files ${pc.dim('--json')}
   ${pc.cyan('npx keepmind curated:add')}           Write a lasting entry straight into keepmind — no source file ${pc.dim('--title --status --rel --body-stdin --dry-run')}
   ${pc.cyan('npx keepmind curated:edit <id>')}     Change that entry IN PLACE; the previous revision keeps its text ${pc.dim('--title --status --body-file --rel')}
