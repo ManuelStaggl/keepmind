@@ -14,6 +14,7 @@ import type {
   PriorMessages,
 } from './types.js';
 import { SUMMARY_LOOKAHEAD } from './types.js';
+import { sourceKindSql } from '../sqlite/source-kind.js';
 
 export function queryObservations(
   db: SessionStore,
@@ -48,10 +49,10 @@ export function queryObservations(
     WHERE (o.project = ? OR o.merged_into_project = ? OR o.type = 'global')
       AND (o.valid_to IS NULL)
       AND (? IS NULL OR s.platform_source = ?)
-      -- Origin filter (A9). Rows written before the curated path existed have
-      -- source_kind NULL, so they must read as 'observed' rather than falling
-      -- out of every filtered query.
-      AND (? = 'all' OR COALESCE(o.source_kind, 'observed') = ?)
+      -- Origin filter (A9). The NULL folding lives in source-kind.ts: rows
+      -- written before the curated path existed have source_kind NULL and must
+      -- read as 'observed' rather than falling out of every filtered query.
+      AND (? = 'all' OR ${sourceKindSql('o')} = ?)
       AND (
         o.type = 'global'
         OR (
@@ -149,7 +150,7 @@ export function queryObservationsMulti(
       AND (o.valid_to IS NULL)
       AND (? IS NULL OR s.platform_source = ?)
       -- Origin filter (A9), same clause as the single-project query above.
-      AND (? = 'all' OR COALESCE(o.source_kind, 'observed') = ?)
+      AND (? = 'all' OR ${sourceKindSql('o')} = ?)
       AND (
         o.type = 'global'
         OR (

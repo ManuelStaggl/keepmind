@@ -3,6 +3,7 @@ import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js
 import { paths } from '../../shared/paths.js';
 import { ModeManager } from '../domain/ModeManager.js';
 import type { ContextConfig } from './types.js';
+import { normalizeSourceKind } from '../sqlite/source-kind.js';
 
 export function loadContextConfig(): ContextConfig {
   const settingsPath = paths.settings();
@@ -29,14 +30,3 @@ export function loadContextConfig(): ContextConfig {
   };
 }
 
-/**
- * Unknown values fall back to 'all'.
- *
- * A typo here would otherwise empty the injection block completely, and an
- * empty block looks exactly like "there was nothing to say" — the failure mode
- * is silence, which is the one this project keeps paying for.
- */
-function normalizeSourceKind(raw: string | undefined): 'all' | 'curated' | 'observed' {
-  const value = (raw ?? '').trim().toLowerCase();
-  return value === 'curated' || value === 'observed' ? value : 'all';
-}

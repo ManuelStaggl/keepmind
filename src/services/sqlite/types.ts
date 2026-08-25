@@ -1,3 +1,5 @@
+import type { SourceKindFilter } from './source-kind.js';
+
 
 export interface SessionRow {
   id: number;
@@ -273,6 +275,14 @@ export interface SearchFilters {
   // Phase 4 / Step 2 — when a `project` filter is set, also surface cross-project
   // user-pinned rows (type='global'). Defaults to true; set false to scope strictly.
   includeGlobal?: boolean;
+  /**
+   * Which origin the read may see — see `source-kind.ts` for the clause.
+   *
+   * Only `observations` carries the column. Session summaries and user prompts
+   * are observed by construction, so a 'curated' filter excludes them entirely
+   * rather than trying to filter them.
+   */
+  sourceKind?: SourceKindFilter;
 }
 
 export interface SearchOptions extends SearchFilters {
@@ -285,6 +295,15 @@ export interface SearchOptions extends SearchFilters {
 export interface ObservationSearchResult extends ObservationRow {
   rank?: number; 
   score?: number; 
+  /**
+   * Origin of the row: 'curated' for text a person wrote, NULL/'observed' for
+   * what the observer produced. Selected by every `SELECT o.*` search query;
+   * declared here because a caller that renders a hit has to be able to say
+   * which of the two it is holding.
+   */
+  source_kind?: string | null;
+  /** Raw metadata blob — carries the curated entry number and its kind. */
+  metadata?: string | null;
 }
 
 export interface SessionSummarySearchResult extends SessionSummaryRow {

@@ -18,6 +18,7 @@ const EXCLUDED_PATTERNS = [
   /hook-response\.ts$/,  // Pure data structure
   /hook-constants\.ts$/, // Pure constants
   /sqlite\/pragmas\.ts$/, // Pure constants (SQLite tuning values)
+  /sqlite\/source-kind\.ts$/, // Pure origin predicate + WHERE-fragment builder; no I/O and no fallible path to instrument, and every caller already logs its own query with the filter applied
   /paths\.ts$/,          // Path utilities
   /bun-path\.ts$/,       // Path utilities
   /migrations\.ts$/,     // Database migrations (console.log for migration output)
