@@ -93,12 +93,30 @@ export function applySupersessions(
   // Reopen first. Doing this second would leave a window closed by an edge
   // that no longer exists — the record would stay retired with nothing in the
   // corpus saying so, which is precisely the invisible state this guards.
+  //
+  // A superseded row is only re-opened when it is still the NEWEST row for its
+  // record. Anything older has been replaced — by an in-place edit, or by a
+  // re-import of a changed file — and re-opening it would put two rows for the
+  // same record on the surface at once, one of them saying what the record used
+  // to say. Nothing errors in that state; the record simply starts answering
+  // twice, and the older answer wins as often as the ranker happens to prefer
+  // it.
   const reopened = db.prepare(`
     UPDATE observations
        SET valid_to = NULL
      WHERE project = ?
        AND valid_to IS NOT NULL
        AND json_extract(metadata, '$.${SUPERSESSION_MARKER}') IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM observations newer
+          WHERE newer.project = observations.project
+            AND newer.source_kind = 'curated'
+            AND json_extract(newer.metadata, '$.record_id')
+                = json_extract(observations.metadata, '$.record_id')
+            AND (newer.created_at_epoch > observations.created_at_epoch
+                 OR (newer.created_at_epoch = observations.created_at_epoch
+                     AND newer.id > observations.id))
+       )
   `).run(project) as { changes?: number };
   report.reopened = Number(reopened?.changes ?? 0);
 
@@ -112,11 +130,22 @@ export function applySupersessions(
 
   // Record number -> row. Read from metadata rather than parsed out of the
   // title: the title is display text and has been reformatted before.
+  //
+  // A record can hold several ROWS since direct authoring exists: editing an
+  // entry in place writes a new revision and closes the previous one, and all
+  // of them carry the same `record_id`. The window that a supersession closes
+  // must be the CURRENT revision's — closing a revision that an edit already
+  // retired would retire nothing anyone can see, and the record would keep
+  // applying while the report said it had been retired. Hence the ordering:
+  // `byRecord.set` overwrites, so the row that survives is the newest ACTIVE
+  // one, with closed revisions kept only as a fallback for a record whose
+  // author closed it by hand.
   const rows = db.prepare(`
     SELECT id, json_extract(metadata, '$.record_id') AS record_id, created_at_epoch
       FROM observations
      WHERE project = ? AND source_kind = 'curated'
        AND json_extract(metadata, '$.record_id') IS NOT NULL
+     ORDER BY (valid_to IS NULL) ASC, created_at_epoch ASC, id ASC
   `).all(project) as RecordRow[];
 
   const byRecord = new Map<string, RecordRow>();

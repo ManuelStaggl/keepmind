@@ -750,6 +750,135 @@ Params: text (required), title, focus, project.`,
     },
     handler: async (args: any) => callWorkerAPIPost('/api/checkpoint/clear', args ?? {}),
   },
+  // Lasting entries authored directly in keepmind — the file-free counterpart
+  // to `keepmind curated:import`. Text is stored VERBATIM: nothing on this path
+  // summarises, classifies or rephrases it, and nothing on it reaches a model.
+  // Declared relations are read back out of the rendered record by the same
+  // deterministic reader the file importer uses, and a record whose relations
+  // do not read back as declared is refused rather than stored.
+  {
+    name: 'curated_add',
+    runtime: 'worker',
+    group: 'core',
+    description: `Create a LASTING entry (a decision, a rule, a finding) directly in keepmind — no file needed. Stored verbatim, never compressed, never shown to a model. Use for something that should still hold in six months; use save_checkpoint for the running hand-off, and the repo's issue tracker for open work.
+Returns the assigned record number (0001…0999), which is the entry's stable identity — curated_edit changes THAT entry in place.
+ALWAYS pass 'project' — the keepmind project name (basename of the git repo root). The worker cannot infer the caller's project.
+'relations' declares how this entry relates to others, e.g. [{"relation":"supersedes","targets":["0042"]}]. Relations: supersedes, restricts, sharpens, continues, corrects, closes, extends, applies, confirms, concerns, reverses, based_on, triggered_by, resolves (resolves takes exactly two targets).
+NOTE: give the entry at least one header field (status/summary/date) — an entry with none has its first body paragraph read as its header.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project name (basename of the git repo root). Required for correctness outside the worker default.' },
+        title: { type: 'string', description: 'One-line title of the entry (required)' },
+        recordId: { type: 'string', description: 'Force a record number (0001…0999). Normally omitted — keepmind assigns the next free one.' },
+        status: { type: 'string', description: '"Stand:" — e.g. gilt, abgelöst, zurückgezogen. Stored verbatim.' },
+        date: { type: 'string', description: '"Datum:" — stored verbatim, never parsed' },
+        decidedBy: { type: 'string', description: '"Entschieden von:"' },
+        summary: { type: 'string', description: '"Kurz:" — the one-line gist' },
+        fields: {
+          type: 'array',
+          description: 'Any other header label, kept as written',
+          items: { type: 'object', properties: { name: { type: 'string' }, value: { type: 'string' } }, required: ['name', 'value'], additionalProperties: false },
+        },
+        relations: {
+          type: 'array',
+          description: 'Declared relations to other records',
+          items: { type: 'object', properties: { relation: { type: 'string' }, targets: { type: 'array', items: { type: 'string' } } }, required: ['relation', 'targets'], additionalProperties: false },
+        },
+        body: { type: 'string', description: 'The entry body, markdown, stored verbatim. Start it with a "## " section when in doubt.' },
+        dryRun: { type: 'boolean', description: 'Render and verify, write nothing; returns the record text' },
+      },
+      required: ['title'],
+      additionalProperties: false,
+    },
+    handler: async (args: any) => callWorkerAPIPost('/api/curated/add', args ?? {}),
+  },
+  {
+    name: 'curated_edit',
+    runtime: 'worker',
+    group: 'core',
+    description: `Change a lasting entry IN PLACE — the same entry, not a new one stacked on top. Pass only the fields that change; everything else is carried through exactly as written. The previous revision keeps its text and gets its validity window closed, so the entry has one current version and a readable history.
+Passing 'relations' REPLACES the entry's whole relation set (pass [] to clear it); omitting it leaves the relations alone.
+Editing an entry that was superseded or closed corrects its text WITHOUT putting it back in force.
+Params: recordId (required), project, and any of title/status/date/decidedBy/summary/fields/relations/body.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project name (basename of the git repo root)' },
+        recordId: { type: 'string', description: 'Record number of the entry to change, e.g. "0068" (required)' },
+        title: { type: 'string' },
+        status: { type: 'string', description: '"Stand:" — e.g. gilt, abgelöst' },
+        date: { type: 'string' },
+        decidedBy: { type: 'string' },
+        summary: { type: 'string' },
+        fields: {
+          type: 'array',
+          items: { type: 'object', properties: { name: { type: 'string' }, value: { type: 'string' } }, required: ['name', 'value'], additionalProperties: false },
+        },
+        relations: {
+          type: 'array',
+          description: 'Replaces the entry\'s whole relation set. Omit to leave relations untouched.',
+          items: { type: 'object', properties: { relation: { type: 'string' }, targets: { type: 'array', items: { type: 'string' } } }, required: ['relation', 'targets'], additionalProperties: false },
+        },
+        body: { type: 'string' },
+        dryRun: { type: 'boolean' },
+      },
+      required: ['recordId'],
+      additionalProperties: false,
+    },
+    handler: async (args: any) => callWorkerAPIPost('/api/curated/edit', args ?? {}),
+  },
+  {
+    name: 'curated_supersede',
+    runtime: 'worker',
+    group: 'core',
+    description: `Declare that one lasting entry replaces another, and apply it: the replaced entry stops counting as current while keeping its text and staying searchable. Nothing is deleted. Both entries must exist and be current. Params: recordId (the entry that takes over), supersedes (the entry it replaces), project.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string' },
+        recordId: { type: 'string', description: 'The entry that takes over (required)' },
+        supersedes: { type: 'string', description: 'The entry it replaces (required)' },
+      },
+      required: ['recordId', 'supersedes'],
+      additionalProperties: false,
+    },
+    handler: async (args: any) => callWorkerAPIPost('/api/curated/supersede', args ?? {}),
+  },
+  {
+    name: 'curated_close',
+    runtime: 'worker',
+    group: 'core',
+    description: `Retire a lasting entry that no longer applies and has no successor. Soft: the text stays readable and searchable, it just stops counting as current. Use curated_supersede instead when another entry replaces it. Params: recordId (required), reason, project.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string' },
+        recordId: { type: 'string', description: 'Record number to retire (required)' },
+        reason: { type: 'string', description: 'Why it no longer applies — recorded with the closure' },
+      },
+      required: ['recordId'],
+      additionalProperties: false,
+    },
+    handler: async (args: any) => callWorkerAPIPost('/api/curated/close', args ?? {}),
+  },
+  {
+    name: 'curated_get',
+    runtime: 'worker',
+    group: 'core',
+    description: `Read a lasting entry by its record number — its current text, and optionally every earlier revision with the window each one was valid for. Read this before curated_edit so the change is made against what the entry actually says. Params: recordId (required), project, revisions (boolean).`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string' },
+        recordId: { type: 'string', description: 'Record number, e.g. "0068" (required)' },
+        revisions: { type: 'boolean', description: 'Include every earlier revision' },
+      },
+      required: ['recordId'],
+      additionalProperties: false,
+    },
+    handler: async (args: any) => callWorkerAPIPost('/api/curated/get', args ?? {}),
+  },
   // Phase 8 — observation_* tools backed by server REST core.
   // These are the canonical names. memory_* tools below are kept as
   // compatibility aliases that delegate to these handlers, so existing

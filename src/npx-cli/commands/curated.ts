@@ -289,7 +289,7 @@ async function applySupersessionsSafely(store: unknown, project: string, nowEpoc
  * difference between "indexed" and "indexed later" is the difference between
  * semantic search working and silently returning nothing.
  */
-async function requestBackfill(project: string): Promise<{ indexed: boolean; reason?: string }> {
+export async function requestBackfill(project: string): Promise<{ indexed: boolean; reason?: string }> {
   const { readFileSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { homedir } = await import('node:os');
@@ -313,4 +313,114 @@ async function requestBackfill(project: string): Promise<{ indexed: boolean; rea
   } catch (error) {
     return { indexed: false, reason: `worker unreachable — ${error instanceof Error ? error.message : error}` };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// `keepmind curated:verify` — did the file corpus arrive complete?
+//
+// Run it AFTER the one-time import and BEFORE the files are removed. It is the
+// only moment both sides exist, so it is the only moment the question can be
+// answered at all. See src/services/curated/migration-verify.ts for what is
+// compared and why those three things.
+// ─────────────────────────────────────────────────────────────────────────
+
+export async function runCuratedVerifyCommand(options: CuratedImportOptions): Promise<void> {
+  const { loadCuratedSources, missingSources } = await import('../../services/curated/sources.js');
+  const { verifyMigration } = await import('../../services/curated/migration-verify.js');
+  const { SessionStore } = await import('../../services/sqlite/SessionStore.js');
+  const { getProjectName } = await import('../../utils/project-name.js');
+
+  let sources: CuratedSource[];
+  let origin: string;
+
+  if (options.directories.length > 0) {
+    if (!options.kind) {
+      console.error('When directories are given, --kind akten|vorgaenge is required.');
+      process.exitCode = 1;
+      return;
+    }
+    sources = options.directories.map(d => ({ path: resolve(d), kind: options.kind! }));
+    origin = 'command line';
+  } else {
+    const configured = loadCuratedSources();
+    origin = configured.origin;
+    sources = configured.sources;
+    if (sources.length === 0) {
+      console.log(`No curated sources configured (looked in ${origin}).`);
+      process.exitCode = 1;
+      return;
+    }
+  }
+
+  const absent = missingSources(sources);
+  if (absent.length > 0) {
+    // A source directory that is gone cannot be compared against. Saying "the
+    // migration is complete" while one of the sources is unreadable is exactly
+    // the false all-clear this command exists to prevent.
+    console.error('Configured source directories are missing — cannot verify against them:');
+    for (const source of absent) console.error(`  ${source.path}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const project = options.project ?? getProjectName(process.cwd());
+  const store = new SessionStore();
+  const report = verifyMigration(store.db as never, project, sources);
+
+  if (options.json) {
+    console.log(JSON.stringify(report, null, 2));
+    if (!report.complete) process.exitCode = 1;
+    return;
+  }
+
+  console.log(`Comparing ${sources.length} source director(y|ies) from ${origin} with project "${project}".\n`);
+  console.log(`  Records:   ${report.sourceRecords.length} in the files, ${report.storedRecords.length} in keepmind`);
+  console.log(`  Relations: ${report.sourceEdgeCount} declared, ${report.storedEdgeCount} in the graph`);
+  console.log(`  In force:  ${report.currentInSource.length} per the files, ${report.currentInStore.length} per keepmind\n`);
+
+  const list = (label: string, items: string[]) => {
+    if (items.length === 0) return;
+    console.log(`  ✖ ${label} (${items.length}): ${items.join(', ')}`);
+  };
+  list('In the files, MISSING from keepmind', report.missingRecords);
+  list('In force in the files, RETIRED in keepmind', report.wronglyRetired);
+  list('Retired in the files, IN FORCE in keepmind', report.wronglyActive);
+
+  if (report.missingEdges.length > 0) {
+    console.log(`  ✖ Declared relations missing from the graph (${report.missingEdges.length}):`);
+    for (const edge of report.missingEdges.slice(0, 25)) {
+      console.log(`      ${edge.from} -[${edge.relation}/${edge.certainty}]-> ${edge.to}   ${edge.sourcePath}:${edge.sourceLine}`);
+    }
+    if (report.missingEdges.length > 25) console.log(`      … ${report.missingEdges.length - 25} more (--json for all)`);
+  }
+
+  if (report.failed.length > 0) {
+    console.log(`  ✖ Files that could not be read (${report.failed.length}):`);
+    for (const item of report.failed) console.log(`      ${item.file} — ${item.error}`);
+  }
+
+  // Reported, never fatal: an entry authored directly in keepmind is
+  // legitimately absent from the files, and it becomes more common the longer
+  // the file-free way of working is used.
+  if (report.extraRecords.length > 0) {
+    console.log(`\n  ${report.extraRecords.length} record(s) in keepmind that no file declares — expected for anything authored here: ${report.extraRecords.slice(0, 20).join(', ')}${report.extraRecords.length > 20 ? ' …' : ''}`);
+  }
+  if (report.extraEdges.length > 0) {
+    console.log(`  ${report.extraEdges.length} relation(s) in the graph that these sources do not declare.`);
+  }
+  if (report.statusRetiredWithoutSupersession.length > 0) {
+    // A property of the corpus, not of the migration: the importer stores
+    // `Stand:` verbatim and does not turn a status word into a closed window,
+    // because closing one is a supersession and a supersession needs the record
+    // that replaced it. `akten:check` is the command that examines this.
+    console.log(`  ${report.statusRetiredWithoutSupersession.length} record(s) call themselves retired with nothing superseding them — \`keepmind akten:check\` examines those: ${report.statusRetiredWithoutSupersession.slice(0, 20).join(', ')}${report.statusRetiredWithoutSupersession.length > 20 ? ' …' : ''}`);
+  }
+
+  if (report.complete) {
+    console.log('\n  ✔ Every record, every declared relation and every validity window arrived.');
+    console.log('    The file archive is now redundant — it can be removed.');
+    return;
+  }
+  console.log('\n  The corpus did NOT arrive complete. Do not remove the files.');
+  process.exitCode = 1;
 }

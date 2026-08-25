@@ -103,7 +103,7 @@ export function ageReport(
   project: string,
   nowEpoch: number = Date.now(),
 ): AgingEntry[] {
-  const rows = db.prepare(`
+  let rows = db.prepare(`
     SELECT id,
            json_extract(metadata, '$.record_id') AS record_id,
            title,
@@ -119,6 +119,30 @@ export function ageReport(
   `).all(project) as Row[];
 
   if (rows.length === 0) return [];
+
+  // One entry per RECORD, not per row. A record edited in place holds several
+  // revisions — same number, one active — and counting each of them would both
+  // list the record twice and inflate `decisionsSince` for everything below it,
+  // since that number is simply the position in the ordered list. The current
+  // revision represents the record; an author-closed one represents it when
+  // there is no active revision left.
+  const current = new Map<string, Row>();
+  for (const row of rows) {
+    const key = String(row.record_id);
+    const kept = current.get(key);
+    if (!kept) { current.set(key, row); continue; }
+    const rowIsActive = row.valid_to === null;
+    const keptIsActive = kept.valid_to === null;
+    if (rowIsActive !== keptIsActive) {
+      if (rowIsActive) current.set(key, row);
+      continue;
+    }
+    if (row.created_at_epoch > kept.created_at_epoch
+      || (row.created_at_epoch === kept.created_at_epoch && row.id > kept.id)) {
+      current.set(key, row);
+    }
+  }
+  rows = [...current.values()];
 
   // Record numbers are zero-padded and monotonically assigned, so "later" is
   // the number, not the row timestamp. Every row shares an import timestamp —

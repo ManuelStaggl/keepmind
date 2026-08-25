@@ -3053,6 +3053,247 @@ export class SessionStore {
     return { cleared };
   }
 
+  // ───────────────────────────────────────────────────────────────────────
+  // Directly authored curated records — created and CHANGED inside keepmind,
+  // with no source file. See src/services/curated/authoring.ts for why the
+  // text is rendered and read back through the file importer's own reader
+  // rather than parsed a second way.
+  //
+  // The identity of such an entry is its RECORD NUMBER, not its row id. A
+  // change writes a new revision and closes the previous one's validity
+  // window — so the history survives (the curated path's "nothing is ever
+  // deleted" invariant) while the SURFACE stays at exactly one row per
+  // record. Everything that reads current state already filters on
+  // `valid_to IS NULL`, so no read path had to learn about revisions.
+  // ───────────────────────────────────────────────────────────────────────
+
+  /** Marker on a revision that a later revision of the same record replaced. */
+  private static readonly REVISION_MARKER = 'revised_by';
+
+  /**
+   * The active revision of one curated record, or null.
+   *
+   * Matched on `metadata.record_id` rather than on the title: the title is
+   * display text and has been reformatted before (the same reason
+   * supersession.ts reads the number out of metadata).
+   */
+  getCuratedRecord(
+    project: string,
+    recordId: string,
+    opts: { includeClosed?: boolean } = {},
+  ): {
+    id: number; project: string; record_id: string; title: string | null; subtitle: string | null;
+    narrative: string | null; metadata: string | null; source_path: string | null;
+    source_line: number | null; valid_from: number | null; valid_to: number | null;
+    created_at_epoch: number;
+  } | null {
+    // `includeClosed` answers a different question: not "what does this record
+    // currently say" but "does this record exist at all". An edit needs the
+    // second — refusing to edit a retired record would make its text
+    // permanently uncorrectable, and creating it fresh instead would resurrect
+    // it. The ordering puts the active revision first when there is one.
+    const activeOnly = opts.includeClosed ? '' : 'AND valid_to IS NULL';
+    const row = this.db.prepare(`
+      SELECT id, project, json_extract(metadata, '$.record_id') AS record_id,
+             title, subtitle, narrative, metadata, source_path, source_line,
+             valid_from, valid_to, created_at_epoch
+        FROM observations
+       WHERE project = ? AND source_kind = 'curated'
+         AND json_extract(metadata, '$.record_id') = ?
+         ${activeOnly}
+       ORDER BY (valid_to IS NULL) DESC, created_at_epoch DESC, id DESC
+       LIMIT 1
+    `).get(project, recordId) as never;
+    return (row ?? null) as never;
+  }
+
+  /**
+   * Every revision of one record, newest first — the history the bi-temporal
+   * columns exist to carry. Closed revisions are included by definition; that
+   * is what makes this different from `getCuratedRecord`.
+   */
+  getCuratedRevisions(project: string, recordId: string): Array<{
+    id: number; title: string | null; narrative: string | null; metadata: string | null;
+    valid_from: number | null; valid_to: number | null; created_at_epoch: number;
+  }> {
+    return this.db.prepare(`
+      SELECT id, title, narrative, metadata, valid_from, valid_to, created_at_epoch
+        FROM observations
+       WHERE project = ? AND source_kind = 'curated'
+         AND json_extract(metadata, '$.record_id') = ?
+       ORDER BY created_at_epoch DESC, id DESC
+    `).all(project, recordId) as never;
+  }
+
+  /**
+   * The next free record number in a project.
+   *
+   * Computed over EVERY curated row, retired and imported ones included. A
+   * number that is free only because its record was superseded is not free:
+   * every declared relation in the corpus names records by number, and reusing
+   * one would silently re-point those edges at a different decision.
+   */
+  nextCuratedRecordId(project: string): string {
+    const rows = this.db.prepare(`
+      SELECT DISTINCT json_extract(metadata, '$.record_id') AS record_id
+        FROM observations
+       WHERE project = ? AND source_kind = 'curated'
+         AND json_extract(metadata, '$.record_id') IS NOT NULL
+    `).all(project) as Array<{ record_id: string | null }>;
+
+    let max = 0;
+    for (const row of rows) {
+      const id = String(row.record_id ?? '');
+      // `V-…` is the process namespace, not the decision namespace.
+      if (!/^0\d{3}$/.test(id)) continue;
+      const n = parseInt(id, 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+    const next = max + 1;
+    if (next > 999) {
+      // Said out loud rather than wrapped around: the edge reader recognises a
+      // decision number only when it is zero-padded and four digits
+      // (`isRecordNumber`), so 1000 would stop being a reference at all — and
+      // it would stop silently, as a relation that simply never appears.
+      throw new Error(
+        `curated authoring: project "${project}" has reached record 0999. ` +
+        `The edge reader only recognises zero-padded four-digit decision numbers, ` +
+        `so the numbering cannot continue without widening relation-lexicon/edge-reader.`,
+      );
+    }
+    return String(next).padStart(4, '0');
+  }
+
+  /**
+   * Write one revision of a curated record and make it the current one.
+   *
+   * Mirrors `storeCheckpoint` deliberately — that pattern is already proven
+   * against the idempotence trap here: identical text dedups onto an EXISTING
+   * row via the content hash, and if that row happens to be a revision an
+   * earlier edit had closed, it must be re-opened or the record would vanish
+   * from the surface entirely. Order therefore matters: store, re-activate the
+   * stored row, then close every OTHER revision of the same record.
+   *
+   * Goes through `storeObservation`, so the row is redacted, hashed, scored and
+   * stamped exactly like an imported one — and, being `source_kind='curated'`,
+   * kept away from the near-dup reconciler that would otherwise guess at
+   * relations the record states outright.
+   */
+  storeCuratedRecord(
+    memorySessionId: string,
+    project: string,
+    record: {
+      recordId: string;
+      title: string;
+      subtitle: string;
+      narrative: string;
+      metadata: string;
+      sourcePath: string;
+      sourceLine: number;
+      subject: string;
+      validFrom: number;
+      validTo: number | null;
+      lastVerifiedAt: number | null;
+    },
+    nowEpoch: number = Date.now(),
+  ): { id: number; createdAtEpoch: number; revisionsClosed: number } {
+    const stored = this.storeObservation(
+      memorySessionId,
+      project,
+      {
+        type: 'decision',
+        title: record.title,
+        subtitle: record.subtitle,
+        facts: [],
+        narrative: record.narrative,
+        concepts: [],
+        files_read: [],
+        files_modified: [],
+        metadata: record.metadata,
+        source_kind: 'curated',
+        source_path: record.sourcePath,
+        source_line: record.sourceLine,
+        subject: record.subject,
+        last_verified_at: record.lastVerifiedAt,
+      },
+      0,
+      0,
+      nowEpoch,
+    );
+
+    // The author's own validity window. `storeObservation` stamps valid_from
+    // with the write time and knows nothing about a declared one, so it is set
+    // here — together with re-opening a revision that a previous edit closed.
+    this.db.prepare(`
+      UPDATE observations
+         SET valid_from = ?,
+             valid_to = ?,
+             metadata = json_remove(COALESCE(metadata, '{}'), '$.${SessionStore.REVISION_MARKER}')
+       WHERE id = ?
+    `).run(record.validFrom, record.validTo, stored.id);
+
+    const closed = this.db.prepare(`
+      UPDATE observations
+         SET valid_to = ?,
+             metadata = json_set(COALESCE(metadata, '{}'), '$.${SessionStore.REVISION_MARKER}', ?)
+       WHERE project = ? AND source_kind = 'curated'
+         AND json_extract(metadata, '$.record_id') = ?
+         AND valid_to IS NULL AND id != ?
+    `).run(nowEpoch, stored.id, project, record.recordId, stored.id) as { changes?: number };
+
+    return { ...stored, revisionsClosed: Number(closed?.changes ?? 0) };
+  }
+
+  /**
+   * Retire a curated record by hand — "this no longer applies", with no
+   * successor to point at.
+   *
+   * Distinct from supersession on purpose. `applySupersessions` recomputes its
+   * work on every run: it first re-opens every window IT closed, then closes
+   * them again from the current edges. A manual close carries a different
+   * marker so that recomputation cannot silently undo it — a record the owner
+   * retired must stay retired until the owner says otherwise, whatever the
+   * graph does.
+   */
+  closeCuratedRecord(
+    project: string,
+    recordId: string,
+    opts: { reason?: string | null; nowEpoch?: number } = {},
+  ): { closed: number } {
+    const now = opts.nowEpoch ?? Date.now();
+    const res = this.db.prepare(`
+      UPDATE observations
+         SET valid_to = ?,
+             metadata = json_set(
+               COALESCE(metadata, '{}'),
+               '$.closed_by_author', 1,
+               '$.closed_reason', ?
+             )
+       WHERE project = ? AND source_kind = 'curated'
+         AND json_extract(metadata, '$.record_id') = ?
+         AND valid_to IS NULL
+    `).run(now, opts.reason ?? null, project, recordId) as { changes?: number };
+    const closed = Number(res?.changes ?? 0);
+    logger.info('DB', 'Closed curated record', { project, recordId, closed });
+    return { closed };
+  }
+
+  /**
+   * Re-open a record the author closed. Reported separately from supersession
+   * for the same reason the close is: the two must not overwrite each other.
+   */
+  reopenCuratedRecord(project: string, recordId: string): { reopened: number } {
+    const res = this.db.prepare(`
+      UPDATE observations
+         SET valid_to = NULL,
+             metadata = json_remove(COALESCE(metadata, '{}'), '$.closed_by_author', '$.closed_reason')
+       WHERE project = ? AND source_kind = 'curated'
+         AND json_extract(metadata, '$.record_id') = ?
+         AND json_extract(metadata, '$.closed_by_author') IS NOT NULL
+    `).run(project, recordId) as { changes?: number };
+    return { reopened: Number(res?.changes ?? 0) };
+  }
+
   /**
    * Currently-active checkpoints for the given projects, newest first. At most
    * one per project by construction, but a project chain (worktrees / merged
