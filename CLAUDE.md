@@ -42,6 +42,59 @@ them changes the cost or the safety of the system, not just its structure.
   believed. Bump `METRICS_SCHEMA_VERSION` when a field changes meaning —
   aggregation drops older records rather than mixing them.
 
+### Curated entries: two ways in, one set of rules
+
+Lasting entries — decisions, rules, findings — reach the store on two paths, and
+both take the SAME write path: `SessionStore` directly, nothing enqueued. The
+observation queue is the only thing in keepmind that calls a model, so "a
+curated entry never reaches a provider" is a property of the code path, not a
+promise. Two Proxy tests fail the moment either path reaches for anything else
+(`tests/curated/akten-importer.test.ts`, `tests/curated/authoring.test.ts`).
+
+- **From files** — `keepmind curated:import` / `akten:import`. Still the only
+  way to take over an existing archive, and it must stay working: the one-time
+  hand-over of `C:\Projekte\entscheidungen` + `…\vorgaenge` runs through it, and
+  the files are only removed once `keepmind curated:verify` reports the corpus
+  arrived complete (`src/services/curated/migration-verify.ts` compares records,
+  declared relations and validity windows against the files).
+- **Authored here** — `keepmind curated:add|edit|…` and the `curated_*` MCP
+  tools, with no source file at any point.
+
+`src/services/curated/authoring.ts` does NOT parse structured input into edges.
+It RENDERS the caller's fields into the canonical record shape, reads that text
+back with `parseAkte` + `extractEdges` — the file importer's own readers — and
+refuses to store anything whose declared relations do not read back as declared.
+There is therefore no second rule set that is merely *supposed* to agree with
+the first. Do not add one: the relation lexicon, the negation guard, the
+date/record disambiguation and the span rule were each paid for with a measured
+failure.
+
+**Edit-in-place means the RECORD is stable, not the row.** The record number is
+the identity; a change writes a new revision and closes the previous one's
+window. Exactly one revision per record has `valid_to IS NULL`, so every
+existing read path sees one entry without knowing about revisions — and nothing
+is deleted, which is the invariant the whole curated path rests on. Anything
+that reads curated rows must collapse to the current revision the way
+`aging.ts` and `supersession.ts` do, or it counts one record several times.
+
+### Portability is a precondition, not a feature
+
+`keepmind export` / `keepmind import` (`src/services/portability/`) carry the
+whole source of truth as JSONL per table plus a manifest with a row count and a
+SHA-256 per file. Three properties are load-bearing:
+
+- **Primary keys are preserved.** Feedback rows point at observation ids, and
+  the metadata of a superseded or revised row names its replacement BY ID.
+  Re-numbering on import would silently re-point every one of them.
+- **Vectors are not in the bundle.** They are derived from the text and bound to
+  the embedder that produced them — `vec_meta.embedder_identity` exists because
+  two embedders' vectors are incomparable and the failure is silent. The import
+  clears the backfill watermarks and rebuilds them with the embedder the target
+  machine has.
+- **Verify everything, then write once.** Manifest, row counts and hashes are
+  checked before the transaction opens. A half-restored memory looks complete,
+  and the missing part is invisible.
+
 ### Provider scope
 
 `claude` is the only provider this project is developed and measured against.
