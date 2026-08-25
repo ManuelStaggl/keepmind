@@ -4,6 +4,129 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [4.3.0] - 2026-08-25
+
+# keepmind 4.3.0 — lasting entries without a file, and a memory you can carry
+
+keepmind can now hold the knowledge that outlives a session **directly** — no
+`.md` file, no import step — and it can **leave the machine it was written on**.
+Those two together are what make it safe to stop keeping a separate file
+archive: an entry can be created and *changed in place*, and the whole store can
+be exported, reviewed and restored elsewhere without loss.
+
+## Write a lasting entry, and change it in place
+
+```bash
+keepmind curated:add  --title "Decisions live in keepmind" --status gilt --body-stdin
+keepmind curated:edit 0001 --status "gilt · reviewed"
+keepmind curated:supersede 0002 0001
+keepmind curated:show 0001 --all
+```
+
+Also as MCP tools, so an entry can be written from inside a session at the
+moment the decision is made: **`curated_add`**, **`curated_edit`**,
+**`curated_supersede`**, **`curated_close`**, **`curated_get`**.
+
+**Edit-in-place means the RECORD is stable, not the row.** The record number is
+the identity. A change writes a revision and closes the previous one's validity
+window, so exactly one revision per record is ever current — search, session
+injection and `curated:show` see one entry, and six edits inject one entry, not
+six. Nothing is deleted: `--all` reads the history, and editing a record that a
+supersession or its author retired corrects its text *without* putting it back
+in force.
+
+### Why this is not a second set of rules
+
+The curated path's determinism was paid for with measured failures — the
+relation lexicon, the negation guard, the date-versus-record disambiguation, the
+span rule. A second entry point that merely *agreed* with the first would
+disagree eventually, silently.
+
+So the new path does not parse structured input into relations. It **renders**
+the fields into the canonical record shape, reads that text back with
+`parseAkte` + `extractEdges` — the file importer's own readers — and **refuses
+to store anything whose declared relations do not read back as declared**. The
+clause templates are checked against the relation lexicon at module load,
+because a template that quietly stopped matching would degrade every authored
+relation from `sicher` to `vermutet`, and only certain relations are ever
+applied.
+
+The write path is unchanged: straight to storage, nothing enqueued. The
+observation queue is the only thing in keepmind that calls a model, so "a
+curated entry never reaches a provider" stays a property of the code path — and
+a Proxy test fails the moment this path reaches for anything but plain storage.
+
+## Carry the whole memory to another machine
+
+```bash
+keepmind export ./keepmind-bundle
+keepmind import ./keepmind-bundle          # on the new machine
+```
+
+One JSONL file per table plus a manifest with a row count and a SHA-256 per
+file — reviewable, diffable, checkable. Not a copy of `keepmind.db`: nobody can
+read a database file before restoring it, one changed decision is one changed
+blob, and the restore would be pinned to whatever schema the source machine
+happened to be on.
+
+Three properties carry the weight:
+
+- **Primary keys are preserved.** Feedback rows point at observation ids, and a
+  superseded or revised row names its replacement *by id*. Re-numbering would
+  silently re-point every one of them.
+- **Vectors are not in the bundle.** They are derived from the text and bound to
+  the embedder that produced them. The import clears the backfill watermarks —
+  which are id-based, so restored rows below an existing one would never be
+  embedded — and rebuilds with the embedder the target machine has.
+- **Verify everything, then write once.** Manifest, schema version, row counts
+  and hashes are all checked *before* the transaction opens. A half-restored
+  memory looks complete, and the missing part is invisible.
+
+`--merge` keeps what is already there, `--replace` clears the bundled projects
+first, `--dry-run` verifies and writes nothing. The default refuses to restore
+over an existing project at all.
+
+## Prove a file archive arrived before deleting it
+
+```bash
+keepmind curated:verify ./decisions --kind akten   # exit 1 if anything is missing
+```
+
+Compares records, declared relations and validity windows against the files.
+Each of the three catches a failure the others miss: counting alone would pass
+with one record lost and one invented; relations are the part an importer can
+lose without changing any count; and a record that arrives but arrives
+**retired** is a rule that stopped applying during the migration — the quietest
+of the three.
+
+The file importer is untouched and stays supported; this is the check that says
+when the files have become redundant.
+
+## Fixes
+
+- **A record with no header field had its first body paragraph read as its
+  header** — turning every record number in that paragraph into a *declared*
+  relation. Measured: `"Dieser Absatz löst 0042 ab, behauptet der Text."`
+  produced a certain supersession nobody wrote down. Now refused outright.
+- **Supersession closed the wrong revision** when a record held several rows, so
+  a record could stay in force while the report said it had been retired. It
+  also re-opened superseded rows that a newer row had replaced, putting two rows
+  for one record on the surface at once.
+- **The aging report (`curated:alter`) listed one entry per row**, duplicating
+  edited records and inflating `decisionsSince` for everything below them.
+- **`keepmind export` returned before its files were on disk** —
+  `createWriteStream` flushes on its own schedule, so an import run immediately
+  afterwards failed with "manifest lists sdk_sessions.jsonl (3 rows) but the file
+  is missing".
+
+## Docs
+
+`KEEPMIND-OPTIMIERUNG-HANDOFF.md` and `KEEPMIND-OPTIMIERUNG-ANALYSE.md` are now
+one file: they overlapped in four of five points and contradicted each other in
+three, and whoever read only one worked from assumptions the other had
+disproved. `plans/` is marked as an archive — 42 documents largely describing
+things this fork deliberately does not have.
+
 ## [4.2.0] - 2026-08-21
 
 # keepmind 4.2.0 — `/checkpoint`: the curated session baton
@@ -382,9 +505,7 @@ A tooling-only release: nothing in the worker, the hooks or the MCP server chang
 
 ### Fixed
 
-- **`fix(changelog)`: order entries by version and fence off the inherited history.** The generator sorted by GitHub publish date, which holds only while releases are published in version order. Backfilling the missing 3.3.0 after 3.3.1 had already shipped filed it *above* 3.3.1. Sorting purely by version is not enough on its own either: `CHANGELOG.md` still carries 290 pre-fork claude-mem entries numbered up to 13.x, which outrank every keepmind release numerically while being older than all of them. An `
-
-<!-- inherited-history -->` marker now separates the two numbering schemes — the generator merges and version-sorts only above it, and copies everything below through untouched, including under `--full`.
+- **`fix(changelog)`: order entries by version and fence off the inherited history.** The generator sorted by GitHub publish date, which holds only while releases are published in version order. Backfilling the missing 3.3.0 after 3.3.1 had already shipped filed it *above* 3.3.1. Sorting purely by version is not enough on its own either: `CHANGELOG.md` still carries 290 pre-fork claude-mem entries numbered up to 13.x, which outrank every keepmind release numerically while being older than all of them. An `<!-- inherited-history -->` marker now separates the two numbering schemes — the generator merges and version-sorts only above it, and copies everything below through untouched, including under `--full`.
 
 ### Added
 
