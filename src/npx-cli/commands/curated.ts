@@ -289,7 +289,7 @@ async function applySupersessionsSafely(store: unknown, project: string, nowEpoc
  * difference between "indexed" and "indexed later" is the difference between
  * semantic search working and silently returning nothing.
  */
-async function requestBackfill(project: string): Promise<{ indexed: boolean; reason?: string }> {
+export async function requestBackfill(project: string): Promise<{ indexed: boolean; reason?: string }> {
   const { readFileSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { homedir } = await import('node:os');
@@ -314,3 +314,4 @@ async function requestBackfill(project: string): Promise<{ indexed: boolean; rea
     return { indexed: false, reason: `worker unreachable — ${error instanceof Error ? error.message : error}` };
   }
 }
+

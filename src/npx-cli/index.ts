@@ -49,6 +49,11 @@ ${pc.bold('Runtime Commands')} (requires Bun, delegates to installed plugin):
   ${pc.cyan('npx keepmind akten:check <dir>…')}    Report structural contradictions; exits non-zero. For pre-commit ${pc.dim('--json')}
   ${pc.cyan('npx keepmind curated:import')}        Import the configured curated source set — records AND work items ${pc.dim('--dry-run --json')}
   ${pc.cyan('npx keepmind curated:alter')}         Which decisions have the most happened around since they were written ${pc.dim('--limit --all --json')}
+  ${pc.cyan('npx keepmind curated:add')}           Write a lasting entry straight into keepmind — no source file ${pc.dim('--title --status --rel --body-stdin --dry-run')}
+  ${pc.cyan('npx keepmind curated:edit <id>')}     Change that entry IN PLACE; the previous revision keeps its text ${pc.dim('--title --status --body-file --rel')}
+  ${pc.cyan('npx keepmind curated:supersede <new> <old>')}   Declare and apply a supersession
+  ${pc.cyan('npx keepmind curated:close <id>')}    Retire an entry that no longer applies ${pc.dim('--reason')}
+  ${pc.cyan('npx keepmind curated:show <id>')}     Read the current text ${pc.dim('--all for every revision')}
   ${pc.cyan('npx keepmind migrate --purge --yes')}    Import, then remove claude-mem entirely (archives it first; requires a verified-complete migration)
   ${pc.cyan('npx keepmind transcript watch')}     Start transcript watcher
 
@@ -191,6 +196,34 @@ async function main(): Promise<void> {
     case 'curated:import': {
       const { runCuratedImportCommand, parseCuratedImportOptions } = await import('./commands/curated.js');
       await runCuratedImportCommand(parseCuratedImportOptions(args.slice(1)));
+      break;
+    }
+
+    // Lasting entries authored directly in keepmind — no source file at any
+    // point. Same write path and same deterministic rules as the file import
+    // (src/services/curated/authoring.ts), so nothing here reaches a model.
+    case 'curated:add':
+    case 'curated:edit':
+    case 'curated:supersede':
+    case 'curated:close':
+    case 'curated:reopen':
+    case 'curated:show':
+    case 'curated:history': {
+      const { runCuratedAuthorCommand, parseCuratedAuthorOptions, curatedAuthorUsage } =
+        await import('./commands/curated-author.js');
+      const action = command.slice('curated:'.length) as Parameters<typeof parseCuratedAuthorOptions>[0];
+      if (args.includes('--help') || args.includes('-h')) {
+        console.log(curatedAuthorUsage());
+        break;
+      }
+      try {
+        await runCuratedAuthorCommand(parseCuratedAuthorOptions(action, args.slice(1)));
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        console.error('');
+        console.error(curatedAuthorUsage());
+        process.exitCode = 1;
+      }
       break;
     }
 

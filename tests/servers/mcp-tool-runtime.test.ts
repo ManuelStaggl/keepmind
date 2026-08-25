@@ -48,6 +48,15 @@ const WORKER_CORE_TOOLS = [
   'delete_observations_by_project',
   'save_checkpoint',
   'clear_checkpoint',
+  // Lasting entries authored in-session. Worker-backed like every other write
+  // to the local store, and deliberately NOT server-backed: the server path
+  // enqueues generation, which is the one thing a curated entry must never
+  // touch.
+  'curated_add',
+  'curated_edit',
+  'curated_supersede',
+  'curated_close',
+  'curated_get',
 ];
 
 const SMART_TOOLS = ['smart_search', 'smart_unfold', 'smart_outline'];
