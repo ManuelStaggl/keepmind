@@ -26,6 +26,11 @@ export interface ImportCommandOptions {
   json: boolean;
   /** Skip the vector rebuild. Only for tests and for a deliberate deferral. */
   noIndex: boolean;
+  /**
+   * Put the bundled settings.json in place. Opt-in: settings describe a
+   * machine, not a memory — see `restoreBundledSettings`.
+   */
+  settings: boolean;
 }
 
 function readValue(args: string[], i: number, arg: string): [string, number] {
@@ -50,7 +55,7 @@ export function parseExportOptions(args: string[]): ExportCommandOptions {
 }
 
 export function parseImportOptions(args: string[]): ImportCommandOptions {
-  const options: ImportCommandOptions = { mode: 'fresh', dryRun: false, json: false, noIndex: false };
+  const options: ImportCommandOptions = { mode: 'fresh', dryRun: false, json: false, noIndex: false, settings: false };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const name = arg.startsWith('--') ? arg.split('=')[0] : arg;
@@ -59,6 +64,7 @@ export function parseImportOptions(args: string[]): ImportCommandOptions {
     if (name === '--merge') { options.mode = 'merge'; continue; }
     if (name === '--replace') { options.mode = 'replace'; continue; }
     if (name === '--no-index') { options.noIndex = true; continue; }
+    if (name === '--settings') { options.settings = true; continue; }
     if (arg.startsWith('--')) continue;
     if (!options.bundleDir) options.bundleDir = arg;
   }
@@ -102,6 +108,10 @@ export function importUsage(): string {
     'Options:',
     '  --dry-run   Verify the bundle and report what would be written',
     '  --no-index  Skip the semantic-index rebuild (keyword search still works)',
+    '  --settings  Also put the bundle\'s settings.json in place, keeping the',
+    '              current one beside it as settings.json.bak-before-import.',
+    '              Off by default: settings describe a machine (source paths,',
+    '              data directory), not a memory.',
     '  --json      Machine-readable output',
     '',
     'After a restore the semantic index is rebuilt from the restored text.',
@@ -200,13 +210,17 @@ export async function runImportCommand(options: ImportCommandOptions): Promise<v
     return;
   }
 
+  const { restoreBundledSettings } = await import('../../services/portability/import.js');
+  const { USER_SETTINGS_PATH } = await import('../../shared/paths.js');
+  const settings = restoreBundledSettings(bundleDir, report.manifest, USER_SETTINGS_PATH, options.settings && !options.dryRun);
+
   let indexed: Array<{ project: string; indexed: boolean; reason?: string }> = [];
   if (!options.dryRun && !options.noIndex) {
     indexed = await rebuildIndex(report.projects);
   }
 
   if (options.json) {
-    console.log(JSON.stringify({ ok: true, ...report, indexed }, null, 2));
+    console.log(JSON.stringify({ ok: true, ...report, settings, indexed }, null, 2));
     return;
   }
 
@@ -226,11 +240,37 @@ export async function runImportCommand(options: ImportCommandOptions): Promise<v
 
   // Never summarised away: a column the target could not store is a field this
   // restore did not restore, and it is invisible in every count above.
+  // Same reasoning as the dropped columns below: invisible in every count
+  // above, and an operator who is not told will read the restore as a clean
+  // one. These rows ARE restored — the source machine holds them the same way.
+  const dangling = Object.entries(report.dangling);
+  if (dangling.length > 0) {
+    const total = dangling.reduce((sum, [, n]) => sum + n, 0);
+    console.log(`\n  ${total} row(s) name a parent row that is in neither the bundle nor this database:`);
+    for (const [table, count] of dangling) console.log(`      ${table}: ${count}`);
+    console.log('      Restored as they stand — they are readable and searchable, as on the source machine.');
+  }
+
   const dropped = Object.entries(report.droppedColumns);
   if (dropped.length > 0) {
     console.log('\n  ⚠ Columns in the bundle that this database has no place for:');
     for (const [table, columns] of dropped) console.log(`      ${table}: ${columns.join(', ')}`);
     console.log('      Everything else was restored. Upgrade keepmind and re-import to keep them.');
+  }
+
+  // The export says "settings.json included" out loud, so the import has to
+  // account for them either way. Silence here is what made an operator believe
+  // their settings had crossed over when nothing had read the file at all.
+  if (settings.present) {
+    if (settings.applied) {
+      console.log(`\n  Settings restored to ${settings.targetPath}.`);
+      if (settings.backupPath) console.log(`      Previous settings kept at ${settings.backupPath}.`);
+    } else if (settings.reason) {
+      console.log(`\n  ⚠ Bundled settings NOT applied: ${settings.reason}`);
+    } else {
+      console.log('\n  The bundle carries a settings.json; it was NOT applied.');
+      console.log('      Re-run with --settings to put it in place (the current one is kept beside it).');
+    }
   }
 
   if (report.dryRun) {

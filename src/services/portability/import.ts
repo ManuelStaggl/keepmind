@@ -14,12 +14,32 @@
 // on import would leave every one of those pointing at a different row, and
 // nothing would report it — the supersession chain would simply start saying
 // something else.
+//
+// A ROW WHOSE PARENT IS GONE IS STILL MEMORY. The restore runs with foreign
+// key enforcement OFF and reports what dangles, rather than enforcing a
+// constraint the source machine does not itself satisfy. Measured on the live
+// store: 1830 observations and 408 session summaries name a session row that
+// no longer exists — pre-3.x rows from one bounded window, spread over nine
+// projects, readable and findable to this day, because SQLite never re-checks
+// a foreign key after the fact. Enforcing it here rejected the WHOLE bundle
+// with a bare "FOREIGN KEY constraint failed", so the real corpus could not be
+// restored at all. Dropping those rows instead is worse still: it is the
+// half-restored memory this file exists to prevent, and it breaks the one rule
+// the whole store rests on — nothing is ever deleted to resolve a conflict.
+// So they travel, they are counted, and the count is printed.
+//
+// Turning enforcement off is safe here BY CONSTRUCTION, not by hope: the
+// restore only ever INSERTs, and the 'replace' path deletes children before
+// parents explicitly rather than trusting a cascade (see below). The pragma is
+// set before the transaction opens — inside one it is a silent no-op — and put
+// back afterwards, whatever happened.
 
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { Database } from '../../storage/db.js';
 import type { TableColumnInfo } from '../../types/database.js';
+import { writeFileSync, copyFileSync } from 'node:fs';
 import {
   BUNDLE_SCHEMA_VERSION, BUNDLE_TABLES, MANIFEST_FILE, type BundleManifest,
 } from './bundle.js';
@@ -58,8 +78,30 @@ export interface ImportReport {
    * field the restore did not restore.
    */
   droppedColumns: Record<string, string[]>;
+  /**
+   * Rows whose declared parent row is in neither the bundle nor the target,
+   * per table. Restored as they stand — see the header. Counted here so a
+   * restore can never be quietly less connected than the machine it came from.
+   */
+  dangling: Record<string, number>;
   projects: string[];
 }
+
+/**
+ * The parent links the schema declares, child → parent.
+ *
+ * Written out rather than read from `PRAGMA foreign_key_list`, because the
+ * point is to report what dangles even when the target's schema has moved on
+ * and no longer declares the link at all.
+ */
+const PARENT_LINKS: ReadonlyArray<{
+  table: string; column: string; parentTable: string; parentColumn: string;
+}> = [
+  { table: 'observations', column: 'memory_session_id', parentTable: 'sdk_sessions', parentColumn: 'memory_session_id' },
+  { table: 'session_summaries', column: 'memory_session_id', parentTable: 'sdk_sessions', parentColumn: 'memory_session_id' },
+  { table: 'user_prompts', column: 'session_db_id', parentTable: 'sdk_sessions', parentColumn: 'id' },
+  { table: 'observation_feedback', column: 'observation_id', parentTable: 'observations', parentColumn: 'id' },
+];
 
 function readManifest(bundleDir: string): BundleManifest {
   const path = join(bundleDir, MANIFEST_FILE);
@@ -128,6 +170,62 @@ function projectsInBundle(manifest: BundleManifest, rowsByTable: Record<string, 
   return [...found].sort();
 }
 
+/**
+ * Count the rows whose parent is in neither the bundle nor the target.
+ *
+ * The target is consulted too, and not as a nicety: under 'merge' the parent
+ * may well already be there, and reporting it as dangling would send an
+ * operator looking for damage that does not exist.
+ */
+function findDangling(
+  db: Database,
+  rowsByTable: Record<string, Array<Record<string, unknown>>>,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const link of PARENT_LINKS) {
+    const rows = rowsByTable[link.table] ?? [];
+    if (rows.length === 0) continue;
+
+    const inBundle = new Set(
+      (rowsByTable[link.parentTable] ?? [])
+        .map(r => r[link.parentColumn])
+        .filter(v => v !== null && v !== undefined)
+        .map(v => String(v)),
+    );
+
+    // A NULL child key points at nothing by design (`user_prompts
+    // .session_db_id` is nullable) — that is not a dangling reference.
+    const missing = new Set<string>();
+    let danglingRows = 0;
+    const perKey = new Map<string, number>();
+    for (const row of rows) {
+      const value = row[link.column];
+      if (value === null || value === undefined) continue;
+      const key = String(value);
+      if (inBundle.has(key)) continue;
+      missing.add(key);
+      perKey.set(key, (perKey.get(key) ?? 0) + 1);
+    }
+    if (missing.size === 0) continue;
+
+    if (tableExists(db, link.parentTable)) {
+      const keys = [...missing];
+      for (let i = 0; i < keys.length; i += 500) {
+        const chunk = keys.slice(i, i + 500);
+        const marks = chunk.map(() => '?').join(',');
+        const found = db.prepare(
+          `SELECT "${link.parentColumn}" AS k FROM ${link.parentTable} WHERE "${link.parentColumn}" IN (${marks})`,
+        ).all(...chunk) as Array<{ k: unknown }>;
+        for (const row of found) missing.delete(String(row.k));
+      }
+    }
+
+    for (const key of missing) danglingRows += perKey.get(key) ?? 0;
+    if (danglingRows > 0) out[link.table] = danglingRows;
+  }
+  return out;
+}
+
 export function importBundle(db: Database, options: ImportOptions): ImportReport {
   const mode = options.mode ?? 'fresh';
   const manifest = readManifest(options.bundleDir);
@@ -142,7 +240,8 @@ export function importBundle(db: Database, options: ImportOptions): ImportReport
 
   const report: ImportReport = {
     manifest, mode, dryRun: options.dryRun === true,
-    inserted: {}, skipped: {}, deleted: {}, droppedColumns: {}, projects,
+    inserted: {}, skipped: {}, deleted: {}, droppedColumns: {},
+    dangling: findDangling(db, rowsByTable), projects,
   };
 
   if (mode === 'fresh' && projects.length > 0) {
@@ -215,8 +314,22 @@ export function importBundle(db: Database, options: ImportOptions): ImportReport
       );
       let inserted = 0;
       let skipped = 0;
-      for (const row of plan.rows) {
-        const res = stmt.run(...columns.map(c => (row[c] === undefined ? null : row[c] as never))) as { changes?: number };
+      for (let i = 0; i < plan.rows.length; i++) {
+        const row = plan.rows[i];
+        let res: { changes?: number };
+        try {
+          res = stmt.run(...columns.map(c => (row[c] === undefined ? null : row[c] as never))) as { changes?: number };
+        } catch (error) {
+          // SQLite's own message names neither the table nor the row, and the
+          // whole restore surfaces as one line to an operator who then has
+          // nothing to look at. Measured: "FOREIGN KEY constraint failed" was
+          // the entire report on a 19,032-row bundle.
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `Restoring ${plan.table} failed at row ${i + 1} of ${plan.rows.length} ` +
+            `(id ${row.id ?? '(none)'}): ${message}. Nothing was written.`,
+          );
+        }
         if (Number(res?.changes ?? 0) > 0) inserted++;
         else skipped++;
       }
@@ -224,7 +337,16 @@ export function importBundle(db: Database, options: ImportOptions): ImportReport
       report.skipped[plan.table] = skipped;
     }
   });
-  run();
+
+  // Set OUTSIDE the transaction: `PRAGMA foreign_keys` is a no-op while one is
+  // open, so doing this inside `run()` would look right and enforce anyway.
+  const foreignKeysWere = (db.prepare('PRAGMA foreign_keys').get() as { foreign_keys?: number } | undefined)?.foreign_keys ?? 1;
+  db.run('PRAGMA foreign_keys = OFF');
+  try {
+    run();
+  } finally {
+    if (foreignKeysWere) db.run('PRAGMA foreign_keys = ON');
+  }
 
   logger.info('SYSTEM', 'keepmind import finished', {
     bundleDir: options.bundleDir,
@@ -232,7 +354,67 @@ export function importBundle(db: Database, options: ImportOptions): ImportReport
     projects: projects.length,
     inserted: report.inserted,
     skipped: report.skipped,
+    dangling: report.dangling,
   });
 
   return report;
+}
+
+export interface SettingsRestoreResult {
+  /** The bundle carries a settings file at all. */
+  present: boolean;
+  applied: boolean;
+  /** Where the previous settings file was kept, when one was replaced. */
+  backupPath?: string;
+  targetPath?: string;
+  reason?: string;
+}
+
+/**
+ * Put the bundled settings file in place — only when asked.
+ *
+ * The bundle has always CARRIED settings (the export says so out loud:
+ * "settings.json included") and the import never read them. A file that
+ * travels and is silently dropped is the quiet failure this whole module
+ * exists to rule out, and the operator's reasonable belief — "my settings came
+ * across" — was wrong with nothing to indicate it.
+ *
+ * It stays OPT-IN, and here is why it is not simply applied: settings describe
+ * a MACHINE, not a memory. `curatedSources` names directories that may not
+ * exist on the target, `KEEPMIND_DATA_DIR` may point somewhere else entirely,
+ * and the target's own working configuration is not the restore's to discard.
+ * (Pointing at absent source directories is survivable — `CuratedPresence`
+ * reads that as `detached` and stays quiet — but survivable is not a reason to
+ * do it uninvited.)
+ *
+ * When it IS applied, the previous file is kept beside it rather than
+ * overwritten. Nothing in keepmind is deleted to make room for something newer.
+ */
+export function restoreBundledSettings(
+  bundleDir: string,
+  manifest: BundleManifest,
+  targetPath: string,
+  apply: boolean,
+): SettingsRestoreResult {
+  if (!manifest.settingsFile) return { present: false, applied: false };
+  const source = join(bundleDir, manifest.settingsFile);
+  if (!existsSync(source)) {
+    return { present: true, applied: false, reason: `the manifest lists ${manifest.settingsFile} but the file is missing` };
+  }
+  if (!apply) return { present: true, applied: false, targetPath };
+
+  const text = readFileSync(source, 'utf8');
+  try {
+    JSON.parse(text);
+  } catch (error) {
+    return { present: true, applied: false, reason: `${manifest.settingsFile} is not valid JSON: ${error instanceof Error ? error.message : error}` };
+  }
+
+  let backupPath: string | undefined;
+  if (existsSync(targetPath)) {
+    backupPath = `${targetPath}.bak-before-import`;
+    copyFileSync(targetPath, backupPath);
+  }
+  writeFileSync(targetPath, text, 'utf8');
+  return { present: true, applied: true, backupPath, targetPath };
 }

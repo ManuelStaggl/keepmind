@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { SessionStore } from '../../src/services/sqlite/SessionStore.js';
 import { SessionSearch } from '../../src/services/sqlite/SessionSearch.js';
 import { exportBundle } from '../../src/services/portability/export.js';
-import { importBundle } from '../../src/services/portability/import.js';
+import { importBundle, restoreBundledSettings } from '../../src/services/portability/import.js';
 import { BUNDLE_TABLES, MANIFEST_FILE, type BundleManifest } from '../../src/services/portability/bundle.js';
 import { authorCuratedRecord, type AuthoringStore } from '../../src/services/curated/authoring.js';
 import { applySupersessions } from '../../src/services/curated/supersession.js';
@@ -306,5 +306,119 @@ describe('the importer refuses rather than half-restores', () => {
     } finally {
       target.close();
     }
+  });
+});
+
+describe('a row whose parent session is gone is still memory', () => {
+  /**
+   * Reproduce what the live store actually holds. Measured on the real corpus:
+   * 1830 observations and 408 session summaries name a session row that no
+   * longer exists — pre-3.x rows SQLite never re-checked. Enforcing the
+   * foreign key on the way in rejected the WHOLE 19,032-row bundle with a bare
+   * "FOREIGN KEY constraint failed", so the real corpus could not be restored
+   * at all.
+   */
+  function orphanTheSessions(store: SessionStore, contentSessionId: string): void {
+    const memorySessionId = memorySessionFor(store, contentSessionId);
+    store.db.run('PRAGMA foreign_keys = OFF');
+    store.db.prepare('DELETE FROM sdk_sessions WHERE memory_session_id = ?').run(memorySessionId);
+    store.db.run('PRAGMA foreign_keys = ON');
+  }
+
+  it('restores the row and counts it, rather than refusing the bundle', () => {
+    const memorySessionId = memorySessionFor(source, 'content-1');
+    const orphaned = (source.db.prepare(
+      'SELECT COUNT(*) AS c FROM observations WHERE memory_session_id = ?',
+    ).get(memorySessionId) as { c: number }).c;
+    expect(orphaned).toBeGreaterThan(0);
+    const total = (source.db.prepare('SELECT COUNT(*) AS c FROM observations').get() as { c: number }).c;
+
+    orphanTheSessions(source, 'content-1');
+
+    exportTo(source, dir);
+    const target = new SessionStore(':memory:');
+    try {
+      const report = importBundle(target.db, { bundleDir: dir });
+      // Everything is restored — the orphans included, which is the point.
+      expect(report.inserted.observations).toBe(total);
+      expect(report.dangling.observations).toBe(orphaned);
+      expect(report.dangling.session_summaries).toBe(1);
+      expect(snapshot(target, PROJECT)).toEqual(snapshot(source, PROJECT));
+    } finally {
+      target.close();
+    }
+  });
+
+  it('leaves foreign key enforcement on afterwards', () => {
+    exportTo(source, dir);
+    const target = new SessionStore(':memory:');
+    try {
+      importBundle(target.db, { bundleDir: dir });
+      const pragma = target.db.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number };
+      expect(pragma.foreign_keys).toBe(1);
+    } finally {
+      target.close();
+    }
+  });
+
+  it('reports nothing dangling when every parent travelled', () => {
+    exportTo(source, dir);
+    const target = new SessionStore(':memory:');
+    try {
+      expect(importBundle(target.db, { bundleDir: dir }).dangling).toEqual({});
+    } finally {
+      target.close();
+    }
+  });
+
+  it('does not call a row dangling when the target already holds its parent', () => {
+    // Under --merge the parent is often already there. Reporting it as
+    // dangling sends an operator looking for damage that does not exist.
+    exportTo(source, dir);
+    const target = new SessionStore(':memory:');
+    try {
+      importBundle(target.db, { bundleDir: dir });
+      // Second pass: sessions are present in the target, absent from nothing.
+      const again = importBundle(target.db, { bundleDir: dir, mode: 'merge' });
+      expect(again.dangling).toEqual({});
+    } finally {
+      target.close();
+    }
+  });
+});
+
+describe('the bundled settings are accounted for, never silently dropped', () => {
+  it('carries them but does not apply them unless asked', () => {
+    const settingsPath = join(dir, 'source-settings.json');
+    writeFileSync(settingsPath, JSON.stringify({ KEEPMIND_PROVIDER: 'claude' }), 'utf8');
+    const bundleDir = join(dir, 'bundle');
+    const manifest = exportBundle(source.db, {
+      outDir: bundleDir, keepmindVersion: '0.0.0-test',
+      includeSettings: true, settingsPath,
+    }).manifest;
+    expect(manifest.settingsFile).toBe('settings.json');
+
+    const target = join(dir, 'target-settings.json');
+    writeFileSync(target, JSON.stringify({ KEEPMIND_PROVIDER: 'gemini' }), 'utf8');
+
+    const untouched = restoreBundledSettings(bundleDir, manifest, target, false);
+    expect(untouched).toEqual({ present: true, applied: false, targetPath: target });
+    expect(JSON.parse(readFileSync(target, 'utf8')).KEEPMIND_PROVIDER).toBe('gemini');
+
+    const applied = restoreBundledSettings(bundleDir, manifest, target, true);
+    expect(applied.applied).toBe(true);
+    expect(JSON.parse(readFileSync(target, 'utf8')).KEEPMIND_PROVIDER).toBe('claude');
+    // Nothing is deleted to make room for something newer.
+    expect(JSON.parse(readFileSync(applied.backupPath!, 'utf8')).KEEPMIND_PROVIDER).toBe('gemini');
+  });
+
+  it('says so when the bundle has no settings at all', () => {
+    const bundleDir = join(dir, 'no-settings');
+    const manifest = exportBundle(source.db, {
+      outDir: bundleDir, keepmindVersion: '0.0.0-test', includeSettings: false,
+    }).manifest;
+    expect(manifest.settingsFile).toBeNull();
+    expect(restoreBundledSettings(bundleDir, manifest, join(dir, 'x.json'), true))
+      .toEqual({ present: false, applied: false });
   });
 });
