@@ -24,6 +24,7 @@ import {
 } from './ObservationCompiler.js';
 import { renderHeader } from './sections/HeaderRenderer.js';
 import { renderCheckpoints } from './sections/CheckpointRenderer.js';
+import { renderCuratedHealth } from './sections/CuratedHealthRenderer.js';
 import { renderTimeline } from './sections/TimelineRenderer.js';
 import type { CheckpointRecord } from '../../shared/checkpoint.js';
 import { shouldShowSummary, renderSummaryFields } from './sections/SummaryRenderer.js';
@@ -81,6 +82,10 @@ function buildContextOutput(
   const economics = calculateTokenEconomics(observations);
 
   output.push(...renderHeader(project, economics, config, forHuman));
+
+  // Above the hand-off: whether the lasting entries are current decides what
+  // every later line in this block is worth, and the char cap trims from the end.
+  output.push(...renderCuratedHealth());
 
   // The curated hand-off sits directly under the header, above the timeline, so
   // it survives the char cap and reads as the session baton.

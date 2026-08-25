@@ -31,6 +31,7 @@ import { ensureWorkerStarted as ensureWorkerStartedShared, type WorkerStartResul
 import { acquireSpawnLock, releaseSpawnLock } from '../shared/worker-spawn-gate.js';
 import { snapshotDependencyHealth, type DependencyHealthSnapshot } from '../shared/dependency-health.js';
 import { MaintenanceLoop } from './optimizer/MaintenanceLoop.js';
+import { CuratedAutoImport } from './curated/auto-import.js';
 import { loadMemoryQualityConfig } from './config/memory-quality.js';
 import { runWorkerDependencyPreflight } from './worker/dependency-preflight.js';
 
@@ -242,6 +243,7 @@ export class WorkerService implements WorkerRef {
   private boundPort: number = 0;
   private readonly sessionRefCounter: SessionRefCounter;
   private maintenanceLoop: MaintenanceLoop | null = null;
+  private curatedAutoImport: CuratedAutoImport | null = null;
 
   private dbManager: DatabaseManager;
   private sessionManager: SessionManager;
@@ -786,7 +788,15 @@ export class WorkerService implements WorkerRef {
           logger.info('VECTOR_SYNC', 'Backfill check complete for all projects');
         }).catch(error => {
           logger.error('VECTOR_SYNC', 'Backfill failed (non-blocking)', {}, error as Error);
+        }).finally(() => {
+          // After the boot backfill, not beside it: both funnel through the one
+          // embedder session, and the curated import wants to VERIFY its rows
+          // are embedded — which a backfill still running would make untrue for
+          // a moment and then true again.
+          this.startCuratedAutoImport();
         });
+      } else {
+        this.startCuratedAutoImport();
       }
 
       const mcpServerPath = path.join(__dirname, 'mcp-server.cjs');
@@ -799,6 +809,40 @@ export class WorkerService implements WorkerRef {
       return;
     } catch (error) {
       logger.error('SYSTEM', 'Background initialization failed', {}, error instanceof Error ? error : undefined);
+    }
+  }
+
+  /**
+   * Keep the curated corpus in step with its source files, without anything
+   * outside keepmind having to remember to do it.
+   *
+   * Started here rather than in `start()` because it needs the store and the
+   * vector sync, and because a slow first import must not sit in front of the
+   * worker binding its port.
+   */
+  private startCuratedAutoImport(): void {
+    if (this.curatedAutoImport) return;
+    try {
+      this.curatedAutoImport = new CuratedAutoImport({
+        store: () => {
+          try { return this.dbManager.getSessionStore(); } catch { return null; }
+        },
+        indexer: () => (this.vectorSearchEnabled ? this.dbManager.getChromaSync() : null),
+      });
+      void this.curatedAutoImport.start().then(outcomes => {
+        for (const outcome of outcomes) {
+          if (outcome.ran) continue;
+          if (outcome.skipped && outcome.skipped !== 'up to date') {
+            logger.warn('DB', 'Curated auto-import did not run', { project: outcome.project, reason: outcome.skipped });
+          }
+        }
+      }).catch(error => {
+        logger.warn('DB', 'Curated auto-import failed to start', {}, error instanceof Error ? error : undefined);
+      });
+    } catch (error) {
+      // A corpus that does not update itself is a degradation, not a reason to
+      // take the worker down with it.
+      logger.warn('DB', 'Could not start the curated auto-import', {}, error instanceof Error ? error : undefined);
     }
   }
 
@@ -956,6 +1000,8 @@ export class WorkerService implements WorkerRef {
         // stale endpoint advertisement survives this shutdown.
         this.sessionRefCounter.stop();
         this.maintenanceLoop?.stop();
+        this.curatedAutoImport?.stop();
+        this.curatedAutoImport = null;
         removeWorkerPortFile();
 
         if (this.transcriptWatcher) {

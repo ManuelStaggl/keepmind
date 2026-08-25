@@ -14,7 +14,7 @@
  * rendering.
  */
 
-import { existsSync, readFileSync, readdirSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
 import { join, sep } from 'path';
 import { spawnSync } from 'child_process';
 import pc from 'picocolors';
@@ -37,6 +37,7 @@ import { probeVectorDeps } from '../../services/vector/vector-deps-repair.js';
 import { depsInstallRoot, depsRoot, pluginDepsPresent } from '../../shared/plugin-node-modules.js';
 import { spoolDepth } from '../../shared/hook-spool.js';
 import { checkSourceTreeDrift } from '../utils/source-tree-drift.js';
+import { curatedHealth, describeCuratedHealth, type CuratedHealth } from '../../services/curated/health.js';
 
 export type CheckStatus = 'ok' | 'warn' | 'fail' | 'skip';
 
@@ -88,7 +89,7 @@ interface ChromaStatusResponse {
   probe?: { ok?: boolean; queryLatencyMs?: number; embedderWarm?: boolean; error?: string };
 }
 
-interface WorkerProbe {
+export interface WorkerProbe {
   reachable: boolean;
   port: number;
   pidAlive: boolean;
@@ -756,6 +757,107 @@ function buildMemoryGroup(probe: WorkerProbe): CheckGroup {
   return { title: 'Memory Store', checks };
 }
 
+/**
+ * The curated corpus — the part of memory a person wrote by hand.
+ *
+ * Every check here is REQUIRED, unlike most of the rest of this report. The
+ * others describe a system that is degraded but honest; these describe a
+ * corpus that answers questions confidently with the wrong contents, which is
+ * the failure this whole path exists to prevent. A machine with no curated
+ * sources configured skips the group entirely rather than passing it.
+ */
+export function buildCuratedGroup(probe: WorkerProbe, dataDir: string = resolveDataDir()): CheckGroup {
+  const checks: CheckResult[] = [];
+
+  let entries: CuratedHealth[] = [];
+  try {
+    entries = curatedHealth(dataDir);
+  } catch (error) {
+    checks.push({
+      name: 'Curated corpus',
+      status: 'fail',
+      detail: `state could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      required: true,
+    });
+    return { title: 'Curated Corpus', checks };
+  }
+
+  if (entries.length === 0) {
+    return {
+      title: 'Curated Corpus',
+      checks: [{
+        name: 'Curated sources',
+        status: 'skip',
+        detail: 'none configured (`curatedSources` in ~/.keepmind/settings.json)',
+        required: false,
+      }],
+    };
+  }
+
+  // Strict here, tolerant elsewhere. A stopped worker is a legitimate state on
+  // a machine that only records observations — but it is not one on a machine
+  // that carries a hand-written corpus: nothing imports the sources and nothing
+  // embeds them while it is down, and the corpus silently ages. The strictness
+  // comes from the corpus being present, not from a blanket rule.
+  checks.push({
+    name: 'Worker (keeps the corpus current)',
+    status: probe.reachable ? 'ok' : 'fail',
+    detail: probe.reachable
+      ? `reachable on port ${probe.port}`
+      : `no response on port ${probe.port} — nothing is importing or indexing the corpus. Start it with \`npx keepmind start\`.`,
+    required: true,
+  });
+
+  const { obs, error } = readDbCountsDirect();
+  checks.push({
+    name: 'Database',
+    status: error && obs === null ? 'fail' : 'ok',
+    detail: error && obs === null ? `not readable: ${error}` : `readable (${obs ?? 0} observations)`,
+    required: true,
+  });
+
+  for (const entry of entries) {
+    // A source that vanished is reported on its own: it is a broken
+    // configuration, and the import refuses to run at all while it lasts.
+    const absent = entry.sources.filter(source => {
+      try { return !statSync(source.path).isDirectory(); } catch { return true; }
+    });
+    if (absent.length > 0) {
+      checks.push({
+        name: `Sources [${entry.project}]`,
+        status: 'fail',
+        detail: `not readable: ${absent.map(source => source.path).join(', ')}`,
+        required: true,
+      });
+    } else if (entry.sources.length > 0) {
+      checks.push({
+        name: `Sources [${entry.project}]`,
+        status: 'ok',
+        detail: `${entry.sources.length} director(y|ies) readable`,
+        required: true,
+      });
+    }
+
+    checks.push({
+      name: `Last import [${entry.project}]`,
+      status: entry.ok ? 'ok' : entry.lastSuccessEpoch === null ? 'fail' : 'warn',
+      detail: describeCuratedHealth(entry),
+      required: true,
+    });
+
+    if (!entry.indexed && entry.lastSuccessEpoch !== null) {
+      checks.push({
+        name: `Semantic index [${entry.project}]`,
+        status: 'fail',
+        detail: 'the corpus is stored but not embedded — semantic search cannot see it. Re-run `npx keepmind curated:import`.',
+        required: true,
+      });
+    }
+  }
+
+  return { title: 'Curated Corpus', checks };
+}
+
 async function buildConnectivityGroup(): Promise<CheckGroup> {
   const checks: CheckResult[] = [];
 
@@ -944,6 +1046,7 @@ export async function runDoctorCommand(argv: string[] = []): Promise<void> {
     buildProviderGroup(probe),
     buildWorkerGroup(probe),
     buildMemoryGroup(probe),
+    buildCuratedGroup(probe, dataDir),
     await buildConnectivityGroup(),
   ];
 
