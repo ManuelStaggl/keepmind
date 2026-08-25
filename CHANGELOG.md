@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [4.3.1] - 2026-08-25
+
+Four faults in the curated path, found by running the real archive through it. Together they blocked the one-time hand-over of an existing file corpus: `curated:verify` could not reach its success line, and until it does, no file may be deleted.
+
+## The migration blocker: work items were counted as lost
+
+`curated:verify` read `$.record_id` only. Decision records are stored under that key, work items under `$.vorgang_id` — two keys because the two are deliberately never conflated (a work item is where a decision is carried out, and merging them makes "what did we decide" answer with open tasks).
+
+Against the real archive the importer reported `Imported 200, skipped 9` and the verifier, in the same run, reported all 200 work items MISSING and exited 1. Every row was there the whole time. The query now reads both keys; validity stays separated, because a work item has no validity window of its own — its state is derived from the event log.
+
+## A declared supersession that retired nothing
+
+Three separate reasons, all with the same silent outcome: the superseded record kept answering as current.
+
+- **`hebt … auf` was in no pattern at all.** Not a weak edge — none. Added with its reversing counterpart `aufgehoben durch`, because a reversing form added on its own is how half a supersession chain ends up pointing backwards.
+- **`Löst ab:` as a field label matched nothing** either. Only the sentence form `löst 0093 ab` did: the separable verb puts just its first half in front of the reference, the label spelling puts both there.
+- **A relation read from a label was always `vermutet`**, and `vermutet` edges are never applied. So a record declaring its supersession in the canonical header form retired nothing at all. Patterns now carry `declarative`: a VERB label states the relation and counts as written down, a NOUN label (`Grundlage:`, `Anwendung von:`) only files a reference under a heading and stays `vermutet`.
+
+A scope qualifier between verb and reference — `löst in diesem Umfang 0054 ab`, `ersetzt teilweise 0072` — pushed the verb out of reach of patterns that are all anchored at the end of the preceding text. It is stripped once, and only when nothing else matched, so this can widen what is recognised and can never change an existing reading. Partial is a statement about how far a relation reaches, not about whether it was declared. The negation guard is deliberately untouched.
+
+## A corpus that explained its own history was rewriting it
+
+Edges were read from every markdown file without a record number, supersessions among them included. Three kinds of file have no record number and nothing in the text tells them apart: an index the tooling GENERATES from the records, a brief that DISCUSSES them, and a control file that genuinely declares something.
+
+`LIESMICH.md` is generated, so its supersessions merely duplicate the records — arriving as `vermutet`, which is what filled the "uncertain supersession NOT applied" list. And a brief quoting the old wrong statement `0011 ersetzt 0012` in order to report that it had been corrected caused the reader to build exactly that edge, against the true `0012→0011` both records carry.
+
+The rule is now what a file may SAY, not which file it is — a filename list would need a second list to keep in sync, and the corpus renames files freely. A row-less file may still state that one record concerns, extends or restricts another; none of that changes what is in force. Retiring a record closes a validity window, and only the record that superseded it can declare that. Withheld supersessions are reported with their line, never dropped silently, and `keepmind akten:check` opts back in — its whole job is to report where a control file claims what the records do not.
+
+Inline code spans in a row-less file now count as quoted material, the way fenced blocks already did. Not in record headers: there a backtick is emphasis, and blanking it would drop real edges.
+
+## A settled record is not an unfinished one
+
+`curated:verify` reported "2 record(s) call themselves retired with nothing superseding them" and pointed at `akten:check`. Both were legitimate, and neither had a successor to find — one was a single-use exception that expired with its one run, the other a withdrawn duplicate.
+
+There are two ways for a record to stop applying and only one implies another record. `abgelöst`, `ersetzt durch` and `überholt` are relational, so a missing supersession is a real gap. `zurückgezogen`, `erloschen`, `verbraucht` and `gegenstandslos` are not — and the last two were not recognised as retiring the record at all. The report splits accordingly, and only the relational half stays a question. Where a status carries both, the promise of a successor wins, or "zurückgezogen, ersetzt durch 0047" would hide the one case worth reporting behind the word that makes it look settled.
+
+## Upgrading
+
+No action and no re-import required for anything already in the store. Re-running `keepmind curated:import` against a file corpus is worthwhile: the graph is rebuilt per source file, so the wrong edges disappear and the supersessions that never applied take effect.
+
 ## [4.3.0] - 2026-08-25
 
 # keepmind 4.3.0 — lasting entries without a file, and a memory you can carry
