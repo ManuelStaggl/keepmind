@@ -341,7 +341,7 @@ same corpus cannot land under two names depending on who started the import.
 
 `keepmind export` / `keepmind import` (`src/services/portability/`) carry the
 whole source of truth as JSONL per table plus a manifest with a row count and a
-SHA-256 per file. Three properties are load-bearing:
+SHA-256 per file. Five properties are load-bearing:
 
 - **Primary keys are preserved.** Feedback rows point at observation ids, and
   the metadata of a superseded or revised row names its replacement BY ID.
@@ -354,6 +354,36 @@ SHA-256 per file. Three properties are load-bearing:
 - **Verify everything, then write once.** Manifest, row counts and hashes are
   checked before the transaction opens. A half-restored memory looks complete,
   and the missing part is invisible.
+- **A row whose parent is gone is still memory.** The restore runs with foreign
+  key enforcement OFF and REPORTS what dangles (`ImportReport.dangling`),
+  because the source machine does not satisfy the constraint either. Measured
+  on the live store: 1830 observations and 408 session summaries name a session
+  row that no longer exists — pre-3.x rows from one bounded window across nine
+  projects, readable and findable to this day, because SQLite never re-checks a
+  foreign key after the fact. Enforcing it on the way in rejected the WHOLE
+  19,032-row bundle with a bare `FOREIGN KEY constraint failed`, so the real
+  corpus could not be restored at all. Dropping the rows instead would be the
+  half-restored memory the rule above exists to prevent, and it would break the
+  one rule the store rests on: nothing is deleted to resolve a conflict.
+  Turning enforcement off is safe BY CONSTRUCTION — the restore only INSERTs,
+  and `replace` deletes children before parents explicitly rather than trusting
+  a cascade. The pragma is set OUTSIDE the transaction (inside one it is a
+  silent no-op) and put back in a `finally`.
+- **Everything the bundle carries is accounted for on the way in.** The export
+  writes `settings.json` and says "settings.json included"; the import read it
+  nowhere at all, so an operator's reasonable belief that their settings had
+  crossed over was wrong with nothing to indicate it. `restoreBundledSettings`
+  now applies them on `--settings` and otherwise says out loud that the bundle
+  carries settings which were NOT applied. It stays opt-in because settings
+  describe a MACHINE, not a memory — `curatedSources` names directories the
+  target may not have, `KEEPMIND_DATA_DIR` may point elsewhere, and the
+  target's own working configuration is not the restore's to discard. When
+  applied, the previous file is kept beside it (`.bak-before-import`).
+
+Both were found the same way, and it is the only way they could have been:
+by running the round trip against the REAL corpus. Twelve tests over synthetic
+fixtures were green throughout — the fixtures have no pre-3.x rows and no
+settings file, so neither failure could occur in them.
 
 ### Provider scope
 
