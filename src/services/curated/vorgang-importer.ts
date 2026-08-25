@@ -17,12 +17,28 @@
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, resolve, extname } from 'node:path';
 import { parseVorgang, type ParsedVorgang } from './vorgang-parser.js';
-import { parseEreignisLog, deriveStates, type DerivedState } from './ereignis-log.js';
+import { parseEreignisLog, deriveStates, type DerivedState, type Ereignis } from './ereignis-log.js';
 import { logger } from '../../utils/logger.js';
 import type { CuratedStore, ImportOptions } from './akten-importer.js';
 
 /** The event log's filename, as the corpus writes it. */
 export const EVENT_LOG_FILE = 'EREIGNISSE.log';
+
+/** CRLF to LF, trailing blank lines trimmed. The wording itself is untouched. */
+function normaliseNewlines(text: string): string {
+  return text.replace(/\r\n/g, '\n').replace(/\s+$/, '');
+}
+
+/** Events grouped by the item they concern, in the order the log wrote them. */
+function groupByItem(events: Ereignis[]): Map<string, Ereignis[]> {
+  const out = new Map<string, Ereignis[]>();
+  for (const event of events) {
+    const list = out.get(event.vorgang);
+    if (list) list.push(event);
+    else out.set(event.vorgang, [event]);
+  }
+  return out;
+}
 
 export interface ImportedVorgang {
   id: number;
@@ -52,6 +68,19 @@ export interface VorgangImportReport {
   selfEdges: Array<{ vorgang: string; field: string; sourcePath: string; sourceLine: number }>;
   /** True when the directory carried no event log; every state is then unknown. */
   eventLogMissing: boolean;
+  /** Events read from the log, across all items. */
+  eventCount: number;
+  /** True when the log's own wording was stored, so the file may be removed. */
+  eventLogStored: boolean;
+  /**
+   * Events naming an item this directory holds no file for.
+   *
+   * Not an error and not silently dropped: the log is append-only and can name
+   * an item whose file was moved or never written. They are preserved in the
+   * stored log either way — this line only says that nothing derived a state
+   * from them.
+   */
+  orphanEvents: Array<{ vorgang: string; line: number; raw: string }>;
 }
 
 /** `V-0001` and nothing else. Both namespaces are read, never conflated. */
@@ -90,7 +119,8 @@ export function importVorgaengeDirectory(
   const root = resolve(directory);
   const report: VorgangImportReport = {
     imported: [], skipped: [], failed: [], malformed: [], unknownKinds: [],
-    selfEdges: [], eventLogMissing: false,
+    selfEdges: [], eventLogMissing: false, eventCount: 0, eventLogStored: false,
+    orphanEvents: [],
   };
 
   let entries: string[];
@@ -105,12 +135,17 @@ export function importVorgaengeDirectory(
   // fact about the whole import and is reported as one rather than as 196
   // separate unknowns.
   let states = new Map<string, DerivedState>();
+  let eventsByItem = new Map<string, Ereignis[]>();
+  let logContent: string | null = null;
   const logPath = join(root, EVENT_LOG_FILE);
   if (existsSync(logPath)) {
-    const log = parseEreignisLog(readFileSync(logPath, 'utf8'));
+    logContent = readFileSync(logPath, 'utf8');
+    const log = parseEreignisLog(logContent);
     states = deriveStates(log.events);
+    eventsByItem = groupByItem(log.events);
     report.malformed = log.malformed;
     report.unknownKinds = log.unknownKinds;
+    report.eventCount = log.events.length;
   } else {
     report.eventLogMissing = true;
   }
@@ -118,6 +153,46 @@ export function importVorgaengeDirectory(
   const memorySessionId = options.dryRun
     ? 'dry-run'
     : store.getOrCreateManualSession(options.project);
+
+  // The log is a SOURCE, and a source's wording has to survive the file — that
+  // is the condition under which the file may ever be removed. Only the DERIVED
+  // state used to be stored (`state`, `state_since`, `event_count`), so
+  // deleting `EREIGNISSE.log` would have taken the history of how every item
+  // reached its state with it, silently, and `curated:verify` did not look at
+  // it. Stored verbatim, as one row per log file, carrying no entry number:
+  // it is not an item and must not answer as one.
+  if (logContent !== null && !options.dryRun) {
+    const stored = store.storeObservation(
+      memorySessionId,
+      options.project,
+      {
+        type: 'change',
+        title: `${EVENT_LOG_FILE} — Ereignisse der Vorgänge`,
+        subtitle: `${report.eventCount} Ereignis(se) · ${report.malformed.length} unlesbare Zeile(n)`,
+        facts: [],
+        narrative: normaliseNewlines(logContent),
+        concepts: [],
+        files_read: [],
+        files_modified: [],
+        source_kind: 'curated',
+        source_path: logPath,
+        source_line: 1,
+        subject: EVENT_LOG_FILE,
+        last_verified_at: options.nowEpoch ?? null,
+        metadata: JSON.stringify({
+          kind: 'ereignis-log',
+          event_count: report.eventCount,
+          malformed_lines: report.malformed.length,
+          unknown_kinds: report.unknownKinds.length,
+        }),
+      },
+      0,
+      0,
+      options.nowEpoch,
+    );
+    store.closeOtherCuratedRowsForSource?.(options.project, logPath, stored.id, options.nowEpoch);
+    report.eventLogStored = true;
+  }
 
   for (const entry of entries) {
     const absolutePath = join(root, entry);
@@ -149,6 +224,28 @@ export function importVorgaengeDirectory(
         continue;
       }
 
+      const subtitle = subtitleForVorgang(parsed, derived);
+      const metadata = JSON.stringify({
+        kind: 'vorgang',
+        vorgang_id: parsed.id,
+        entscheidet: parsed.entscheidet,
+        erstellt: parsed.erstellt,
+        herkunft: parsed.herkunft,
+        // Stamped with its origin so the value can be re-checked against
+        // the log rather than believed.
+        state: derived?.state ?? 'unbekannt',
+        state_since: derived?.since ?? null,
+        state_from_log_line: derived?.line ?? null,
+        event_count: derived?.eventCount ?? 0,
+        // The item's own events, verbatim. The derived state above is an
+        // interpretation of exactly these lines; keeping them next to it is
+        // what makes "is that still true?" answerable without the file.
+        events: (eventsByItem.get(parsed.id!) ?? []).map(e => ({
+          datum: e.datum, art: e.art, felder: e.felder, line: e.line, raw: e.raw,
+        })),
+        fields: parsed.fields.map(f => ({ name: f.name, value: f.value, line: f.line })),
+      });
+
       const result = store.storeObservation(
         memorySessionId,
         options.project,
@@ -160,7 +257,7 @@ export function importVorgaengeDirectory(
           // not by this field.
           type: 'change',
           title: `${parsed.id} — ${parsed.titel}`,
-          subtitle: subtitleForVorgang(parsed, derived),
+          subtitle,
           facts: [],
           narrative: renderVorgang(parsed),
           concepts: [],
@@ -171,25 +268,31 @@ export function importVorgaengeDirectory(
           source_line: parsed.bodyLine,
           subject: parsed.id,
           last_verified_at: options.nowEpoch ?? null,
-          metadata: JSON.stringify({
-            kind: 'vorgang',
-            vorgang_id: parsed.id,
-            entscheidet: parsed.entscheidet,
-            erstellt: parsed.erstellt,
-            herkunft: parsed.herkunft,
-            // Stamped with its origin so the value can be re-checked against
-            // the log rather than believed.
-            state: derived?.state ?? 'unbekannt',
-            state_since: derived?.since ?? null,
-            state_from_log_line: derived?.line ?? null,
-            event_count: derived?.eventCount ?? 0,
-            fields: parsed.fields.map(f => ({ name: f.name, value: f.value, line: f.line })),
-          }),
+          metadata,
         },
         0,
         0,
         options.nowEpoch,
       );
+
+      // Put the derived fields back in step even when the row was REUSED.
+      // `storeObservation` de-duplicates on the wording (session, title,
+      // narrative), which is right for a file that has not changed — but a work
+      // item's state comes from `EREIGNISSE.log`, and the log moves without the
+      // item's own file changing at all. Measured: a log entry moving an item to
+      // `wartet` produced an import that reported `wartet` while the stored row
+      // still said `unbekannt`, and every later read believed the row. Only
+      // derived fields are written here; the wording is untouched, and the log
+      // remains the history of how the state got where it is.
+      store.refreshCuratedDerived?.(result.id, {
+        subtitle,
+        metadata,
+        lastVerifiedAt: options.nowEpoch ?? null,
+      });
+
+      // Exactly one revision of an item may be active — see the same call in
+      // the record importer.
+      store.closeOtherCuratedRevisions?.(options.project, parsed.id!, result.id, options.nowEpoch);
 
       // Declared relations. These are FIELDS, not prose — no lexicon, no
       // guessing, certainty 'sicher' because the corpus wrote them as data.
@@ -229,6 +332,19 @@ export function importVorgaengeDirectory(
     }
   }
 
+  // Events naming an item this directory holds no file for. The log is
+  // append-only and outlives individual files, so this is a normal state — but
+  // it is stated rather than dropped, because "no state was derived from these"
+  // and "there were none" look identical from the outside. Their wording is
+  // safe either way: it is in the stored log.
+  const importedIds = new Set(report.imported.map(entry => entry.vorgangId));
+  for (const [vorgang, list] of eventsByItem) {
+    if (importedIds.has(vorgang)) continue;
+    for (const event of list) {
+      report.orphanEvents.push({ vorgang, line: event.line, raw: event.raw });
+    }
+  }
+
   logger.info('DB', 'Curated work-item import finished', {
     directory: root,
     project: options.project,
@@ -239,6 +355,9 @@ export function importVorgaengeDirectory(
     unknownKinds: report.unknownKinds.length,
     selfEdges: report.selfEdges.length,
     eventLogMissing: report.eventLogMissing,
+    eventCount: report.eventCount,
+    eventLogStored: report.eventLogStored,
+    orphanEvents: report.orphanEvents.length,
     dryRun: options.dryRun === true,
   });
 

@@ -44,10 +44,12 @@
 //
 // Nothing here writes. It reads files, reads the store, and reports.
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve, extname } from 'node:path';
 import { parseAkte } from './akten-parser.js';
 import { parseVorgang } from './vorgang-parser.js';
+import { parseEreignisLog } from './ereignis-log.js';
+import { EVENT_LOG_FILE } from './vorgang-importer.js';
 import { extractEdges, extractEdgesFromControlFile, type DecisionEdge } from './edge-reader.js';
 import { supersededRecords, statusSaysValid, statusEndsWithoutSuccessor, type RecordState } from './contradiction-check.js';
 
@@ -99,7 +101,26 @@ export interface VerifyReport {
   endedWithoutSuccessor: string[];
   /** Files that could not be read at all. */
   failed: Array<{ file: string; error: string }>;
-  /** True when records, relations and validity all agree. */
+  /**
+   * The work-item event logs found in the sources, and whether each one's
+   * wording arrived.
+   *
+   * Checked because the log is the ONLY record of how each work item reached
+   * its state, and until it was stored the migration could report "complete"
+   * over a corpus whose entire event history still lived in a file nobody had
+   * been told to keep. A log that is on disk and not in the store makes the
+   * result incomplete — deleting the file at that point loses history.
+   */
+  eventLogs: Array<{
+    path: string;
+    /** Events the file holds. */
+    sourceEvents: number;
+    /** True when a curated row holds this log's wording, byte for byte. */
+    stored: boolean;
+    /** Set when a row exists but its text differs from the file's. */
+    mismatch?: string;
+  }>;
+  /** True when records, relations, validity AND the event logs all agree. */
   complete: boolean;
 }
 
@@ -175,6 +196,7 @@ export function verifyMigration(
 ): VerifyReport {
   const failed: VerifyReport['failed'] = [];
   const { records, edges, vorgaenge } = readSources(sources, failed);
+  const eventLogs = verifyEventLogs(db, project, sources, failed);
 
   const sourceIds = [...new Set([...records.map(r => r.id), ...vorgaenge])].sort();
 
@@ -275,11 +297,77 @@ export function verifyMigration(
     statusRetiredWithoutSupersession,
     endedWithoutSuccessor,
     failed,
+    eventLogs,
     complete:
       missingRecords.length === 0 &&
       missingEdges.length === 0 &&
       wronglyRetired.length === 0 &&
       wronglyActive.length === 0 &&
+      eventLogs.every(log => log.stored) &&
       failed.length === 0,
   };
+}
+
+/**
+ * Did each work-item event log's wording arrive?
+ *
+ * Compared as TEXT, not as a count of parsed events: the point of storing the
+ * log is that a line the reader misunderstands is still readable afterwards, so
+ * the check has to be blind to the reader. Only line endings and trailing
+ * whitespace are normalised, exactly as the importer normalises them.
+ */
+function verifyEventLogs(
+  db: VerifyStore,
+  project: string,
+  sources: VerifySource[],
+  failed: VerifyReport['failed'],
+): VerifyReport['eventLogs'] {
+  const out: VerifyReport['eventLogs'] = [];
+
+  for (const source of sources) {
+    if (source.kind !== 'vorgaenge') continue;
+    const path = join(resolve(source.path), EVENT_LOG_FILE);
+    if (!existsSync(path)) continue;
+
+    let content: string;
+    try {
+      content = readFileSync(path, 'utf8');
+    } catch (error) {
+      failed.push({ file: path, error: error instanceof Error ? error.message : String(error) });
+      continue;
+    }
+
+    const expected = normaliseForCompare(content);
+    const sourceEvents = parseEreignisLog(content).events.length;
+
+    const rows = db.prepare(`
+      SELECT narrative FROM observations
+       WHERE project = ? AND source_kind = 'curated'
+         AND json_extract(metadata, '$.kind') = 'ereignis-log'
+         AND source_path = ?
+         AND valid_to IS NULL
+    `).all(project, path) as Array<{ narrative: string | null }>;
+
+    if (rows.length === 0) {
+      out.push({ path, sourceEvents, stored: false });
+      continue;
+    }
+    const storedText = normaliseForCompare(rows[0].narrative ?? '');
+    if (storedText === expected) {
+      out.push({ path, sourceEvents, stored: true });
+    } else {
+      out.push({
+        path,
+        sourceEvents,
+        stored: false,
+        mismatch: `the stored log differs from the file (${storedText.length} vs ${expected.length} characters) — re-run the import`,
+      });
+    }
+  }
+
+  return out;
+}
+
+function normaliseForCompare(text: string): string {
+  return text.replace(/\r\n/g, '\n').replace(/\s+$/, '');
 }

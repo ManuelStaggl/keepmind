@@ -42,6 +42,15 @@ export interface Ereignis {
   felder: Record<string, string>;
   /** 1-based line in the log. */
   line: number;
+  /**
+   * The line as written, trimmed of surrounding whitespace only.
+   *
+   * Kept because the log is a SOURCE, and the corpus rule for sources is that
+   * their wording survives. Everything else on this object is an
+   * interpretation of this string; if the reader is ever wrong about one, the
+   * line it was wrong about is still here to be read.
+   */
+  raw: string;
 }
 
 export interface EreignisLog {
@@ -88,7 +97,7 @@ export function parseEreignisLog(content: string): EreignisLog {
       unknownKinds.push({ line, art, vorgang });
     }
 
-    events.push({ datum: parts[0], art, vorgang, felder, line });
+    events.push({ datum: parts[0], art, vorgang, felder, line, raw: text });
   });
 
   return { events, malformed, unknownKinds };

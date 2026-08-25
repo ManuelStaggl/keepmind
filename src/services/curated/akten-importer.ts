@@ -107,6 +107,35 @@ export interface CuratedStore {
     discoveryTokens?: number,
     overrideTimestampEpoch?: number,
   ): { id: number; createdAtEpoch: number };
+  /**
+   * Optional so the importer keeps working against an older store. Used to put
+   * DERIVED fields back in step on a row that `storeObservation` reused: its
+   * dedup key is the wording, and a work item's state does not live in its
+   * wording — it comes from the event log, which moves on its own.
+   */
+  refreshCuratedDerived?(
+    id: number,
+    fields: { subtitle?: string | null; metadata?: string | null; lastVerifiedAt?: number | null },
+  ): void;
+  /**
+   * Optional for the same reason. Closes the window of any EARLIER active
+   * revision of the entry just written — the file importers reach
+   * `storeObservation` directly, which does not do it, so a changed source file
+   * used to leave two revisions active at once.
+   */
+  closeOtherCuratedRevisions?(
+    project: string,
+    curatedId: string,
+    keepId: number,
+    nowEpoch?: number,
+  ): { closed: number };
+  /** The same, for a source that carries no entry number — the event log. */
+  closeOtherCuratedRowsForSource?(
+    project: string,
+    sourcePath: string,
+    keepId: number,
+    nowEpoch?: number,
+  ): { closed: number };
 }
 
 export interface ImportOptions {
@@ -248,6 +277,16 @@ export function importAkteFile(
     0,
     options.nowEpoch,
   );
+
+  // Exactly one revision of a record may be active. `storeObservation`
+  // de-duplicates on the wording, so an unchanged file lands back on its own
+  // row and this closes nothing; a CHANGED file inserts a new row, and without
+  // this the previous wording stayed active beside it — invisible in a read
+  // (which takes the newest) and very visible in search, where both are
+  // embedded and the record answers twice.
+  if (parsed.id && store.closeOtherCuratedRevisions) {
+    store.closeOtherCuratedRevisions(options.project, parsed.id, result.id, options.nowEpoch);
+  }
 
   // Edges are replaced per file, so re-reading one changed record neither
   // drops what other files declared nor leaves its own stale edges behind.

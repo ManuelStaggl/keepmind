@@ -75,6 +75,11 @@ describe('importAktenDirectory — the model-free guarantee', () => {
           return { id: stored.length, createdAtEpoch: 1 };
         },
         replaceEdgesForSource: () => ({ inserted: 0, removed: 0 }),
+        // Checked when it was added: a single UPDATE that closes the validity
+        // window of an earlier revision of the same record. It writes to the
+        // observations table and enqueues nothing, so the model-free property
+        // is unchanged.
+        closeOtherCuratedRevisions: () => ({ closed: 0 }),
       } as any,
       {
         get(target, prop: string) {
