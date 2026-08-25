@@ -43,6 +43,7 @@ product is broken.
 | **B** | A paraphrase of one record's content, in different words | hit@1, hit@10, MRR |
 | **C** | "Was gilt zu X?" — several records are correct | hit@1, hit@10, MRR |
 | **D** | The same term in both German spellings | agreement between the two result lists |
+| **E** | A sentence lifted verbatim out of a record's **body** | hit@1, hit@10, MRR |
 
 Sets A and K are the same 14 pairs asked two ways, and the split is the point:
 K isolates the tokenizer, A shows what happens once ordinary words compete with
@@ -51,6 +52,19 @@ field of the records that close those work items.
 
 Set D scores agreement, not relevance. Two spellings that both find nothing
 score 0, not a vacuous 1 — equally blind is not equally good.
+
+Set E is the one set that quotes the corpus, and it is not a contradiction of
+the paraphrase rule below — it measures something else. It asks whether a
+known-present exact match is RANKED FIRST, which is a question about the
+ranking, not about retrieval. Its cases are read out of the corpus at run time
+rather than written down, because a hand-copied quotation that drifts by one
+word stops measuring exact wording without saying so. It runs on the `worker`
+channel only: the promotion it measures lives in `SearchManager`, so scoring
+the direct channels would report the absence of a mechanism they never had.
+
+**Why the BODY and not the title.** Five title quotes returned their record at
+rank 1 before anything was changed — `title` carries bm25 weight 10. The obvious
+test could not fail, which is exactly why the failure went unseen for so long.
 
 There is **no pass/fail verdict**. No threshold makes retrieval "good", and
 inventing one here would repeat the mistake B8 forbids for ranking: real hits
@@ -186,3 +200,57 @@ nothing — 0% where it had been 100% at rank 10, and no error anywhere. A test 
 `tests/sqlite/fts-query.test.ts` pins the query half, and `SessionSearch`
 migrates an existing index rather than offering a switch, precisely so the two
 halves cannot drift apart.
+
+## `vor-p4.json`, `nach-schreibweisen.json`, `nach-wortlaut.json` — P4
+
+Same corpus (333 records), three runs on one day, so these three ARE comparable
+to each other.
+
+`vor-p4.json` is the state before either change:
+
+| Channel | B @1/@10 | C @1/@10 | D agreement |
+|---|---|---|---|
+| fts | 75% / 79% | 60% / 80% | 89% (8/9 identical) |
+| vector | 71% / 92% | 80% / 100% | 13% (0/9) |
+| **worker** | **83% / 96%** | 70% / 100% | 27% (0/9) |
+
+### `nach-schreibweisen.json` — the query is spelled the way the corpus spells it
+
+`src/services/sqlite/corpus-spelling.ts`. A vector has no OR: the keyword channel
+answers "Pruefung" and "Prüfung" alike by expanding both, and the semantic
+channel can only pick one. It now picks the one `observations_fts`'s own
+vocabulary attests more often, so the two spellings become the SAME query.
+
+| Channel | D agreement | everything else |
+|---|---|---|
+| fts | 89% (8/9) | unchanged — this channel was never the problem |
+| vector | 13% → **100%** (9/9) | **unchanged**, every set, to the point |
+| worker | 27% → **100%** (9/9) | **unchanged**, every set, to the point |
+
+The A/K/B/C figures not moving at all is the result, not an absence of one: the
+rewrite fires only where another spelling is ATTESTED, so an ordinary question
+reaches the embedder byte-identical. A variant the corpus does not contain is
+never used — `ue → ü` turns "Steuerung" into "Steürung", and in a vector channel
+a non-word is not free the way it is in a keyword channel: it still has a hundred
+nearest neighbours, and they are noise.
+
+### `nach-wortlaut.json` — a verbatim hit leads
+
+`SearchManager.promoteExactWording` + `buildPhraseMatchExpression`. FTS5's bm25
+does not reward adjacency, so the keyword leg cannot tell a record that contains
+your sentence from one that uses the same words apart — and that undifferentiated
+score carries a quarter of the fused weight against a similarity score carrying
+three quarters.
+
+| Set | before | after |
+|---|---|---|
+| **E verbatim wording** | @1 56% · @10 88% · MRR 0.656 | **@1 100% · @10 100% · MRR 1.000** |
+| A / K / B / C / D | — | unchanged |
+
+The before-figures were measured the same way set E measures now, against the
+worker running the previous build; they predate the set existing in this
+directory, which is why they are written here rather than sitting in a saved run.
+
+Nothing is dropped and nothing is demoted: the fused ranking follows the
+promoted rows in full. A question that quotes nothing — the ordinary case —
+returns the fused list untouched, which is what the unchanged A/K/B/C say.

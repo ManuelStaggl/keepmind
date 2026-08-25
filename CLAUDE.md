@@ -457,6 +457,41 @@ with A/K/B/C unchanged to the point.
   exists: a per-query failed open logged thousands of lines from one broken
   install.
 
+### A record that contains your wording is not ranked by how much it resembles it
+
+FTS5's bm25 does not reward adjacency, so the keyword leg cannot tell a record
+that contains your sentence from one that uses the same words apart — and that
+undifferentiated score carries 0.25 of the fused weight against a similarity
+score carrying 0.75. Measured against the running worker over 25 sentences
+lifted verbatim out of records' BODIES: rank 1 in 56% of cases, not in the top
+ten at all in 12%. Now 100% at rank 1 (`evals/memory` set E).
+
+- **A title quote proves nothing.** `title` is bm25 weight 10, and all five
+  title quotes tried already ranked first before anything changed. The obvious
+  test could not fail, which is why the failure went unseen.
+- **It is a promotion, not a third channel in the fusion.** "This record
+  contains these words in this order" is a fact, not a score. RRF ranks by
+  reciprocal rank, so fusing it would re-enter it as "rank 1 of a third list"
+  and let two resemblance channels outvote it. Same reasoning as the
+  supersession marker: a deterministic answer is not improved by being averaged
+  with a guess.
+- **Stopwords are KEPT in a phrase**, unlike in `queryTerms`. A phrase is a
+  claim about adjacency, and dropping "ist" out of "Widerspruch ist Pflicht"
+  asks about a sentence nobody wrote. The spelling variants are produced over
+  the whole sentence rather than per word, for the same reason: three words with
+  three variants each are not 27 phrases, they are one sentence spelled three
+  ways.
+- **Four tokens is the floor, and it is not a relevance threshold.** It decides
+  whether the question is the kind that can be answered verbatim at all; two or
+  three adjacent words are a turn of phrase, and promoting everything that
+  contains one replaces the ranking with an accident of German.
+- **Nothing is dropped and nothing is demoted.** The fused ranking follows in
+  full, minus the ids that moved up. A query that quotes nothing — the ordinary
+  case — returns it untouched, which is what the unchanged A/K/B/C measure.
+- **The probe runs through the same `buildFilterClause` as the keyword leg**, so
+  a promoted row cannot be one the caller filtered out, and hydration applies
+  project, origin and platform filters once more by id.
+
 ### A search says whether the entry it returns still applies
 
 `supersession.ts` decides which of two records about one subject holds, from a

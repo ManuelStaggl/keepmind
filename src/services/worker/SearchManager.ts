@@ -6,7 +6,7 @@ import { ChromaSync } from '../sync/ChromaSync.js';
 import { FormattingService } from './FormattingService.js';
 import { TimelineService } from './TimelineService.js';
 import type { TimelineItem } from './TimelineService.js';
-import type { ObservationSearchResult, SessionSummarySearchResult, UserPromptSearchResult } from '../sqlite/types.js';
+import type { ObservationSearchResult, SessionSummarySearchResult, UserPromptSearchResult, SearchOptions } from '../sqlite/types.js';
 import { logger } from '../../utils/logger.js';
 import { getProjectContext } from '../../utils/project-name.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
@@ -171,6 +171,54 @@ export class SearchManager {
     dense.forEach((id, i) => score.set(id, (score.get(id) ?? 0) + wDense / (k + i + 1)));
     sparse.forEach((id, i) => score.set(id, (score.get(id) ?? 0) + wSparse / (k + i + 1)));
     return [...score.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([id]) => id);
+  }
+
+  /**
+   * Put the records that contain the query VERBATIM at the front of a ranking.
+   *
+   * WHY THIS IS A PROMOTION AND NOT A THIRD CHANNEL IN THE FUSION. "This record
+   * contains these words in this order" is a fact, not a score. Fusing it would
+   * turn it back into one — RRF ranks by reciprocal rank, so a verbatim hit
+   * would enter as "rank 1 of a third list" and could still be outvoted by two
+   * channels that merely resemble the query. The same reasoning the supersession
+   * marker rests on: a deterministic answer is not improved by being averaged
+   * with a guess.
+   *
+   * WHAT IT FIXES. FTS5's bm25 does not reward adjacency, so the keyword leg
+   * cannot tell a record that contains your sentence from one that uses the same
+   * words apart — and that undifferentiated score carries a quarter of the
+   * weight against a similarity score carrying three quarters. Measured against
+   * the running worker, 25 sentences lifted verbatim out of records' BODIES
+   * (a title quote proves nothing: `title` is bm25 weight 10, and every one of
+   * those already ranked first):
+   *
+   *   before   @1 56%   @10 88%   MRR 0.656
+   *
+   * NOTHING IS DROPPED. The fused ranking follows in full, minus the ids that
+   * moved up. A verbatim probe that finds nothing — the ordinary case, since
+   * most questions are not quotations — returns the fused list untouched.
+   */
+  private promoteExactWording(query: string, fused: number[], options: SearchOptions): number[] {
+    if (!query || fused.length === 0) return fused;
+
+    let verbatim: number[];
+    try {
+      verbatim = this.sessionSearch.observationIdsMatchingPhrase(query, options);
+    } catch (error) {
+      logger.warn('SEARCH', 'Exact-wording promotion skipped', {}, error instanceof Error ? error : undefined);
+      return fused;
+    }
+    if (verbatim.length === 0) return fused;
+
+    // A verbatim hit is promoted even when the fused list did not contain it,
+    // and that is the point rather than an oversight: three of the measured
+    // misses were not in the top ten at all. It is safe because the probe runs
+    // through the SAME `buildFilterClause` as the keyword leg — which is itself
+    // not recency-filtered — and because hydration applies project, origin and
+    // platform filters once more by id.
+    const promoted = new Set(verbatim);
+    logger.debug('SEARCH', 'Exact wording found — promoting', { count: verbatim.length });
+    return [...verbatim, ...fused.filter(id => !promoted.has(id))];
   }
 
   /** BM25 (FTS5) row ids for a doc type, in rank order. Errors degrade to []. */
@@ -599,8 +647,13 @@ export class SearchManager {
         const denseObsScoped = sourceKind === 'all'
           ? denseObs
           : this.sessionStore.filterObservationIdsBySourceKind(denseObs, sourceKind);
+        const obsScopedOptions = { ...options, type: obs_type, concepts, files, sourceKind };
         const obsIds = searchObservations
-          ? this.rrfFuse(denseObsScoped, this.ftsIdsFor('observation', query, { ...options, type: obs_type, concepts, files }), fuseOptions)
+          ? this.promoteExactWording(
+              query,
+              this.rrfFuse(denseObsScoped, this.ftsIdsFor('observation', query, obsScopedOptions), fuseOptions),
+              obsScopedOptions,
+            )
           : [];
         const sessionIds = searchSessions
           ? this.rrfFuse(denseSessions, this.ftsIdsFor('session_summary', query, options), fuseOptions)

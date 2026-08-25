@@ -127,6 +127,64 @@ export function identifierTerms(raw: string): string[] {
 }
 
 /**
+ * How many words make a query a WORDING rather than a couple of keywords.
+ *
+ * Not a relevance threshold — it decides whether the question is the kind that
+ * can be answered verbatim at all. Two or three adjacent words are a turn of
+ * phrase ("das ist so"), and promoting everything that contains one would
+ * replace the ranking with an accident of German.
+ */
+const MIN_PHRASE_TOKENS = 4;
+
+/**
+ * The query as an exact PHRASE, or null when it is not one.
+ *
+ * WHY THIS EXISTS, SEPARATELY FROM THE EXPRESSION ABOVE. `buildFtsMatchExpression`
+ * ORs the terms, deliberately: requiring all of them is nearly as empty as
+ * requiring the phrase. But OR also means bm25 cannot tell a record that
+ * contains your sentence from one that merely uses the same words elsewhere —
+ * FTS5's bm25 does not reward adjacency — and the fused ranking then weights
+ * that undifferentiated score at 0.25 against a similarity score at 0.75.
+ * Measured on the live corpus: a sentence lifted verbatim out of a record's
+ * body returned that record at rank 1 in 56% of cases, and not in the top ten
+ * at all in 12%.
+ *
+ * So the phrase is asked as its own question. It is a DETERMINISTIC fact —
+ * this record contains these words in this order — not a score, and it is used
+ * as one: see `SearchManager.promoteExactWording`.
+ *
+ * A phrase the user quoted themselves is taken as written, exactly as the OR
+ * builder takes it. The spelling variants are produced over the whole sentence
+ * rather than per word, because a phrase has to stay contiguous: three words
+ * with three variants each are not 27 phrases worth asking, they are the same
+ * sentence spelled three ways.
+ */
+export function buildPhraseMatchExpression(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const quoted = trimmed.match(/"([^"]+)"/g);
+  if (quoted) {
+    const phrases = quoted.map(q => quote(q.slice(1, -1).trim())).filter(p => p !== '""');
+    if (phrases.length > 0) return phrases.join(' AND ');
+  }
+
+  // Stopwords are KEPT here, unlike in queryTerms: a phrase is an adjacency
+  // claim, and dropping "ist" out of "Widerspruch ist Pflicht" asks about a
+  // sentence nobody wrote.
+  const tokens = (trimmed.match(/[\p{L}\p{N}-]+/gu) ?? [])
+    .map(token => token.replace(/^-+|-+$/g, ''))
+    .filter(token => token.length > 0);
+  if (tokens.length < MIN_PHRASE_TOKENS) return null;
+  // All-stopword adjacency ("und dann ist es") is a sentence fragment, not a
+  // wording anyone would search for.
+  if (tokens.filter(token => !STOPWORDS.has(fold(token))).length < 2) return null;
+
+  const spellings = new Set(spellingVariants(tokens.join(' ')).map(quote));
+  return [...spellings].join(' OR ');
+}
+
+/**
  * Build the MATCH expression, or null when there is nothing to search for.
  *
  * Null rather than an empty string: an empty MATCH is a syntax error, and the

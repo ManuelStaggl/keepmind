@@ -23,6 +23,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { buildVerbatimCases, rankOf, summariseVerbatim, type VerbatimCase, type VerbatimSummary } from './verbatim.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -260,6 +261,44 @@ async function runWorkerChannel(questions: Question[], project: string): Promise
   return { available: true, outcomes };
 }
 
+/**
+ * Set E on the worker channel, and ONLY on the worker channel.
+ *
+ * The exact-wording promotion lives in `SearchManager`, between the fused
+ * ranking and the answer — the same place the ranking fault lived that this
+ * harness gained a worker channel to catch. Running set E against
+ * `SessionSearch` or the vector index directly would measure the absence of a
+ * mechanism those paths never had, and report it as a score.
+ */
+async function runVerbatimSet(cases: VerbatimCase[], project: string): Promise<{ available: boolean; reason?: string; summary: VerbatimSummary | null; ranks: number[] }> {
+  if (cases.length === 0) {
+    return { available: false, reason: 'no record in this project has quotable prose', summary: null, ranks: [] };
+  }
+
+  let base: string;
+  try {
+    const port = readFileSync(join(homedir(), '.keepmind', 'worker.port'), 'utf8').trim();
+    base = `http://127.0.0.1:${port}`;
+  } catch (error) {
+    return { available: false, reason: `no worker.port (${error instanceof Error ? error.message : error})`, summary: null, ranks: [] };
+  }
+
+  const ranks: number[] = [];
+  try {
+    for (const item of cases) {
+      const url = `${base}/api/search?query=${encodeURIComponent(item.sentence)}&project=${encodeURIComponent(project)}&limit=${K}&format=json`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+      const body = await response.json() as { observations?: Array<{ id?: number }> };
+      const ids = (body.observations ?? []).map(row => Number(row.id)).filter(Number.isFinite);
+      ranks.push(rankOf(item.id, ids));
+    }
+  } catch (error) {
+    return { available: false, reason: `worker unreachable — ${error instanceof Error ? error.message : error}`, summary: null, ranks };
+  }
+  return { available: true, summary: summariseVerbatim(ranks), ranks };
+}
+
 function summarise(outcomes: QuestionOutcome[], set: string) {
   const rows = outcomes.filter(o => o.set === set);
   if (rows.length === 0) return null;
@@ -299,10 +338,27 @@ async function main(): Promise<void> {
   const questions = loadQuestions();
 
   const { SessionStore } = await import('../../src/services/sqlite/SessionStore.js');
-  const store = new SessionStore() as unknown as { db: { prepare: (s: string) => { get: (p: string) => { c: number } } } };
+  const store = new SessionStore() as unknown as {
+    db: {
+      prepare: (s: string) => {
+        get: (p: string) => { c: number };
+        all: (p: string) => Array<{ id: number; title: string | null; narrative: string | null }>;
+      };
+    };
+  };
   const corpus = store.db
     .prepare("SELECT COUNT(*) c FROM observations WHERE source_kind = 'curated' AND project = ?")
     .get(project).c;
+
+  // Set E quotes the corpus back at itself, so it is read from the corpus —
+  // active revisions only, since an earlier wording is a different text and
+  // asking for it would measure the revision machinery instead.
+  const verbatimCases = buildVerbatimCases(
+    store.db
+      .prepare("SELECT id, title, narrative FROM observations WHERE source_kind = 'curated' AND project = ? AND valid_to IS NULL AND narrative IS NOT NULL ORDER BY id")
+      .all(project),
+    25,
+  );
 
   const fts = await runFtsChannel(questions, project);
   const vector = skipVector
@@ -311,6 +367,9 @@ async function main(): Promise<void> {
   const worker = skipWorker
     ? { available: false, reason: 'skipped via --no-worker', outcomes: [] }
     : await runWorkerChannel(questions, project);
+  const verbatim = skipWorker
+    ? { available: false, reason: 'skipped via --no-worker', summary: null, ranks: [] }
+    : await runVerbatimSet(verbatimCases, project);
 
   const report = {
     project,
@@ -344,7 +403,13 @@ async function main(): Promise<void> {
         B: summarise(worker.outcomes, 'B'),
         C: summarise(worker.outcomes, 'C'),
         D: summarise(worker.outcomes, 'D'),
+        E: verbatim.summary,
       },
+    },
+    verbatim: {
+      available: verbatim.available,
+      reason: verbatim.reason,
+      cases: verbatimCases.map((item, index) => ({ id: item.id, title: item.title, sentence: item.sentence, rank: verbatim.ranks[index] ?? 0 })),
     },
     perQuestion: { fts: fts.outcomes, vector: vector.outcomes, worker: worker.outcomes },
   };
@@ -381,6 +446,8 @@ async function main(): Promise<void> {
     if (b) console.log(`    B  paraphrase → record     @1 ${pct(b.hit1)}   @10 ${pct(b.hit10)}   MRR ${b.mrr.toFixed(3)}   (n=${b.n})`);
     if (c) console.log(`    C  "what applies to X?"    @1 ${pct(c.hit1)}   @10 ${pct(c.hit10)}   MRR ${c.mrr.toFixed(3)}   (n=${c.n})`);
     if (d) console.log(`    D  spelling agreement      ${pct(d.agreement)}        identical ${d.identical}/${d.n}`);
+    const e = (channel as { E?: VerbatimSummary | null }).E;
+    if (e) console.log(`    E  verbatim wording        @1 ${pct(e.hit1)}   @10 ${pct(e.hit10)}   MRR ${e.mrr.toFixed(3)}   (n=${e.n})`);
     console.log('');
   }
 

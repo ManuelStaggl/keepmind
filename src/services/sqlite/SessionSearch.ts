@@ -15,7 +15,7 @@ import {
   UserPromptRow
 } from './types.js';
 import { DEFAULT_PLATFORM_SOURCE, normalizePlatformSource } from '../../shared/platform-source.js';
-import { buildFtsMatchExpression } from './fts-query.js';
+import { buildFtsMatchExpression, buildPhraseMatchExpression } from './fts-query.js';
 import { normalizeSourceKind, sourceKindCondition } from './source-kind.js';
 
 /** The observations FTS table, named once so the ranking check cannot drift. */
@@ -31,6 +31,16 @@ export class SessionSearch {
   private db: Database;
 
   private static readonly MISSING_SEARCH_INPUT_MESSAGE = 'Either query or filters required for search';
+
+  /**
+   * How many verbatim hits the exact-wording probe returns.
+   *
+   * A bound on the query, not a judgement about relevance: every row it
+   * returns literally contains the wording that was searched for. A distinctive
+   * sentence matches a handful of records; a cap only matters if one somehow
+   * matches hundreds, and then the ordinary ranking is the better answer anyway.
+   */
+  private static readonly PHRASE_MATCH_LIMIT = 20;
 
   constructor(dbPathOrDb: string | Database = DB_PATH) {
     if (dbPathOrDb instanceof Database) {
@@ -415,6 +425,51 @@ export class SessionSearch {
 
     logger.warn('DB', 'Text search unavailable: ChromaDB disabled and FTS5 not available');
     return [];
+  }
+
+  /**
+   * Row ids of observations that contain the query VERBATIM, in bm25 order.
+   *
+   * Ids rather than rows: the caller already hydrates, and this exists only to
+   * say which records hold the wording — not to be a second search path with
+   * its own result shape that would then have to agree with the first.
+   *
+   * The caller's `limit` and `orderBy` are deliberately NOT honoured. This is
+   * not a result list; it is the leading edge of one, and its own cap is about
+   * bounding the query rather than about how many results the caller wants.
+   * Every FILTER is honoured, through the same `buildFilterClause` the ordinary
+   * search uses — a promoted row that the filters would have excluded is a row
+   * the caller asked not to see.
+   */
+  observationIdsMatchingPhrase(query: string, options: SearchOptions = {}): number[] {
+    if (!this._fts5Available) return [];
+    const expression = buildPhraseMatchExpression(query);
+    if (expression === null) return [];
+
+    const { limit: _limit, offset: _offset, orderBy: _orderBy, ...filters } = options;
+    const params: any[] = [];
+    const filterClause = this.buildFilterClause(filters, params, 'o');
+
+    const sql = `
+      SELECT o.id
+      FROM observations o
+      JOIN observations_fts ON observations_fts.rowid = o.id
+      WHERE observations_fts MATCH ?
+      ${filterClause ? 'AND ' + filterClause : ''}
+      ORDER BY bm25(observations_fts, ${OBSERVATION_BM25_WEIGHTS.join(', ')}) ASC
+      LIMIT ?
+    `;
+    params.unshift(expression);
+    params.push(SessionSearch.PHRASE_MATCH_LIMIT);
+
+    try {
+      return (this.db.prepare(sql).all(...params) as Array<{ id: number }>).map(row => row.id);
+    } catch (error) {
+      // An exact-wording probe that fails must cost nothing but the promotion:
+      // the ordinary ranking is already computed and still correct.
+      logger.warn('DB', 'Exact-wording probe failed', {}, error instanceof Error ? error : undefined);
+      return [];
+    }
   }
 
   searchSessions(query: string | undefined, options: SearchOptions = {}): SessionSummarySearchResult[] {
