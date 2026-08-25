@@ -10,6 +10,9 @@ import type { ObservationSearchResult, SessionSummarySearchResult, UserPromptSea
 import { logger } from '../../utils/logger.js';
 import { getProjectContext } from '../../utils/project-name.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
+import { normalizeSourceKind } from '../sqlite/source-kind.js';
+import { CURATED_LEGEND, curatedHitOf, observationGroupLabel } from '../curated/search-label.js';
+import type { SourceKindFilter } from '../sqlite/source-kind.js';
 import { formatDate, formatTime, formatDateTime, extractFirstFile, groupByDate, estimateTokens } from '../../shared/timeline-formatting.js';
 import { ModeManager } from '../domain/ModeManager.js';
 
@@ -171,10 +174,39 @@ export class SearchManager {
   }
 
   /** BM25 (FTS5) row ids for a doc type, in rank order. Errors degrade to []. */
+  /**
+   * How many semantic candidates to ask the vector index for.
+   *
+   * The origin filter is the ONE search filter that cannot be pushed down into
+   * the index: `vec_items` filters on its own metadata columns (doc_type,
+   * project, platform_source, obs_type) and `source_kind` is not one of them —
+   * adding it means re-embedding the whole corpus, which is a real cost for a
+   * filter this narrow. So the candidates arrive unfiltered and hydration cuts
+   * them down.
+   *
+   * The candidates are cut down before fusion rather than after
+   * (`filterObservationIdsBySourceKind`), so the fusion cap is spent on rows
+   * that can still be returned. That fixes the correctness problem but not the
+   * recall one: curated rows are a low single-digit percentage of the store, so
+   * a top-100 KNN leaves a handful of survivors and the semantic channel goes
+   * quiet — the search still answers, from keyword hits alone, and looks like
+   * it worked. Widening the pool when a source filter is active keeps that
+   * channel contributing. It is a wider KNN over a local index, not a second
+   * search, and only happens when someone asked for one origin by name.
+   */
+  private denseCandidateLimit(sourceKind: SourceKindFilter): number {
+    return sourceKind === 'all'
+      ? SearchManager.DENSE_CANDIDATES
+      : SearchManager.DENSE_CANDIDATES_FILTERED;
+  }
+
+  private static readonly DENSE_CANDIDATES = 100;
+  private static readonly DENSE_CANDIDATES_FILTERED = 1000;
+
   private ftsIdsFor(
     docType: string,
     query: string,
-    options: { project?: string; platformSource?: string; type?: any; concepts?: any; files?: any; limit?: number } = {}
+    options: { project?: string; platformSource?: string; type?: any; concepts?: any; files?: any; limit?: number; sourceKind?: SourceKindFilter } = {}
   ): number[] {
     try {
       if (docType === 'observation') {
@@ -305,7 +337,12 @@ export class SearchManager {
           lines.push('');
         } else if (item.type === 'observation') {
           const obs = item.data as ObservationSearchResult;
-          const file = extractFirstFile(obs.files_modified, cwd, obs.files_read);
+          // Same rule as search: a lasting entry is grouped by what it IS, not
+          // by a file it never touched. Timeline is step 2 of the three-layer
+          // sequence, so a hit marked in step 1 and unmarked here would undo
+          // the marking on the way to reading it.
+          const file = observationGroupLabel(obs)
+            ?? extractFirstFile(obs.files_modified, cwd, obs.files_read);
 
           if (file !== currentFile) {
             if (tableOpen) {
@@ -406,6 +443,19 @@ export class SearchManager {
     }
     delete normalized.platform_source;
 
+    // Origin filter. Spelled three ways by three callers (the MCP tool schema
+    // says `sourceKind`, the HTTP layer forwards whatever the query string
+    // carried, and the column itself is `source_kind`), so all three are read
+    // and exactly one is emitted. Normalized eagerly rather than at each use:
+    // an unrecognised value must widen to 'all', and a value that reaches the
+    // SQL layer unnormalized would be compared literally and match nothing —
+    // which reads as "there is no curated corpus", not as "you typo'd".
+    normalized.sourceKind = normalizeSourceKind(
+      normalized.sourceKind ?? normalized.source_kind ?? normalized.source
+    );
+    delete normalized.source_kind;
+    delete normalized.source;
+
     return normalized;
   }
 
@@ -419,9 +469,18 @@ export class SearchManager {
     let platformScopedChromaZeroFallback = false;
     let chromaFailureReason: { message: string; isConnectionError: boolean } | null = null;
 
+    // `normalizeParams` guarantees this is one of the three values.
+    const sourceKind: SourceKindFilter = options.sourceKind ?? 'all';
+
+    // Session summaries and user prompts have no origin of their own: a summary
+    // is a model's account of a session and a prompt is a transcript line, so
+    // neither can ever be curated. Asking for curated hits therefore excludes
+    // both tables entirely — that, not a WHERE clause, is what makes "only
+    // lasting entries" return only lasting entries.
+    const curatedOnly = sourceKind === 'curated';
     const searchObservations = !type || type === 'observations';
-    const searchSessions = !type || type === 'sessions';
-    const searchPrompts = !type || type === 'prompts';
+    const searchSessions = (!type || type === 'sessions') && !curatedOnly;
+    const searchPrompts = (!type || type === 'prompts') && !curatedOnly;
 
     if (!query) {
       logger.debug('SEARCH', 'Filter-only query (no query text), using direct SQLite filtering', { enablesDateFilters: true });
@@ -470,7 +529,7 @@ export class SearchManager {
           : { $and: whereFilters };
 
       try {
-        const chromaResults = await this.queryChroma(query, 100, whereFilter);
+        const chromaResults = await this.queryChroma(query, this.denseCandidateLimit(sourceKind), whereFilter);
         chromaSucceeded = true;
         logger.debug('SEARCH', 'Vector store returned semantic matches', { matchCount: chromaResults.ids.length });
 
@@ -528,8 +587,20 @@ export class SearchManager {
           logger.debug('SEARCH', 'Identifier query — leaning on keyword ranks', { count: identifiers.length });
         }
 
+        // The origin filter has to be applied to the semantic candidates BEFORE
+        // fusion. Hydration filters too, and that is what makes the result
+        // correct — but fusion caps the list it produces, and the semantic leg
+        // carries three quarters of the weight, so filtering only afterwards
+        // means the cap is filled with rows about to be discarded. Measured:
+        // 1 of 20 matching entries returned.
+        // Skipped outright for the default, rather than relying on the filter
+        // being a no-op there: an unfiltered search must reach the store on
+        // exactly the path it always did.
+        const denseObsScoped = sourceKind === 'all'
+          ? denseObs
+          : this.sessionStore.filterObservationIdsBySourceKind(denseObs, sourceKind);
         const obsIds = searchObservations
-          ? this.rrfFuse(denseObs, this.ftsIdsFor('observation', query, { ...options, type: obs_type, concepts, files }), fuseOptions)
+          ? this.rrfFuse(denseObsScoped, this.ftsIdsFor('observation', query, { ...options, type: obs_type, concepts, files }), fuseOptions)
           : [];
         const sessionIds = searchSessions
           ? this.rrfFuse(denseSessions, this.ftsIdsFor('session_summary', query, options), fuseOptions)
@@ -757,8 +828,19 @@ export class SearchManager {
     const cwd = process.cwd();
     const resultsByDate = groupByDate(limitedResults, item => item.created_at);
 
+    const curatedCount = observations.filter(obs => curatedHitOf(obs) !== null).length;
+
     const lines: string[] = [];
-    lines.push(`Found ${totalResults} result(s)${matching(query)} (${observations.length} obs, ${sessions.length} sessions, ${prompts.length} prompts)`);
+    lines.push(
+      curatedOnly
+        ? `Found ${curatedCount} lasting entr${curatedCount === 1 ? 'y' : 'ies'}${matching(query)} — verbatim only, nothing observed.`
+        : `Found ${totalResults} result(s)${matching(query)} (${observations.length} obs, ${sessions.length} sessions, ${prompts.length} prompts)`
+    );
+    // The legend earns its tokens only when the reader is actually holding both
+    // kinds of text, or asked for one of them by name.
+    if (curatedCount > 0 || curatedOnly) {
+      lines.push(CURATED_LEGEND);
+    }
     lines.push('');
 
     for (const [day, dayResults] of resultsByDate) {
@@ -769,7 +851,11 @@ export class SearchManager {
       for (const result of dayResults) {
         let file = 'General';
         if (result.type === 'observation') {
-          file = extractFirstFile(result.data.files_modified, cwd, result.data.files_read);
+          // A curated entry touched no file, so the file grouping has nothing
+          // to say about it and used to file it under `General` — next to
+          // model summaries and spelled like one.
+          file = observationGroupLabel(result.data)
+            ?? extractFirstFile(result.data.files_modified, cwd, result.data.files_read);
         }
         if (!resultsByFile.has(file)) {
           resultsByFile.set(file, []);

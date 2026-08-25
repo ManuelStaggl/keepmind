@@ -68,6 +68,24 @@ export function isCuratedId(id: string): boolean {
 }
 
 /**
+ * A stored row's entry number — the JS side of `CURATED_ID_SQL`.
+ *
+ * Same COALESCE, same order, same reason: a caller holding a row rather than a
+ * query still has to look under both namespace keys, and doing it inline is how
+ * the SQL side ended up with two copies of itself.
+ */
+export function curatedIdOfRow(metadata: string | null | undefined): string | null {
+  if (!metadata) return null;
+  try {
+    const parsed = JSON.parse(metadata) as { record_id?: unknown; vorgang_id?: unknown };
+    const id = parsed?.record_id ?? parsed?.vorgang_id;
+    return typeof id === 'string' && id.trim() ? id.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * What a stored row is, preferring what the row itself declares.
  *
  * `metadata.kind` is written by the work-item importer; decision records carry

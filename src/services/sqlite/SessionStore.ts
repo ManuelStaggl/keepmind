@@ -13,6 +13,8 @@ import {
 } from '../../types/database.js';
 import type { ObservationSearchResult, SessionSummarySearchResult, UsageChannel } from './types.js';
 import { USAGE_CHANNEL_COLUMNS } from './types.js';
+import type { SourceKindFilter } from './source-kind.js';
+import { normalizeSourceKind, sourceKindCondition } from './source-kind.js';
 import { computeObservationContentHash } from './observations/store.js';
 import { parseFileList } from './observations/files.js';
 import { redactSecrets, redactSecretsDeep, type RedactOptions } from '../redaction/redact-secrets.js';
@@ -2176,13 +2178,43 @@ export class SessionStore {
     return stmt.get(id, normalizePlatformSource(platformSource)) as ObservationRecord | undefined || null;
   }
 
+  /**
+   * Which of `ids` have the given origin, in the order they were given.
+   *
+   * The semantic leg of a hybrid search cannot filter by origin itself —
+   * `vec_items` has no such column — so its candidates used to be cut down at
+   * hydration, AFTER reciprocal-rank fusion had already capped the fused list
+   * at 100. Measured: `sourceKind=curated` without a project filter returned 1
+   * of 20 matching entries, because the unfiltered semantic candidates carry
+   * three quarters of the fusion weight and filled the cap on their own. The
+   * search still answered, and looked like the corpus simply held one match.
+   *
+   * Ids only, and in one statement: this runs over the whole candidate pool on
+   * every filtered search, and hydrating a thousand rows to throw most of them
+   * away is what the cap was avoiding in the first place. `json_each` rather
+   * than a placeholder per id keeps that pool from bumping into the host
+   * parameter limit as it grows.
+   */
+  filterObservationIdsBySourceKind(ids: number[], sourceKind: SourceKindFilter | undefined): number[] {
+    const origin = sourceKindCondition(normalizeSourceKind(sourceKind), 'o');
+    if (!origin || ids.length === 0) return ids;
+
+    const rows = this.db.prepare(`
+      SELECT o.id FROM observations o
+      WHERE o.id IN (SELECT value FROM json_each(?)) AND ${origin.sql}
+    `).all(JSON.stringify(ids), origin.param) as Array<{ id: number }>;
+
+    const keep = new Set(rows.map(r => r.id));
+    return ids.filter(id => keep.has(id));
+  }
+
   getObservationsByIds(
     ids: number[],
-    options: { orderBy?: 'date_desc' | 'date_asc' | 'relevance'; limit?: number; project?: string; platformSource?: string; type?: string | string[]; concepts?: string | string[]; files?: string | string[] } = {}
+    options: { orderBy?: 'date_desc' | 'date_asc' | 'relevance'; limit?: number; project?: string; platformSource?: string; type?: string | string[]; concepts?: string | string[]; files?: string | string[]; sourceKind?: SourceKindFilter } = {}
   ): ObservationSearchResult[] {
     if (ids.length === 0) return [];
 
-    const { orderBy = 'date_desc', limit, project, platformSource, type, concepts, files } = options;
+    const { orderBy = 'date_desc', limit, project, platformSource, type, concepts, files, sourceKind } = options;
     const preserveIdOrder = orderBy === 'relevance';
     const orderClause = preserveIdOrder ? '' : `ORDER BY o.created_at_epoch ${orderBy === 'date_asc' ? 'ASC' : 'DESC'}`;
     const limitClause = limit && !preserveIdOrder ? `LIMIT ${limit}` : '';
@@ -2199,6 +2231,15 @@ export class SessionStore {
     if (platformSource) {
       additionalConditions.push(`COALESCE(NULLIF(s.platform_source, ''), '${DEFAULT_PLATFORM_SOURCE}') = ?`);
       params.push(normalizePlatformSource(platformSource));
+    }
+
+    // Origin filter. This is the AUTHORITATIVE place it is applied on the
+    // semantic path: the vector index has no source_kind column of its own, so
+    // its candidates arrive unfiltered and are cut down here on hydration.
+    const origin = sourceKindCondition(normalizeSourceKind(sourceKind), 'o');
+    if (origin) {
+      additionalConditions.push(origin.sql);
+      params.push(origin.param);
     }
 
     if (type) {

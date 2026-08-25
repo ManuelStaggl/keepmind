@@ -16,6 +16,7 @@ import {
 } from './types.js';
 import { DEFAULT_PLATFORM_SOURCE, normalizePlatformSource } from '../../shared/platform-source.js';
 import { buildFtsMatchExpression } from './fts-query.js';
+import { normalizeSourceKind, sourceKindCondition } from './source-kind.js';
 
 /** The observations FTS table, named once so the ranking check cannot drift. */
 const OBSERVATIONS_FTS = 'observations_fts';
@@ -255,6 +256,20 @@ export class SessionSearch {
         `COALESCE(NULLIF((SELECT s2.platform_source FROM sdk_sessions s2 WHERE s2.memory_session_id = ${tableAlias}.memory_session_id), ''), '${DEFAULT_PLATFORM_SOURCE}') = ?`
       );
       params.push(normalizePlatformSource(filters.platformSource));
+    }
+
+    // Origin filter. `source_kind` sits on `observations` only, exactly like
+    // `type` — session summaries and user prompts have no column to filter on,
+    // and a caller asking for curated rows should not be served them at all,
+    // which SearchManager arranges by not searching those tables. Emitting the
+    // clause for them anyway would be invalid SQL, the same way the project
+    // filter's `type = 'global'` once was.
+    if (hasTypeColumn) {
+      const origin = sourceKindCondition(normalizeSourceKind(filters.sourceKind), tableAlias);
+      if (origin) {
+        conditions.push(origin.sql);
+        params.push(origin.param);
+      }
     }
 
     if (filters.type && hasTypeColumn) {

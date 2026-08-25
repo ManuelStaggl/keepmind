@@ -2,6 +2,7 @@
 import type { ObservationSearchResult, SessionSummarySearchResult, UserPromptSearchResult } from '../sqlite/types.js';
 import { ModeManager } from '../domain/ModeManager.js';
 import { logger } from '../../utils/logger.js';
+import { observationGroupLabel } from '../curated/search-label.js';
 
 export interface TimelineItem {
   type: 'observation' | 'session' | 'prompt';
@@ -148,7 +149,10 @@ export class TimelineService {
           lines.push('');
         } else if (item.type === 'observation') {
           const obs = item.data as ObservationSearchResult;
-          const file = 'General';
+          // This view has no file grouping at all, so every row landed under
+          // `General` — including lasting entries, which is exactly where a
+          // verbatim record stops being distinguishable from a model summary.
+          const file = observationGroupLabel(obs) ?? 'General';
 
           if (file !== currentFile) {
             if (tableOpen) {

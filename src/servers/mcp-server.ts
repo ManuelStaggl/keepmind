@@ -603,7 +603,8 @@ const tools: ToolDefinition[] = [
     name: 'search',
     runtime: 'worker',
     group: 'core',
-    description: `Step 1 of 3. Search memory, returns an index with IDs. Params: query, limit, project, platformSource, type, obs_type, dateStart, dateEnd, offset, orderBy.
+    description: `Step 1 of 3. Search memory, returns an index with IDs. Params: query, limit, project, sourceKind, platformSource, type, obs_type, dateStart, dateEnd, offset, orderBy.
+Memory holds two kinds of text. A LASTING ENTRY is what a person wrote, stored verbatim — a decision record ("akte") or an open work item ("vorgang"); the wording IS the record. Everything else is a model's summary of a session. sourceKind="curated" returns only the first kind, sourceKind="observed" only the second. Results say which is which.
 ALWAYS follow the three-layer sequence:
 1. search(query) → index with IDs (~50-100 tokens/result)
 2. timeline(anchor=ID) → context around the interesting ones
@@ -615,6 +616,11 @@ Never call get_observations without narrowing first — that is the 10x differen
         query: { type: 'string', description: 'Search query' },
         limit: { type: 'number', description: 'Max results (default 20)' },
         project: { type: 'string', description: 'Filter by project name' },
+        sourceKind: {
+          type: 'string',
+          enum: ['all', 'curated', 'observed'],
+          description: 'Filter by origin: "curated" = lasting entries only (verbatim, written by hand), "observed" = model summaries only, "all" (default) = both. "curated" also excludes session summaries and user prompts, which have no origin of their own.'
+        },
         platformSource: { type: 'string', description: "Filter by platform source (e.g. claude, codex, cursor) — restricts results to that agent's own memory" },
         type: { type: 'string', description: 'Filter by observation type' },
         obs_type: { type: 'string', description: 'Filter by obs_type field' },
