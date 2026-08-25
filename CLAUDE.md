@@ -413,6 +413,50 @@ lead-in alone.
 Making this check selective needs a different retrieval stage — a re-ranker, or
 an embedder whose distances spread. Not a constant.
 
+### A vector has no OR, so the query is spelled the way the corpus spells it
+
+The keyword channel answers both German spellings of a word by expanding them
+and OR-ing the result — a spelling that does not occur matches nothing, costs
+nothing, and cannot displace a real hit. The semantic channel cannot do that:
+one query text becomes one vector, and multilingual-e5 tokenises "Prüfung" and
+"Pruefung" into different subword sequences. Measured on the live corpus
+(`evals/memory`, set D): keyword agreement 89%, semantic 13%, and the fused path
+27% because it fuses the two.
+
+`src/services/sqlite/corpus-spelling.ts` asks the corpus which spelling it uses
+and rewrites the query into that one, in `SqliteVecManager.queryKnn` — the ONE
+place that turns query text into a vector, and therefore the one place that may
+decide how that text is spelled. Result: semantic and fused agreement both 100%,
+with A/K/B/C unchanged to the point.
+
+- **The evidence is `observations_fts`'s own vocabulary**, read through an
+  `fts5vocab` view. Both spellings genuinely occur (`prufung` 65 · `pruefung`
+  20; `maßstab` 19 · `massstab` 9) and the umlaut form dominates every measured
+  pair, so both queries resolve to it and become the SAME query. Agreement by
+  construction, not by coincidence.
+- **The lookup must fold terms the INDEX's way, not `fold()`'s.** `unicode61`
+  removes diacritics (`ü → u`) and leaves `ß` alone; `fold()` in the reconciler
+  transliterates (`ü → ue`, `ß → ss`) because it compares wording rather than
+  addressing an index. The terms are `prufung` and `maßstab`; a lookup folded
+  the reconciler's way finds neither and every spelling reads as unattested.
+- **An unattested spelling is NEVER chosen, and that is what keeps the
+  ambiguous direction safe.** `ue → ü` turns "Steuerung" into the non-word
+  "Steürung". In the keyword channel that costs nothing. In the semantic channel
+  a nonsense vector still has a hundred nearest neighbours, all noise. Because
+  the rewrite fires only on evidence, an ordinary question reaches the embedder
+  byte-identical — which is why nothing but set D moved.
+- **A rewrite is narrower than an OR, and the cost is recorded.** `Masse` and
+  `Maße` are different words; this corpus writes `maße` 36 times and `masse` 11,
+  so a question about `Masse` is embedded as `Maße`. Nothing becomes unfindable —
+  the keyword leg still carries the spelling as typed. Embedding both spellings
+  and merging was rejected because it is not symmetric: the canonical spelling
+  would produce one vector and the other two, so the two spellings would still
+  return different lists, which is the whole thing being fixed.
+- **The failure is sticky and silent.** An unreadable vocabulary degrades to the
+  raw query and logs once, for the same reason `SqliteVecManager.loadFailure`
+  exists: a per-query failed open logged thousands of lines from one broken
+  install.
+
 ### A search says whether the entry it returns still applies
 
 `supersession.ts` decides which of two records about one subject holds, from a

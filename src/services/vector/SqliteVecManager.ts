@@ -21,6 +21,7 @@ import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_JOURNAL_SIZE_LIMIT_BYTES } from '../sqli
 import { EmbedderService, EMBED_DIM } from './EmbedderService.js';
 import { logger } from '../../utils/logger.js';
 import { pluginRequire } from '../../shared/plugin-node-modules.js';
+import { canonicaliseQuerySpelling } from '../sqlite/corpus-spelling.js';
 
 /** A single embeddable chunk (one vec0 row). Mirrors a Chroma document. */
 export interface VecChunk {
@@ -345,9 +346,20 @@ export class SqliteVecManager {
     limit: number,
     filters: VecFilter
   ): Promise<{ ids: number[]; distances: number[]; metadatas: any[] }> {
+    // This is the ONE place that turns query text into a vector, so it is also
+    // the one place that decides how that text is spelled. A vector has no OR:
+    // the keyword channel answers "Pruefung" and "Prüfung" alike by expanding
+    // both, and the semantic channel can only pick one. It picks the one the
+    // corpus itself attests — see corpus-spelling.ts for the measurement and
+    // for why an unattested spelling is never chosen.
+    const text = canonicaliseQuerySpelling(query);
+    if (text !== query) {
+      logger.debug('VEC', 'Query re-spelled as the corpus spells it', { query, text });
+    }
+
     // 'query', not the default 'passage': the stored side is embedded as
     // passages, and an asymmetric model needs the two sides labelled correctly.
-    const qv = await EmbedderService.instance().embedOne(query, 'query');
+    const qv = await EmbedderService.instance().embedOne(text, 'query');
     return this.queryKnnWithVector(qv, limit, filters);
   }
 
