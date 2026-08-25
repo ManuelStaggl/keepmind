@@ -324,6 +324,47 @@ excluded them.
   `observationGroupLabel`, so a hit marked in step 1 of the three-layer sequence
   cannot arrive unmarked in step 2.
 
+### An open item goes stale by the world moving, not by anyone touching it
+
+`aging.ts` answers "how much has happened since this was written" and reports
+DECISIONS only, deliberately: it orders by RECORD NUMBER, because decision
+numbers are zero-padded and monotonically assigned while every curated row
+shares one import timestamp. That trick does not carry over to `V-0187`, which
+lives in a different namespace and cannot be compared with `0138`.
+
+But the entries that most need the question asked of them are exactly the ones
+it left out. An open work item is a standing claim that something is
+unresolved, read as current for as long as it stands, and NOTHING WRITES TO IT
+when the thing it waits for is settled elsewhere. On the live corpus 118 items
+say `offen` and 17 say `wartet`, and nothing said which of them had been
+overtaken. `openItemsReport` is the same three numbers for those, and
+`keepmind curated:alter --vorgaenge` prints them.
+
+- **A second function, not a flag.** The two orderings are computed
+  differently — decisions by record number, open items by DATE, which is weaker
+  because a record whose date will not parse drops out of the count. Printing
+  them together invites reading one number as the other.
+- **"Unchanged" means the STATE has not moved.** The age comes from
+  `state_since`, not from the item's file: a work item's state is derived from
+  `EREIGNISSE.log`, which moves without the file changing. The creation date is
+  the fallback, and which one was used is PRINTED — "unchanged since it was
+  created" does not mean anyone has looked at it.
+- **A missing date yields no count, not a zero.** Zero would sort a date-less
+  item to the bottom as though nothing had happened since it, which is a claim
+  the data does not support.
+- **It still asserts nothing.** "12 days in this state, 8 decisions since, 2 of
+  them name it" is arithmetic over dates and declared edges — it cannot be
+  wrong, only uninteresting. That is the same property that makes `ageReport`
+  worth its weight, and the reason neither of them may grow a similarity
+  measure: the moment a threshold decides what "same topic" means, the number
+  stops being arithmetic and starts being a guess.
+
+No second data type was introduced for this. Work items already carry a state
+derived from the event log and a validity window, and nothing is deleted —
+which is what "claims with state and durability" asks for. A parallel claims
+table would be a second state machine that is merely supposed to agree with
+the first.
+
 ### Before a question reaches a person, the reader is the filter
 
 `decision-check` offers candidate decisions when a question is about to be put

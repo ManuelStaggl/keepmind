@@ -203,3 +203,152 @@ export function ageReport(
 
   return out.sort((a, b) => b.citingSince - a.citingSince || b.decisionsSince - a.decisionsSince);
 }
+
+/**
+ * The same three numbers, for the entries that claim something is still OPEN.
+ *
+ * WHY THIS IS A SECOND FUNCTION AND NOT A FLAG. `ageReport` answers "how much
+ * has happened since this was decided" and orders by RECORD NUMBER, because
+ * decision numbers are zero-padded and monotonically assigned while every
+ * curated row shares one import timestamp. A work item's number lives in a
+ * different namespace (`V-0187`), so it cannot be compared with `0138` and the
+ * ordering trick does not carry over. Here the comparison is by DATE, which is
+ * weaker — a record whose date will not parse drops out of the count instead
+ * of being mis-ordered — and mixing the two orderings in one function would
+ * make it unclear which of them any given number came from.
+ *
+ * WHY IT MATTERS AT ALL. An open item is a standing claim that something is
+ * unresolved, and it is read as current for as long as it stands. It is the
+ * one kind of entry that goes stale by the world moving rather than by anyone
+ * touching it: nothing writes to `V-0187` when the thing it waits for is
+ * settled elsewhere. So the measurement is the whole feature — 118 items in
+ * the live corpus say "offen" and 17 say "wartet", and nothing said which of
+ * them had been overtaken.
+ *
+ * IT STILL ASSERTS NOTHING. "Unchanged for 34 days, 68 decisions taken since,
+ * 5 of them name it" is arithmetic over dates and declared edges. It cannot be
+ * wrong, only uninteresting — the same property that makes `ageReport` worth
+ * its weight. Deciding that an item is obsolete stays with the reader.
+ */
+export interface OpenItemEntry {
+  itemId: string;
+  title: string;
+  /** `offen`, `wartet` — as the event log derived it, never interpreted here. */
+  state: string | null;
+  /**
+   * Days since the item last MOVED, from `state_since`, falling back to the
+   * date it was created. "Unchanged" is the claim, and the state moving is the
+   * only thing that counts as a change: an item's own file does not move when
+   * the log records that it is now waiting.
+   */
+  ageDays: number | null;
+  /** Whether the age came from the state moving or from the item's creation. */
+  ageFrom: 'state' | 'created' | null;
+  /** Decisions dated after that. */
+  decisionsSince: number;
+  /** Of those, how many declare a relation pointing at this item. */
+  citingSince: number;
+  sourcePath: string;
+  sourceLine: number;
+}
+
+/** States that still claim something is unresolved. */
+const OPEN_STATES = new Set(['offen', 'wartet']);
+
+export function openItemsReport(
+  db: AgingStore,
+  project: string,
+  nowEpoch: number = Date.now(),
+): OpenItemEntry[] {
+  const rows = db.prepare(`
+    SELECT id,
+           ${CURATED_ID_SQL} AS record_id,
+           title,
+           created_at_epoch,
+           json_extract(metadata, '$.state')       AS state,
+           json_extract(metadata, '$.state_since') AS state_since,
+           json_extract(metadata, '$.erstellt')    AS created_on,
+           json_extract(metadata, '$.date')        AS written_on,
+           json_extract(metadata, '$.status')      AS status,
+           valid_to,
+           source_path,
+           source_line
+      FROM observations
+     WHERE project = ? AND source_kind = 'curated'
+       AND ${CURATED_ID_SQL} IS NOT NULL
+       AND valid_to IS NULL
+  `).all(project) as Array<Row & { state: string | null; state_since: string | null; created_on: string | null }>;
+
+  // Decision dates, for "how many were taken since". Read from the same rows —
+  // a second query would be a second definition of which rows are decisions.
+  const decisionDates: number[] = [];
+  const decisionDateById = new Map<string, number>();
+  for (const row of rows) {
+    const id = String(row.record_id ?? '');
+    if (curatedKindOfId(id) !== 'akte') continue;
+    const written = parseWrittenOn(row.written_on);
+    if (written === null) continue;
+    decisionDates.push(written);
+    decisionDateById.set(id, written);
+  }
+  decisionDates.sort((a, b) => a - b);
+
+  const citedBy = new Map<string, Set<string>>();
+  try {
+    const edges = db.prepare(`
+      SELECT from_record, to_record FROM decision_edges WHERE project = ?
+    `).all(project) as Array<{ from_record: string; to_record: string }>;
+    for (const edge of edges) {
+      const set = citedBy.get(edge.to_record) ?? new Set<string>();
+      set.add(edge.from_record);
+      citedBy.set(edge.to_record, set);
+    }
+  } catch {
+    // No edge table: citations stay zero rather than the report failing.
+  }
+
+  const out: OpenItemEntry[] = [];
+  for (const row of rows) {
+    const itemId = String(row.record_id ?? '');
+    if (curatedKindOfId(itemId) !== 'vorgang') continue;
+    const state = row.state ?? null;
+    if (!OPEN_STATES.has(String(state ?? '').toLowerCase())) continue;
+
+    const movedOn = parseWrittenOn(row.state_since);
+    const createdOn = movedOn === null ? parseWrittenOn(row.created_on) : null;
+    const since = movedOn ?? createdOn;
+
+    // Counted only when the item's own date is known. A missing date makes the
+    // count meaningless rather than zero, and a zero here would sort a
+    // date-less item to the bottom as though nothing had happened since.
+    let decisionsSince = 0;
+    let citingSince = 0;
+    if (since !== null) {
+      for (const date of decisionDates) if (date > since) decisionsSince++;
+      for (const other of citedBy.get(itemId) ?? []) {
+        const date = decisionDateById.get(other);
+        if (date !== undefined && date > since) citingSince++;
+      }
+    }
+
+    out.push({
+      itemId,
+      title: row.title,
+      state,
+      ageDays: since === null ? null : Math.max(0, Math.floor((nowEpoch - since) / DAY_MS)),
+      ageFrom: movedOn !== null ? 'state' : (createdOn !== null ? 'created' : null),
+      decisionsSince,
+      citingSince,
+      sourcePath: row.source_path,
+      sourceLine: row.source_line,
+    });
+  }
+
+  // Same order as `ageReport`, for the same reason: an item that later
+  // decisions point at is worth re-reading before one nobody has referred to.
+  // Age breaks the tie, so the oldest untouched claim still rises.
+  return out.sort((a, b) =>
+    b.citingSince - a.citingSince
+    || b.decisionsSince - a.decisionsSince
+    || (b.ageDays ?? -1) - (a.ageDays ?? -1));
+}
