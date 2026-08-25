@@ -148,6 +148,54 @@ count as control files, and "a file without a row of its own cannot retire a
 record" rests on exactly that. A `V-` number remains valid as the TARGET of a
 relation from a decision record.
 
+### A relation can be read from both ends
+
+An edge is declared once, by one record, and stored once in that direction —
+correctly, because only one end wrote anything down and inventing the other end
+is what the edge reader exists to refuse. But nothing could ask the far end.
+`0090` was superseded by `0138`, `decision_edges` had carried an `idx_edges_to`
+index for it since the table was created, and every read path answered `0090`
+without mentioning it. That is the failure the supersession machinery exists to
+prevent, one layer up: a retired record that does not say it was retired reads
+as current.
+
+`curatedRelationsOf` (`curated/relations.ts`) is the one place that answers it,
+and `curated_get` returns it unconditionally — the direction a reader cannot
+know to ask for is the INCOMING one, so a flag would put the burden of suspicion
+back on them.
+
+- **The voice is part of the relation, not of a view.** `RELATION_PHRASES` in
+  the lexicon says how each relation reads from either end (`supersedes` /
+  `superseded by`). Reaching an incoming edge and printing the stored relation
+  name points half the corpus backwards, and a backwards supersession makes a
+  retired record look current — the same wrong answer, arrived at from the other
+  side.
+- **A relation is a fact; a declaration is evidence for it.** They are not the
+  same count: on the live corpus 228 stored edges are 126 relations, because a
+  record saying "abgelöst durch 0137" and an index saying "löst 0064 ab" are two
+  declarations of one supersession. They collapse into one relation carrying
+  `declaredIn`, at the STRONGEST certainty — which is what the store already
+  does, since `applySupersessions` retires the target as soon as ONE edge row is
+  `sicher`. Reporting the weakest would call a retirement that demonstrably
+  happened merely supposed.
+- **The counterpart is resolved through `getCuratedRecord`.** `supersedes 0138`
+  is not usable on its own; the title, the kind and whether the counterpart is
+  itself still current all decide what the relation is worth. The lookup goes
+  through that method rather than a SQL join because that is where "collapse a
+  record's revisions to the current one" lives, and a second copy is how a record
+  starts being counted twice.
+- **A retired entry is not a missing one.** `curated_get` filtered to the active
+  revision and answered "No record 0064" about a record that exists, still reads,
+  and was retired for a recorded reason — and the caller's next move on that
+  answer is to write a new entry under a number already taken. It now returns the
+  entry with `status: 'retired'`. This matters most here because `supersedes`
+  edges point at retired entries BY CONSTRUCTION: a relation graph you cannot
+  follow to the far end is half built.
+- **A file with no record number of its own still may not retire a record.**
+  Control-file supersessions stay withheld (`allowSupersessions: false`).
+  A `vermutet` supersession from such a file in the live store predates that
+  rule and is not evidence against it.
+
 ### keepmind runs on machines that do not have the curated corpus
 
 The corpus is developed on one machine and used on another, and it does not
