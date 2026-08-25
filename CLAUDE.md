@@ -148,6 +148,52 @@ count as control files, and "a file without a row of its own cannot retire a
 record" rests on exactly that. A `V-` number remains valid as the TARGET of a
 relation from a decision record.
 
+### A search can ask for the wording, and says which hits are the wording
+
+Memory holds two kinds of text and answers from both. An observation is a
+model's summary of a session; a lasting entry is what a person wrote, stored
+verbatim, and is answered from as if it were current. Presenting them alike
+hands the reader the second claim about the first kind of text — measured: a
+search for "Wortlaut" returned record `V-0110` under the heading `General`,
+spelled exactly like the summaries around it, and no parameter could have
+excluded them.
+
+- **The origin clause has ONE spelling** — `src/services/sqlite/source-kind.ts`.
+  `ObservationCompiler`, `SessionSearch.buildFilterClause` and
+  `SessionStore.getObservationsByIds` all go through it. The load-bearing part
+  is the NULL folding: rows written before the curated path existed carry
+  `source_kind IS NULL`, so a plain `= 'observed'` drops the entire pre-3.x
+  corpus and the answer still reads as an ordinary, slightly short result.
+  `normalizeSourceKind` widens an unrecognised value to `all` for the same
+  reason — an over-narrow result is indistinguishable from "nothing was found".
+- **`sourceKind: 'curated'` excludes session summaries and user prompts
+  entirely.** Neither has an origin — a summary is a model's account and a
+  prompt is a transcript line — so the filter is not a WHERE clause for them but
+  a decision not to search those tables at all.
+- **The semantic leg is filtered BEFORE fusion, not only at hydration.**
+  `vec_items` has no `source_kind` column, so its candidates arrive unfiltered.
+  Hydration filters them, which makes the result correct — but `rrfFuse` caps
+  its output at 100 and weights the semantic leg at 0.75, so filtering only
+  afterwards spends the cap on rows about to be discarded. Measured against the
+  live corpus: `sourceKind=curated` with no project filter returned 1 of 20
+  matching entries, and looked like a corpus holding one match.
+  `filterObservationIdsBySourceKind` cuts the candidate list down by id, and the
+  KNN is widened while a source filter is active so the channel still
+  contributes. The default path (`all`) skips both and reaches the store exactly
+  as it always did.
+- **A curated row is not automatically a decision record.**
+  `curatedKindOfRow` falls back to `akte`, which is right for something being
+  looked up BY NUMBER — both namespaces are entries. But `source_kind` marks
+  more than numbered entries: session checkpoints and the verbatim event log are
+  curated and carry no number. `search-label.ts` therefore has its own wider
+  display kind (`akte` / `vorgang` / `checkpoint` / `verbatim`); labelling a
+  hand-off as a decision is a wrong answer, not a rounding.
+- **Search and timeline mark a hit the same way.** The label is the group
+  heading rather than a per-row column — a fixed cost per group instead of one
+  per hit, in output a model pays for by the row — and both views take it from
+  `observationGroupLabel`, so a hit marked in step 1 of the three-layer sequence
+  cannot arrive unmarked in step 2.
+
 ### "Imported" has to mean "findable", and nothing may fail quietly
 
 The curated corpus is the part of memory a person wrote by hand, and it is
