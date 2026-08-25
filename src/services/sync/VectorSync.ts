@@ -46,6 +46,26 @@ function loadFilesHelper(): typeof SqliteFilesModule {
   return SqliteFilesModule;
 }
 
+/**
+ * Where a watermark has to be moved back to so a backfill can see rows again.
+ *
+ * The backfill only ever looks at `id > watermark`. A row that was written and
+ * then not embedded — worker down, a partial batch, native deps missing — can
+ * end up BELOW a watermark that claims it is done, and from that moment no
+ * ordinary backfill will ever consider it again. It is not a slow index; it is
+ * a permanent hole that looks exactly like an empty result.
+ *
+ * Returns null when the watermark is not the problem (the rows are already in
+ * view and something else is failing), so a rewind is never done blindly:
+ * re-embedding everything above the mark costs real time.
+ */
+export function rewindWatermarkTo(missing: number[], watermark: number): number | null {
+  if (missing.length === 0) return null;
+  const lowest = Math.min(...missing);
+  if (watermark < lowest) return null;
+  return lowest - 1;
+}
+
 /** A storage-agnostic document chunk (id + text + metadata bag). */
 export interface ChromaDocument {
   id: string;
@@ -464,6 +484,65 @@ export class VectorSync {
     } finally {
       if (!storeOverride) db.close();
     }
+  }
+
+  /**
+   * Index these observations, then CHECK that they are actually in the store —
+   * and repair the one condition under which they cannot be.
+   *
+   * WHY THE CHECK. `ensureBackfilled` reports what its own run did, which is
+   * not the same claim as "these rows are searchable now". The two came apart
+   * in production: a curated import reported success while semantic search
+   * returned nothing for the rows it had just written, and the difference was
+   * invisible for four days. Anything that promises "imported" must be able to
+   * prove "findable", and only the vec store can answer that.
+   *
+   * WHY THE REPAIR. The backfill is watermark-driven: it looks at `id >
+   * watermark`. A run that wrote rows and then failed to embed them — worker
+   * down, native deps missing, a partial batch — can leave the watermark ABOVE
+   * ids that were never embedded, and from then on no ordinary backfill will
+   * ever look at them again. Lowering the watermark below the lowest missing id
+   * is the only thing that brings them back into view. It re-embeds everything
+   * above that point, which costs time and buys the one property this whole
+   * path exists for.
+   *
+   * Never throws for a missing row: it returns what is missing. The caller
+   * decides whether that is a warning or a hard failure — and for an import it
+   * is a hard failure.
+   */
+  async ensureObservationsIndexed(
+    project: string,
+    ids: number[],
+    storeOverride?: SessionStore,
+  ): Promise<{ indexed: boolean; total: number; missing: number[]; repaired: boolean }> {
+    if (ids.length === 0) return { indexed: true, total: 0, missing: [], repaired: false };
+
+    await this.ensureBackfilled(project, storeOverride);
+    this.vec.load();
+
+    let missing = this.vec.missingSqliteIds('observation', ids);
+    let repaired = false;
+
+    if (missing.length > 0) {
+      const marks = ChromaSyncState.get(project);
+      const target = rewindWatermarkTo(missing, marks.observations);
+      if (target !== null) {
+        logger.warn('VECTOR_SYNC', 'Watermark claims rows are indexed that the vector store does not hold — rewinding', {
+          project, watermark: marks.observations, rewindTo: target, missing: missing.length,
+        });
+        ChromaSyncState.replace(project, { ...marks, observations: target });
+        repaired = true;
+        await this.ensureBackfilled(project, storeOverride);
+        missing = this.vec.missingSqliteIds('observation', ids);
+      }
+    }
+
+    if (missing.length > 0) {
+      logger.error('VECTOR_SYNC', 'Rows are still not in the vector store after a rewound backfill', {
+        project, missing: missing.length, sample: missing.slice(0, 10),
+      });
+    }
+    return { indexed: missing.length === 0, total: ids.length, missing, repaired };
   }
 
   private async runBackfillPipeline(db: SessionStore, backfillProject: string, watermarks: ProjectWatermarks): Promise<void> {

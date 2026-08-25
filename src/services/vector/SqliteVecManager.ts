@@ -257,6 +257,35 @@ export class SqliteVecManager {
   }
 
   /**
+   * Which of `sqliteIds` have NO vec row of this doc_type.
+   *
+   * This is the only honest answer to "is what was just written searchable?".
+   * The backfill reports what it embedded, which is a statement about its own
+   * run; this is a statement about the store. They diverged in production —
+   * an import reported success while the rows it wrote were invisible to
+   * semantic search — and that gap is exactly what a caller must be able to
+   * see. Chunked in blocks because a corpus import passes hundreds of ids and
+   * SQLite caps the number of bound parameters.
+   */
+  missingSqliteIds(docType: string, sqliteIds: number[]): number[] {
+    if (sqliteIds.length === 0) return [];
+    const db = this.conn();
+    const missing: number[] = [];
+    const CHUNK = 400;
+    for (let i = 0; i < sqliteIds.length; i += CHUNK) {
+      const block = sqliteIds.slice(i, i + CHUNK);
+      const placeholders = block.map(() => '?').join(',');
+      const rows = db.prepare(
+        `SELECT DISTINCT sqlite_id FROM vec_documents
+          WHERE doc_type = ? AND sqlite_id IN (${placeholders})`,
+      ).all(docType, ...block.map(id => bigIntOf(id))) as Array<{ sqlite_id: number }>;
+      const present = new Set(rows.map(row => Number(row.sqlite_id)));
+      for (const id of block) if (!present.has(id)) missing.push(id);
+    }
+    return missing;
+  }
+
+  /**
    * Discard every vector so the store can be rebuilt in a new embedding space.
    * Returns the number of rows dropped. VACUUMs afterwards: the whole point is
    * to reclaim the space the stale index occupied, and sqlite would otherwise

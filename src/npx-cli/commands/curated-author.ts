@@ -16,6 +16,8 @@
 import { readFileSync } from 'node:fs';
 import type { CuratedDraft, DeclaredRelation } from '../../services/curated/authoring.js';
 import type { RelationName } from '../../services/curated/relation-lexicon.js';
+import type { IndexOutcome } from './curated.js';
+import { curatedKindOfRow } from '../../services/curated/record-key.js';
 
 export type CuratedAuthorAction = 'add' | 'edit' | 'supersede' | 'close' | 'reopen' | 'show' | 'history';
 
@@ -127,9 +129,11 @@ export function curatedAuthorUsage(): string {
     '  keepmind curated:close 0042 --reason "…"',
     '  keepmind curated:reopen 0042',
     '  keepmind curated:show 0068 [--all]      # --all lists every revision',
+    '  keepmind curated:show V-0187            # work items answer to their number too',
     '',
     'Options:',
-    '  --project <name>     Project the record belongs to (default: cwd project)',
+    '  --project <name>     Project the entry belongs to. Defaults to',
+    '                       KEEPMIND_CURATED_PROJECT, then the cwd project',
     '  --title/--status/--date/--by/--summary   Header fields, stored verbatim',
     '  --field Name=Value   Any other header label, repeatable',
     '  --rel REL:TARGET     Declared relation, repeatable. Giving --rel at all',
@@ -142,6 +146,11 @@ export function curatedAuthorUsage(): string {
     '  --json-stdin         Read a complete draft as JSON from stdin',
     '  --dry-run            Render and verify, write nothing (prints the record)',
     '  --json               Machine-readable output',
+    '',
+    'DECISIONS AND WORK ITEMS share this lookup, not their meaning: `show`, `close`',
+    'and `reopen` take either number, and say which of the two it is. `add` and',
+    '`edit` are for decisions — work items come from `curated:import` over a',
+    '"vorgaenge" source.',
     '',
     'EDIT-IN-PLACE: `curated:edit` changes the SAME entry. The record number is the',
     'identity; the previous revision keeps its text and gets its validity window',
@@ -164,8 +173,14 @@ export async function runCuratedAuthorCommand(options: CuratedAuthorOptions): Pr
   const { SessionStore } = await import('../../services/sqlite/SessionStore.js');
   const authoring = await import('../../services/curated/authoring.js');
   const { getProjectName } = await import('../../utils/project-name.js');
+  const { loadCuratedProject } = await import('../../services/curated/sources.js');
 
-  const project = options.project ?? getProjectName(process.cwd());
+  // Same order as `curated:import`: what was asked for, then the configured
+  // curated project, then the directory. The corpus is ONE corpus; resolving it
+  // from a working directory would scatter entries across projects by wherever
+  // the command happened to be run, and a project-filtered read would then find
+  // some of them.
+  const project = options.project ?? loadCuratedProject() ?? getProjectName(process.cwd());
   const store = new SessionStore();
 
   try {
@@ -397,7 +412,7 @@ function showRecord(
   options: CuratedAuthorOptions,
 ): void {
   const recordId = options.positional[0];
-  if (!recordId) throw new Error('curated:show needs a record number.');
+  if (!recordId) throw new Error('curated:show needs an entry number, e.g. `0068` or `V-0187`.');
 
   const showAll = options.all || options.action === 'history';
   const revisions = store.getCuratedRevisions(project, recordId);
@@ -408,10 +423,29 @@ function showRecord(
   }
 
   const current = revisions.find(r => r.valid_to === null) ?? null;
+  // Which of the two namespaces this number lives in. Both are addressable the
+  // same way; what they MEAN is not the same, and a reader looking at the text
+  // alone cannot tell a settled decision from an open item.
+  const kind = curatedKindOfRow((current ?? revisions[0]).metadata, recordId);
 
   if (options.json) {
-    console.log(JSON.stringify({ project, recordId, current, revisions: showAll ? revisions : undefined }, null, 2));
+    console.log(JSON.stringify({ project, recordId, kind, current, revisions: showAll ? revisions : undefined }, null, 2));
     return;
+  }
+
+  console.log(kind === 'vorgang'
+    ? `${recordId} is a WORK ITEM (Vorgang) — something to be carried out, not something decided.`
+    : `${recordId} is a DECISION (Akte).`);
+
+  if (kind === 'vorgang') {
+    const meta = safeJson((current ?? revisions[0]).metadata);
+    if (meta.state) {
+      const since = meta.state_since ? `, since ${meta.state_since}` : '';
+      const from = meta.state_from_log_line ? ` (event log line ${meta.state_from_log_line})` : '';
+      // Stamped with its origin so the value can be re-checked rather than
+      // believed — the importer's rule, carried through to the surface.
+      console.log(`   state: ${meta.state}${since}${from}`);
+    }
   }
 
   const render = (row: typeof revisions[number], label: string) => {
@@ -460,14 +494,21 @@ function safeJson(text: string | null): Record<string, unknown> {
  * otherwise appear only at the next periodic pass. Measured there: semantic
  * search returned nothing for the new rows and reported no error.
  */
-async function requestIndex(project: string): Promise<{ indexed: boolean; reason?: string }> {
-  const { requestBackfill } = await import('./curated.js');
-  return requestBackfill(project);
+async function requestIndex(project: string): Promise<IndexOutcome> {
+  const { ensureCuratedIndexed } = await import('./curated.js');
+  const outcome = await ensureCuratedIndexed(project);
+  // A record that was written but cannot be found is a failed write, whichever
+  // path wrote it. Same rule as the file import, same exit code.
+  if (!outcome.indexed) process.exitCode = 1;
+  return outcome;
 }
 
-function reportIndex(indexed: { indexed: boolean; reason?: string } | null): void {
+function reportIndex(indexed: IndexOutcome | null): void {
   if (!indexed) return;
-  if (indexed.indexed) { console.log('  Semantic index updated.'); return; }
-  console.log(`  ⚠ Semantic index NOT updated: ${indexed.reason}`);
-  console.log('    Keyword search works now; semantic search follows at the worker\'s next pass.');
+  if (indexed.indexed) {
+    console.log(`  Searchable: ${indexed.total ?? 0} curated record(s) are in the semantic index.`);
+    return;
+  }
+  console.log(`  ✖ NOT searchable: ${indexed.reason ?? 'the semantic index was not updated'}`);
+  console.log('    Keyword search still finds it. Semantic search does not — so this run counts as failed.');
 }

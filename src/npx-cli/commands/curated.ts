@@ -65,6 +65,14 @@ function usage(): string {
     'Control files belong under "akten": they are not decisions and store no row,',
     'but they demonstrably declare relations that no record carries itself.',
     '',
+    'Each entry may name its own "project". Without one, KEEPMIND_CURATED_PROJECT',
+    'in the same file decides — and it must, because the worker re-runs this same',
+    'import unattended (at startup and when a source file changes) and has no',
+    'working directory to fall back on.',
+    '',
+    'The command exits non-zero unless the imported records are SEARCHABLE, not',
+    'merely stored: it starts the worker if needed and verifies the index.',
+    '',
     'Options:',
     '  --kind <k>         Kind for directories given on the command line',
     '  --project <name>   File the records under this project',
@@ -125,69 +133,56 @@ export async function runCuratedImportCommand(options: CuratedImportOptions): Pr
   }
 
   const { SessionStore } = await import('../../services/sqlite/SessionStore.js');
-  const { importAktenDirectory } = await import('../../services/curated/akten-importer.js');
-  const { importVorgaengeDirectory } = await import('../../services/curated/vorgang-importer.js');
+  const { runCuratedImport } = await import('../../services/curated/import-run.js');
   const { getProjectName } = await import('../../utils/project-name.js');
+  const { loadCuratedProject } = await import('../../services/curated/sources.js');
 
-  const project = options.project ?? getProjectName(process.cwd());
+  // Same order everywhere a curated write happens: what was asked for, then
+  // what is configured, then the directory. The worker has no cwd worth using,
+  // so if the CLI fell back to one the same corpus would land under two
+  // different projects depending on who ran the import.
+  const project = options.project ?? loadCuratedProject() ?? getProjectName(process.cwd());
   const store = new SessionStore();
   const nowEpoch = Date.now();
 
-  const summary: Array<Record<string, unknown>> = [];
-  let failedTotal = 0;
-
-  for (const source of sources) {
-    if (source.kind === 'akten') {
-      const report = importAktenDirectory(store as never, source.path, { project, dryRun: options.dryRun, nowEpoch });
-      failedTotal += report.failed.length;
-      summary.push({
-        path: source.path, kind: source.kind,
-        imported: report.imported.length,
-        skipped: report.skipped.length,
-        failed: report.failed,
-        // Control files store no row, so their edges are not in `imported` —
-        // summing that alone reported 0 for a directory that contributed
-        // relations.
-        edges: report.imported.reduce((sum, r) => sum + (r.edges ?? 0), 0) + report.controlFileEdges,
-        controlFileEdges: report.controlFileEdges,
-        withheldSupersessions: report.withheldSupersessions,
-      });
-    } else {
-      const report = importVorgaengeDirectory(store as never, source.path, { project, dryRun: options.dryRun, nowEpoch });
-      failedTotal += report.failed.length;
-      summary.push({
-        path: source.path, kind: source.kind,
-        imported: report.imported.length,
-        skipped: report.skipped.length,
-        failed: report.failed,
-        edges: report.imported.reduce((sum, r) => sum + r.edges, 0),
-        states: report.imported.reduce((acc: Record<string, number>, r) => {
-          acc[r.state] = (acc[r.state] ?? 0) + 1;
-          return acc;
-        }, {}),
-        eventLogMissing: report.eventLogMissing,
-        malformedLogLines: report.malformed,
-        unknownKinds: report.unknownKinds,
-        selfEdges: report.selfEdges,
-      });
-    }
+  // The run itself lives in the service layer, because the worker triggers the
+  // very same run when a source file changes. This command renders it.
+  const report = await runCuratedImport(store, sources, { project, dryRun: options.dryRun, nowEpoch });
+  const summary = report.sources;
+  const failedTotal = report.failedTotal;
+  const supersession = report.supersession;
+  if (report.supersessionError) {
+    console.error(`  ⚠ Supersession step failed: ${report.supersessionError}`);
   }
 
-  // Close the validity window of every record a later one supersedes. This
-  // runs after ALL sources, because a record and the record it retires do not
-  // have to sit in the same directory.
-  let supersession: Awaited<ReturnType<typeof applySupersessionsSafely>> = null;
-  if (!options.dryRun) {
-    supersession = await applySupersessionsSafely(store, project, nowEpoch);
-  }
-
-  // Ask the worker to index what we just wrote. This process writes rows
-  // directly and enqueues nothing — that is what keeps a curated record away
-  // from a model — so nothing else tells the worker the rows exist, and their
+  // Index what we just wrote, and VERIFY it. This process writes rows directly
+  // and enqueues nothing — that is what keeps a curated record away from a
+  // model — so nothing else tells the worker the rows exist, and their
   // embeddings would otherwise appear only at the next periodic pass. Measured
-  // straight after an import: semantic search returned nothing for the new
-  // rows and reported no error.
-  const indexed = options.dryRun ? null : await requestBackfill(project);
+  // straight after an import: semantic search returned nothing for the new rows
+  // and reported no error. An import that ends here without an index has not
+  // imported anything anybody can find, and it exits non-zero to say so.
+  const indexed = options.dryRun ? null : await ensureCuratedIndexed(project);
+
+  const recordTotal = summary.reduce((sum, entry) => sum + Number(entry.imported ?? 0), 0);
+  const edgeTotal = summary.reduce((sum, entry) => sum + Number(entry.edges ?? 0), 0);
+  if (!options.dryRun) {
+    await stampImportState({
+      project,
+      sources,
+      records: recordTotal,
+      edges: edgeTotal,
+      nowEpoch,
+      indexed: indexed?.indexed === true,
+      failure: failedTotal > 0
+        ? `${failedTotal} file(s) failed to import`
+        : indexed?.indexed === false
+          ? `not indexed — ${indexed.reason ?? 'unknown reason'}`
+          : null,
+    });
+  }
+
+  if (indexed && !indexed.indexed) process.exitCode = 1;
 
   if (options.json) {
     console.log(JSON.stringify({ project, origin, dryRun: options.dryRun, sources: summary, supersession, indexed }, null, 2));
@@ -210,6 +205,21 @@ export async function runCuratedImportCommand(options: CuratedImportOptions): Pr
     // Summarising these away is how a partial import comes to look complete.
     if (entry.eventLogMissing) {
       console.log(`    ⚠ no ${'EREIGNISSE.log'} — every state is "unbekannt"`);
+    } else if (entry.kind === 'vorgaenge') {
+      // Said out loud because it is the condition for removing the file: until
+      // the log's own wording is in the store, deleting it loses the history of
+      // how every work item reached its state.
+      console.log(entry.eventLogStored
+        ? `    Event log stored verbatim: ${entry.eventCount ?? 0} event(s) — the file is now reproducible from keepmind`
+        : `    ⚠ event log NOT stored — do not delete ${'EREIGNISSE.log'}`);
+    }
+    const orphans = entry.orphanEvents as Array<{ vorgang: string; line: number; raw: string }> | undefined;
+    if (orphans?.length) {
+      // Not an error: the log is append-only and outlives individual files.
+      // Their wording is safe in the stored log; only no state was derived.
+      console.log(`    ${orphans.length} event(s) name an item this directory holds no file for — kept in the stored log, no state derived:`);
+      for (const item of orphans.slice(0, 10)) console.log(`        line ${item.line}: ${item.raw}`);
+      if (orphans.length > 10) console.log(`        … ${orphans.length - 10} more (--json for all)`);
     }
     const malformed = entry.malformedLogLines as Array<{ line: number; reason: string }> | undefined;
     if (malformed?.length) {
@@ -265,65 +275,136 @@ export async function runCuratedImportCommand(options: CuratedImportOptions): Pr
     console.log('');
   }
 
-  if (indexed?.indexed) {
-    console.log('  Semantic index updated.\n');
-  } else if (indexed) {
-    // Never silent. Without this line an import looks complete while semantic
-    // search is still blind to every row it just wrote.
-    console.log(`  ⚠ Semantic index NOT updated: ${indexed.reason}`);
-    console.log('    Keyword search works now; semantic search follows at the worker\'s next pass.\n');
-  }
+  reportIndexOutcome(indexed);
 
   if (failedTotal > 0) process.exitCode = 1;
 }
 
 /**
- * Apply supersessions, reporting rather than failing when the schema is older
- * than the feature. The import already succeeded at this point; refusing to
- * return would throw away a completed import over a bookkeeping step.
+ * Say plainly whether the corpus is searchable — the same words wherever a
+ * curated write happens, so the one line that matters reads the same after an
+ * import as after a single authored record.
  */
-async function applySupersessionsSafely(store: unknown, project: string, nowEpoch: number) {
-  try {
-    const { applySupersessions } = await import('../../services/curated/supersession.js');
-    const db = (store as { db: Parameters<typeof applySupersessions>[0] }).db;
-    return applySupersessions(db, project, nowEpoch);
-  } catch (error) {
-    console.error(`  ⚠ Supersession step failed: ${error instanceof Error ? error.message : error}`);
-    return null;
+export function reportIndexOutcome(indexed: IndexOutcome | null): void {
+  if (!indexed) return;
+  if (indexed.indexed) {
+    const repaired = indexed.repaired
+      ? ' (a stale watermark was rewound — records that had silently fallen out of the index are back)'
+      : '';
+    console.log(`  Searchable: ${indexed.total ?? 0} curated record(s) are in the semantic index${repaired}.\n`);
+    return;
   }
+  // Not a footnote under a success message. The import did not do what it says
+  // on the tin, and the exit code agrees.
+  console.log(`  ✖ NOT searchable: ${indexed.reason ?? 'the semantic index was not updated'}`);
+  if (indexed.missing) console.log(`    ${indexed.missing} of ${indexed.total ?? '?'} curated record(s) have no vector.`);
+  console.log('    Keyword search still finds them. Semantic search does not — so this run counts as failed.');
+  console.log('    `npx keepmind doctor` says which layer is down.\n');
 }
 
 /**
- * Ask the running worker to index the project.
- *
- * A missing worker is a normal state for a CLI command, not a failure — the
- * import already succeeded. It is reported rather than swallowed, because the
- * difference between "indexed" and "indexed later" is the difference between
- * semantic search working and silently returning nothing.
+ * Record what this run did, so a later session can tell a failed import from
+ * one that never ran. Never fatal: a lost stamp costs a redundant re-import.
  */
-export async function requestBackfill(project: string): Promise<{ indexed: boolean; reason?: string }> {
-  const { readFileSync } = await import('node:fs');
-  const { join } = await import('node:path');
-  const { homedir } = await import('node:os');
-
-  let port: string;
+async function stampImportState(input: {
+  project: string;
+  sources: CuratedSource[];
+  records: number;
+  edges: number;
+  nowEpoch: number;
+  indexed: boolean;
+  failure: string | null;
+}): Promise<void> {
   try {
-    port = readFileSync(join(homedir(), '.keepmind', 'worker.port'), 'utf8').trim();
+    const { readImportState, stampSources, writeImportState } = await import('../../services/curated/import-state.js');
+    const previous = readImportState(input.project);
+    const success = input.failure === null && input.indexed;
+    writeImportState({
+      project: input.project,
+      lastAttemptEpoch: input.nowEpoch,
+      lastSuccessEpoch: success ? input.nowEpoch : previous?.lastSuccessEpoch ?? null,
+      records: success ? input.records : previous?.records ?? 0,
+      edges: success ? input.edges : previous?.edges ?? 0,
+      indexed: input.indexed,
+      failure: input.failure,
+      // Only a SUCCESSFUL run may move the fingerprint. Stamping after a failure
+      // would mark the sources as covered by an import that did not cover them,
+      // and the staleness check would then stay quiet forever.
+      sources: success ? stampSources(input.sources) : previous?.sources ?? [],
+    });
   } catch {
-    return { indexed: false, reason: 'no running worker (worker.port not found)' };
+    /* the import itself is done; the stamp is bookkeeping */
+  }
+}
+
+export interface IndexOutcome {
+  indexed: boolean;
+  /** Curated rows checked. */
+  total?: number;
+  /** Rows still without a vector. */
+  missing?: number;
+  /** True when a watermark had to be rewound to make the rows visible again. */
+  repaired?: boolean;
+  reason?: string;
+}
+
+/**
+ * A corpus import can re-embed hundreds of records; the default API timeout is
+ * sized for a hook. Overridable for a corpus that outgrows even this.
+ */
+function indexTimeoutMs(): number {
+  const raw = Number(process.env.KEEPMIND_CURATED_INDEX_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 15 * 60_000;
+}
+
+/**
+ * Make what was just written FINDABLE, and say so only if it is.
+ *
+ * This used to be a best-effort ping: it read `worker.port`, posted a backfill
+ * request, and reported whatever came back as a footnote under a success
+ * message. Every failure mode of that arrangement was silent from the outside —
+ * no port file, a worker that declined, a worker that embedded nothing — and
+ * the import still ended with "Imported 200". The store held the records and
+ * search could not see them, which is the same thing as not holding them.
+ *
+ * So: START the worker rather than noticing it is absent (it is the only
+ * process that may touch the vector store and its watermarks), then ask it to
+ * verify, not merely to try. The caller is expected to treat `indexed: false`
+ * as a failed import, because that is what it is.
+ */
+export async function ensureCuratedIndexed(project: string): Promise<IndexOutcome> {
+  const { ensureWorkerRunning, workerHttpRequest } = await import('../../shared/worker-utils.js');
+
+  let running = false;
+  try {
+    running = await ensureWorkerRunning();
+  } catch (error) {
+    return { indexed: false, reason: `the worker could not be started — ${error instanceof Error ? error.message : error}` };
+  }
+  if (!running) {
+    return { indexed: false, reason: 'the worker could not be started, so nothing embedded the new records' };
   }
 
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/api/chroma/backfill`, {
+    const response = await workerHttpRequest('/api/curated/ensure-indexed', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ project }),
+      timeoutMs: indexTimeoutMs(),
     });
-    if (!response.ok) return { indexed: false, reason: `worker replied ${response.status}` };
-    const body = await response.json() as { indexed?: boolean; reason?: string };
-    return { indexed: body.indexed === true, reason: body.reason ?? 'worker declined' };
+    if (!response.ok) return { indexed: false, reason: `the worker replied ${response.status}` };
+    const body = await response.json() as {
+      indexed?: boolean; total?: number; missing?: number; repaired?: boolean; reason?: string;
+    };
+    return {
+      indexed: body.indexed === true,
+      total: body.total,
+      missing: body.missing,
+      repaired: body.repaired,
+      reason: body.reason,
+    };
   } catch (error) {
-    return { indexed: false, reason: `worker unreachable — ${error instanceof Error ? error.message : error}` };
+    return { indexed: false, reason: `the worker was unreachable — ${error instanceof Error ? error.message : error}` };
   }
 }
 
@@ -337,7 +418,7 @@ export async function requestBackfill(project: string): Promise<{ indexed: boole
 // ─────────────────────────────────────────────────────────────────────────
 
 export async function runCuratedVerifyCommand(options: CuratedImportOptions): Promise<void> {
-  const { loadCuratedSources, missingSources } = await import('../../services/curated/sources.js');
+  const { loadCuratedSources, loadCuratedProject, missingSources } = await import('../../services/curated/sources.js');
   const { verifyMigration } = await import('../../services/curated/migration-verify.js');
   const { SessionStore } = await import('../../services/sqlite/SessionStore.js');
   const { getProjectName } = await import('../../utils/project-name.js');
@@ -375,7 +456,7 @@ export async function runCuratedVerifyCommand(options: CuratedImportOptions): Pr
     return;
   }
 
-  const project = options.project ?? getProjectName(process.cwd());
+  const project = options.project ?? loadCuratedProject() ?? getProjectName(process.cwd());
   const store = new SessionStore();
   const report = verifyMigration(store.db as never, project, sources);
 
@@ -434,8 +515,20 @@ export async function runCuratedVerifyCommand(options: CuratedImportOptions): Pr
     console.log(`  ${report.statusRetiredWithoutSupersession.length} record(s) say they were REPLACED while naming no replacement — \`keepmind akten:check\` examines those: ${report.statusRetiredWithoutSupersession.slice(0, 20).join(', ')}${report.statusRetiredWithoutSupersession.length > 20 ? ' …' : ''}`);
   }
 
+  for (const log of report.eventLogs) {
+    if (log.stored) {
+      console.log(`  Event log: ${log.sourceEvents} event(s) from ${log.path} are stored verbatim.`);
+    } else {
+      // The one thing a green result used to say nothing about. Only the
+      // DERIVED state was stored, so a corpus could arrive "complete" while the
+      // history of how every work item got there still lived in a file nobody
+      // had been told to keep.
+      console.log(`  ✖ Event log NOT stored: ${log.path} (${log.sourceEvents} event(s))${log.mismatch ? ` — ${log.mismatch}` : ''}`);
+    }
+  }
+
   if (report.complete) {
-    console.log('\n  ✔ Every record, every declared relation and every validity window arrived.');
+    console.log('\n  ✔ Every record, every declared relation, every validity window and every event log arrived.');
     console.log('    The file archive is now redundant — it can be removed.');
     return;
   }

@@ -22,6 +22,7 @@ import {
 } from '../../../curated/authoring.js';
 import type { RelationName } from '../../../curated/relation-lexicon.js';
 import type { DatabaseManager } from '../../DatabaseManager.js';
+import { curatedKindOfId } from '../../../curated/record-key.js';
 
 const relationSchema = z.object({
   relation: z.string().refine(r => (RELATION_NAMES as string[]).includes(r), {
@@ -85,6 +86,10 @@ const getSchema = z.object({
   revisions: z.boolean().optional(),
 }).strict();
 
+const ensureIndexedSchema = z.object({
+  project: z.string().optional(),
+}).strict();
+
 export class CuratedRoutes extends BaseRouteHandler {
   constructor(
     private dbManager: DatabaseManager,
@@ -99,6 +104,7 @@ export class CuratedRoutes extends BaseRouteHandler {
     app.post('/api/curated/supersede', validateBody(supersedeSchema), this.handleSupersede.bind(this));
     app.post('/api/curated/close', validateBody(closeSchema), this.handleClose.bind(this));
     app.post('/api/curated/get', validateBody(getSchema), this.handleGet.bind(this));
+    app.post('/api/curated/ensure-indexed', validateBody(ensureIndexedSchema), this.handleEnsureIndexed.bind(this));
   }
 
   private resolveProject(explicit?: string): string {
@@ -256,7 +262,63 @@ export class CuratedRoutes extends BaseRouteHandler {
       res.status(404).json({ success: false, error: `No record ${recordId} in project "${project}".` });
       return;
     }
-    res.json({ success: true, project, recordId, current, revisions: all });
+    // `kind` at the top level, not buried in the metadata blob: a decision and
+    // an open work item read almost identically as text, and a caller that
+    // cannot tell them apart will answer "what did we decide" with open tasks.
+    res.json({
+      success: true,
+      project,
+      recordId,
+      kind: current?.kind ?? curatedKindOfId(recordId) ?? 'akte',
+      current,
+      revisions: all,
+    });
+  });
+
+  /**
+   * "Is every curated record in this project actually findable?" — and make it
+   * so if it is not.
+   *
+   * The one endpoint a writer can call to turn its own success claim into a
+   * verified one. It lives in the worker because the worker owns the vector
+   * store and the watermarks: a CLI process that lowered a watermark on its own
+   * would be overwritten by the worker's cached copy, so the repair has to
+   * happen where the cache lives.
+   *
+   * Answers with the truth in both directions. `indexed: false` plus the count
+   * that is missing is a usable answer; a 200 with no detail would not be.
+   */
+  private handleEnsureIndexed = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
+    const body = req.body as z.infer<typeof ensureIndexedSchema>;
+    const project = this.resolveProject(body.project);
+    const sync = this.dbManager.getChromaSync();
+    if (!sync) {
+      res.json({ success: true, project, indexed: false, total: 0, missing: 0, reason: 'vector search is unavailable in this worker' });
+      return;
+    }
+
+    const store = this.dbManager.getSessionStore();
+    const ids = store.curatedObservationIds(project);
+    try {
+      const result = await sync.ensureObservationsIndexed(project, ids);
+      logger.info('HTTP', 'Curated index check', {
+        project, total: result.total, missing: result.missing.length, repaired: result.repaired,
+      });
+      res.json({
+        success: true,
+        project,
+        indexed: result.indexed,
+        total: result.total,
+        missing: result.missing.length,
+        missingSample: result.missing.slice(0, 10),
+        repaired: result.repaired,
+        reason: result.indexed ? undefined : `${result.missing.length} of ${result.total} curated row(s) have no vector`,
+      });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      logger.warn('HTTP', 'Curated index check failed', { project, reason });
+      res.json({ success: true, project, indexed: false, total: ids.length, missing: ids.length, reason });
+    }
   });
 }
 

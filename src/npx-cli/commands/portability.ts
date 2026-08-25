@@ -277,9 +277,10 @@ async function rebuildIndex(projects: string[]): Promise<Array<{ project: string
     return out;
   }
 
-  const { requestBackfill } = await import('./curated.js');
+  const { ensureCuratedIndexed } = await import('./curated.js');
   for (const project of projects) {
-    out.push({ project, ...(await requestBackfill(project)) });
+    const outcome = await ensureCuratedIndexed(project);
+    out.push({ project, indexed: outcome.indexed, reason: outcome.reason });
   }
   return out;
 }

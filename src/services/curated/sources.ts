@@ -21,6 +21,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { DATA_DIR } from '../../shared/paths.js';
 import { join } from 'node:path';
 import { logger } from '../../utils/logger.js';
+import { envValue, settingValue } from '../../shared/legacy-env.js';
 
 /**
  * What a directory holds.
@@ -35,6 +36,17 @@ export type CuratedKind = 'akten' | 'vorgaenge';
 export interface CuratedSource {
   path: string;
   kind: CuratedKind;
+  /**
+   * The project this directory belongs in.
+   *
+   * Optional, and it exists because the import is no longer only ever started
+   * by a person standing in a directory. `--project` on a command line is a
+   * fact about one invocation; a corpus that is imported unattended — at a
+   * session start, when a file changes — needs the answer to live with the
+   * source list, which is the only place that is re-read identically every
+   * time. An explicit `--project` still wins over it.
+   */
+  project?: string;
 }
 
 export interface CuratedSourceSet {
@@ -82,7 +94,30 @@ function validate(raw: unknown, rejected: CuratedSourceSet['rejected']): Curated
       continue;
     }
 
-    out.push({ path: resolve(path), kind });
+    const project = candidate.project;
+    if (project !== undefined && (typeof project !== 'string' || project.trim().length === 0)) {
+      rejected.push({ entry, reason: `\`project\` must be a non-empty string when given, got ${JSON.stringify(project)}` });
+      continue;
+    }
+
+    out.push({ path: resolve(path), kind, ...(project ? { project: project.trim() } : {}) });
+  }
+  return out;
+}
+
+/**
+ * Group a source set by the project each directory belongs in.
+ *
+ * `fallback` covers entries that name no project — the pre-existing shape of
+ * the setting, and still the common case when everything lands in one project.
+ */
+export function sourcesByProject(sources: CuratedSource[], fallback: string): Map<string, CuratedSource[]> {
+  const out = new Map<string, CuratedSource[]>();
+  for (const source of sources) {
+    const project = source.project ?? fallback;
+    const list = out.get(project);
+    if (list) list.push(source);
+    else out.set(project, [source]);
   }
   return out;
 }
@@ -132,6 +167,36 @@ export function loadCuratedSources(settingsDir: string = DATA_DIR): CuratedSourc
     logger.warn('DB', 'Could not read curated source set', { settingsPath }, error instanceof Error ? error : undefined);
     rejected.push({ entry: settingsPath, reason: `unreadable: ${error instanceof Error ? error.message : error}` });
     return { sources: [], origin: settingsPath, rejected };
+  }
+}
+
+/**
+ * The project unattended imports file records under when a source names none.
+ *
+ * `KEEPMIND_CURATED_PROJECT` — the same setting `decision-check` already reads,
+ * deliberately not a second name for the same thing. Without it the worker
+ * would have to guess, and a guess here files a whole corpus under the wrong
+ * project, where a project-filtered search will never look at it again.
+ *
+ * Read from the settings file directly rather than through the defaults
+ * manager so a caller can point it at a scratch directory; the environment
+ * still wins, as it does everywhere else.
+ */
+export function loadCuratedProject(settingsDir: string = DATA_DIR): string | null {
+  const fromEnv = envValue('KEEPMIND_CURATED_PROJECT');
+  if (fromEnv && fromEnv.trim().length > 0) return fromEnv.trim();
+
+  const settingsPath = join(settingsDir, SETTINGS_FILE);
+  if (!existsSync(settingsPath)) return null;
+  try {
+    const raw = JSON.parse(readFileSync(settingsPath, 'utf8')) as Record<string, unknown>;
+    // Settings files carry the keys either at the top level or under `env`;
+    // paths.ts reads both, and so must this.
+    const settings = (raw.env ?? raw) as Record<string, string | undefined>;
+    const value = settingValue<string>('KEEPMIND_CURATED_PROJECT', settings);
+    return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+  } catch {
+    return null;
   }
 }
 
