@@ -27,7 +27,7 @@ ${pc.bold('Install Commands')} (no Bun required):
   ${pc.cyan('npx keepmind install --model <id>')}   Set Claude model (when provider=claude)
   ${pc.cyan('npx keepmind install --no-auto-start')}   Skip worker auto-start at the end
   ${pc.cyan('npx keepmind install --disable-auto-memory')}   Explicitly disable Claude Code native auto-memory
-  ${pc.cyan('npx keepmind repair')}                Repair runtime (re-runs Bun/uv setup and bun install in plugin cache)
+  ${pc.cyan('npx keepmind repair')}                Repair runtime (re-runs Bun setup and bun install in plugin cache)
   ${pc.cyan('npx keepmind update')}               Update to latest version
   ${pc.cyan('npx keepmind uninstall')}            Remove plugin and configs
   ${pc.cyan('npx keepmind version')}              Print version
