@@ -4,6 +4,104 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [4.4.0] - 2026-08-26
+
+The curated corpus is the part of memory a person wrote by hand, and it is answered from as if it were current. This release makes that claim honest on machines other than the one it was authored on, teaches search to say which of its answers are the wording and whether that wording still applies, and adds three reports that ask "how much has happened since this was written" without guessing.
+
+Every measurement quoted below was taken against the real corpus. The synthetic fixtures were green throughout — several of these faults cannot occur in them.
+
+## An import that nobody remembers to run
+
+Until now something outside keepmind had to run `curated:import`: a scheduled script, or a person. Both forget quietly. The last gap lasted four days, was found by accident, and for those four days every answer keepmind gave about the corpus was confidently out of date. Nothing about that was visible from inside a session, which is where the answers were being used.
+
+The worker now keeps the corpus in step itself — once at startup, and on a debounced watch of the source directories, so an edit is findable within seconds instead of at the next session. Both triggers run the same import a person would have run; neither may run two at once.
+
+Three rules keep "imported" meaning "findable":
+
+- **An import that did not index has failed.** The command starts the worker rather than noticing it is absent, then has it VERIFY the rows against the vector store — a backfill reporting what its own run did is a different claim. A row that was written and never embedded sits below the backfill watermark forever, so the watermark is rewound and the run retried once. Every curated write path now exits non-zero when the corpus is not searchable.
+- **The state of the corpus is visible without being asked for.** Attempt and success are stamped separately, so a repeatedly failing import cannot look like one nobody triggered. The session start and `keepmind doctor` read the same verdict.
+- **Where an unattended import files records is DECLARED, never guessed.** A corpus filed under the wrong project is invisible to every project-filtered read, and that looks exactly like an import that never ran.
+
+## keepmind runs on machines that do not have the corpus
+
+The corpus is developed on one machine and used on another. Three relationships are possible and the code could tell only two apart: a development machine holding 333 fully indexed records whose source directory had been deleted reported two REQUIRED doctor failures and put "NOT in the semantic index — semantic search cannot see these records" at the top of every session, about records semantic search could see in full.
+
+There is now one place that decides which machine this is. Sources readable is strict as before. **Detached** — records held, sources unreachable — warns and never fails: nothing refreshes them and nothing needs to, they stay searchable and stay true as of the last import, and the session start says so in one line rather than under a banner ending in "fix it with `curated:import`" when there is nothing to import. **Absent** — no sources, no records — is silent, so a settings file that travels ahead of the corpus does not turn every other machine red. **Cannot tell** stays strict, because an outage must never resolve to "nothing here".
+
+A corpus that arrives later is picked up: the worker watches the nearest existing ancestor of each missing source, filtered to the name it is waiting for.
+
+### Two fixes to where records get filed
+
+- **A source that names its own project needed no fallback, and was refused one anyway.** The unattended import demanded a fallback project unconditionally, so a configuration in which every entry declared its own still refused to run — on a fresh machine, where no project holds curated rows yet, which is precisely the case this feature exists for. The only evidence was a warning saying `project=(unknown)`. A mixed set with no fallback still aborts whole: a half run leaves part of the corpus fresh and part stale, and stamps a success over it.
+- **The CLI filed sources where the CLI thought, not where the source said.** `curated:import` and `curated:verify` resolved one project per run and ignored `project` on the entry, while the worker honours it — so the same corpus landed under two names depending on who started the import, with both runs reporting success. Both commands now run once per project. `--project` is the fallback and never an override, and it says which entries kept their own.
+
+## Two namespaces, one lookup
+
+The corpus holds decision records (`0138`) and work items (`V-0001`) under two deliberately separate keys — a work item is where a decision is carried out, and merging the namespaces makes "what did we decide" answer with open tasks. Every read path was written against the decision key alone, so half the corpus was addressable and half was not: `curated_get "V-0001"` answered "No record" about 200 items the importer had just reported as imported.
+
+One place now says how a curated entry is addressed, and everything that filters curated rows by number goes through it. The id is shared; the kind is not — every read returns whether the entry is a decision or a work item, and reports that are about decisions filter on that.
+
+**Exactly one revision may be active, and that is a floor as well as a ceiling.** Editing a record's file and re-importing left two active rows: reads survived it, the vector index did not, so the record answered twice and the older wording won as often as the ranker preferred it. And de-duplication landing an unchanged file back on a row an earlier edit had closed left NONE active — measured as `getCuratedRecord` answering null about a record whose two revisions both sat in the table, readable, nothing deleted and nothing logged. The settling now re-opens the row it keeps BEFORE closing the rest; the other order leaves a window with no active revision.
+
+**An authored revision is not a stale one.** Re-opening alone would have turned that vanishing into a silent revert — a file's older wording back in force over what a person wrote here. An import that lands on a number an authored entry holds stores its own row, closes it, leaves the authored one current, and REPORTS the collision. Two independent claims on one number is not something an importer can settle.
+
+## The event log survives its file
+
+A work item's state is derived from `EREIGNISSE.log`, and only the derived state was being kept — so a corpus could pass verification while the history of how every work item reached its state lived in one file nobody had been told to keep. The log is now stored twice over: verbatim as one row per log file, and per item with each event's raw line beside the state derived from it. Neutral events are kept too. Verification compares the stored log against the file AS TEXT, because the whole point is that a line the reader misunderstands is still readable afterwards.
+
+A derived field is also refreshed when a row is reused: de-duplication is on the wording, which is right for a file that has not changed, but the log moves without the item's file changing. Measured: a log entry moving an item to `wartet` produced an import that reported `wartet` while the stored row kept saying `unbekannt`.
+
+## A search says where an answer came from, and whether it still applies
+
+Memory holds two kinds of text. An observation is a model's summary of a session; a lasting entry is what a person wrote, stored verbatim. Presenting them alike hands the reader the second claim about the first kind of text — measured: a search for "Wortlaut" returned record `V-0110` under the heading `General`, spelled exactly like the summaries around it, and no parameter could have excluded them.
+
+Searches can now ask for the wording. The origin clause has one spelling, and the load-bearing part of it is that rows written before the curated path existed carry no origin at all — a plain equality test drops the entire pre-3.x corpus and the answer still reads as an ordinary, slightly short result. The semantic leg is filtered before fusion rather than only at hydration: measured against the live corpus, filtering afterwards returned 1 of 20 matching entries and looked like a corpus holding one match.
+
+**And a returned entry says whether it is still in force.** Measured: a search returned `0137` and, one row below it, `0064` — the record 0137 had explicitly superseded. Same list, same spelling, nothing saying 0064 no longer applies. Retired entries are now MARKED, never filtered: a supersession chain you cannot follow to its far end is half built. Retired and revised stay different statements, because the reader's next move differs — one goes looking for a successor, the other for a current wording.
+
+## A relation can be read from both ends
+
+An edge is declared once, by one record, and stored once in that direction — correctly, because only one end wrote anything down. But nothing could ask the far end: `0090` was superseded by `0138`, the index for it had existed since the table was created, and every read path answered `0090` without mentioning it.
+
+Incoming relations are now returned unconditionally, since the direction a reader cannot know to ask for is the incoming one. The voice belongs to the relation rather than to a view (`supersedes` / `superseded by`); printing the stored name at an incoming edge points half the corpus backwards, and a backwards supersession makes a retired record look current. A relation is a fact and a declaration is evidence for it: on the live corpus 228 stored edges are 126 relations, collapsed at the strongest certainty.
+
+A retired entry is also no longer reported as missing. `curated_get` answering "No record 0064" about a record that exists, still reads, and was retired for a recorded reason invites the caller to write a new entry under a number already taken.
+
+## A vector has no OR, so the query is spelled the way the corpus spells it
+
+The keyword channel answers both German spellings of a word by expanding them. The semantic channel cannot: one query text becomes one vector, and the tokenizer splits "Prüfung" and "Pruefung" differently. Measured on the live corpus, keyword agreement was 89%, semantic 13%, and the fused path 27% because it fuses the two.
+
+The query is now rewritten into the spelling the corpus actually uses, evidenced by the keyword index's own vocabulary — both spellings genuinely occur and the umlaut form dominates every measured pair, so both queries resolve to the same one. Semantic and fused agreement are both 100%, with everything else unchanged to the point: an unattested spelling is never chosen, so an ordinary question reaches the embedder byte-identical.
+
+## A record that contains your wording goes to the top
+
+The keyword ranking does not reward adjacency, so it cannot tell a record that contains your sentence from one that uses the same words apart. Measured over 25 sentences lifted verbatim out of record bodies: rank 1 in 56% of cases, and not in the top ten at all in 12%. Now 100% at rank 1.
+
+It is a promotion, not a third channel in the fusion: "this record contains these words in this order" is a fact, and fusing it would let two resemblance channels outvote it. Nothing is dropped and nothing is demoted; a query that quotes nothing returns the ranking untouched.
+
+## Three reports that assert nothing
+
+- **Candidate decisions now show what they say.** Before a question reaches a person, the reader is offered decisions that may already answer it — and it was listing each record's SUBTITLE, which is its header line: metadata about the decision, not the decision. Candidates now render the record's own statement. There is still no relevance threshold, and the three measurements explaining why one cannot be added are recorded in the code rather than left to be rediscovered.
+- **An open item goes stale by the world moving, not by anyone touching it.** The age report covered decisions only, ordered by record number — but the entries that most need the question asked of them are exactly the ones it left out. On the live corpus 118 items say `offen` and 17 say `wartet`, and nothing said which had been overtaken. The age comes from the state, not the file, and which one was used is printed: "unchanged since it was created" does not mean anyone has looked at it.
+- **Neither may grow a similarity measure.** "12 days in this state, 8 decisions since, 2 of them name it" is arithmetic over dates and declared edges — it cannot be wrong, only uninteresting. The moment a threshold decides what "same topic" means, the number stops being arithmetic and starts being a guess.
+
+## Portability, measured against the real corpus
+
+`keepmind export` / `keepmind import` carry the whole source of truth with a row count and a hash per file. Two faults were found the only way they could have been — by running the round trip against the real store:
+
+- **1830 observations and 408 session summaries name a session row that no longer exists.** The source machine does not satisfy that constraint either, and enforcing it on the way in rejected the whole 19,032-row bundle with a bare constraint failure. Dropping those rows would have been the half-restored memory the verification rules exist to prevent. Foreign keys are now off during the restore — safe by construction, since the restore only inserts — and what dangles is REPORTED.
+- **The bundle said "settings.json included" and the import read it nowhere at all.** Settings now apply on `--settings` and are otherwise announced as carried but NOT applied, with the previous file kept beside the new one. Opt-in, because settings describe a machine and not a memory.
+
+## A maintenance run has two claims
+
+`keepmind maintain` reclaims what the vector store holds and does not need, and then SHOWS that the answers did not move. Reporting only the first is how a run that shrank a store by losing part of it reads as a success.
+
+The waste was a second copy of what the columns already hold: 14.94 MB of 61.52 MB, in a shadow table that also had to be read and parsed on every search. The probes come from the corpus rather than from a fixed list of phrases, which would measure nothing on a machine whose memory is in another language. Measured on the live store: 61.55 MB → 47.38 MB, 27,660 rows before and after, all ten probe result lists identical. The command exits non-zero if the row count moves or a probe's answers differ.
+
+## Dependencies
+
+Every manifest is on latest, TypeScript 7 included. That major needed two configuration removals to compile at all — `moduleResolution: node10` and `baseUrl` are gone — and the type check is clean on both projects with the suite unchanged. `npm audit` reports four high advisories with no fix available, all reached through the embedder's own dependencies; they are noted rather than silently carried.
+
 ## [4.3.1] - 2026-08-25
 
 Four faults in the curated path, found by running the real archive through it. Together they blocked the one-time hand-over of an existing file corpus: `curated:verify` could not reach its success line, and until it does, no file may be deleted.
