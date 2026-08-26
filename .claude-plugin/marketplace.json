@@ -9,13 +9,13 @@
   "plugins": [
     {
       "name": "keepmind",
-      "version": "4.4.0",
+      "version": "4.4.1",
       "source": "./plugin",
       "description": "Persistent memory system for Claude Code - context compression across sessions"
     },
     {
       "name": "keepmind-extras",
-      "version": "4.4.0",
+      "version": "4.4.1",
       "source": "./plugin-extras",
       "description": "Optional keepmind workflow skills - planning, releases, digests and reports. Not installed by default; the memory system does not need them."
     }
