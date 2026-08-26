@@ -15,6 +15,10 @@ import { resolve } from 'node:path';
 // Type-only: erased at runtime, so the lazy imports below still decide what
 // actually gets loaded.
 import type { CuratedSource } from '../../services/curated/sources.js';
+import type { SessionStore } from '../../services/sqlite/SessionStore.js';
+
+/** The store, as the per-project import run uses it. */
+type SessionStoreLike = SessionStore;
 
 export interface CuratedImportOptions {
   /** Explicit directories. When empty, the configured set is used. */
@@ -65,17 +69,19 @@ function usage(): string {
     'Control files belong under "akten": they are not decisions and store no row,',
     'but they demonstrably declare relations that no record carries itself.',
     '',
-    'Each entry may name its own "project". Without one, KEEPMIND_CURATED_PROJECT',
-    'in the same file decides — and it must, because the worker re-runs this same',
-    'import unattended (at startup and when a source file changes) and has no',
-    'working directory to fall back on.',
+    'Each entry may name its own "project", and this command honours it the way',
+    'the unattended run does — one run per project, so the same corpus cannot land',
+    'under two names depending on who started the import. Entries that name none',
+    'go where KEEPMIND_CURATED_PROJECT in the same file says, and it must say,',
+    'because the worker re-runs this very import (at startup and when a source',
+    'file changes) with no working directory to fall back on.',
     '',
     'The command exits non-zero unless the imported records are SEARCHABLE, not',
     'merely stored: it starts the worker if needed and verifies the index.',
     '',
     'Options:',
     '  --kind <k>         Kind for directories given on the command line',
-    '  --project <name>   File the records under this project',
+    '  --project <name>   Fallback project for entries that name none of their own',
     '  --dry-run          Report what would be imported, write nothing',
     '  --json             Machine-readable output',
     '',
@@ -133,17 +139,64 @@ export async function runCuratedImportCommand(options: CuratedImportOptions): Pr
   }
 
   const { SessionStore } = await import('../../services/sqlite/SessionStore.js');
-  const { runCuratedImport } = await import('../../services/curated/import-run.js');
   const { getProjectName } = await import('../../utils/project-name.js');
-  const { loadCuratedProject } = await import('../../services/curated/sources.js');
+  const { loadCuratedProject, sourcesByProject } = await import('../../services/curated/sources.js');
 
-  // Same order everywhere a curated write happens: what was asked for, then
+  // Where a source with no project of its own goes: what was asked for, then
   // what is configured, then the directory. The worker has no cwd worth using,
   // so if the CLI fell back to one the same corpus would land under two
   // different projects depending on who ran the import.
-  const project = options.project ?? loadCuratedProject() ?? getProjectName(process.cwd());
+  //
+  // An entry that names its own project keeps it. It is the setting's
+  // documented shape and the worker honours it, so a CLI that flattened every
+  // entry into one project produced exactly the divergence the paragraph above
+  // exists to prevent — quietly, since both runs report success.
+  const fallback = options.project ?? loadCuratedProject() ?? getProjectName(process.cwd());
+  const grouped = sourcesByProject(sources, fallback);
+
+  // `--project` is the fallback, not an override: a declared entry keeps its
+  // own project, because filing a declared corpus somewhere else is not
+  // recoverable by re-running. But an explicit flag that does not apply
+  // everywhere must not be silent about it.
+  const kept = options.project ? sources.filter(source => source.project && source.project !== options.project) : [];
+  if (kept.length > 0 && !options.json) {
+    console.log(`  Note: --project ${options.project} covers only entries that name no project of their own.`);
+    for (const source of kept) console.log(`        ${source.path} keeps its own project "${source.project}"`);
+    console.log('');
+  }
+
   const store = new SessionStore();
   const nowEpoch = Date.now();
+
+  const runs: Record<string, unknown>[] = [];
+  for (const [project, list] of grouped) {
+    runs.push(await importOneProject(project, list, origin, options, store, nowEpoch));
+  }
+
+  if (options.json) {
+    // One project keeps the shape it has always had. Several is new ground, so
+    // it is a list rather than a last-one-wins object.
+    console.log(JSON.stringify(runs.length === 1 ? runs[0] : { origin, dryRun: options.dryRun, runs }, null, 2));
+  }
+}
+
+/**
+ * One project's worth of the import, rendered.
+ *
+ * Split out because a source entry may name its own project, so one command
+ * can be several runs — and everything below the split is per project: the
+ * supersession pass, the index verification and the import stamp all take a
+ * project and would each silently mean "the last one" if they were hoisted.
+ */
+async function importOneProject(
+  project: string,
+  sources: CuratedSource[],
+  origin: string,
+  options: CuratedImportOptions,
+  store: SessionStoreLike,
+  nowEpoch: number,
+): Promise<Record<string, unknown>> {
+  const { runCuratedImport } = await import('../../services/curated/import-run.js');
 
   // The run itself lives in the service layer, because the worker triggers the
   // very same run when a source file changes. This command renders it.
@@ -184,10 +237,10 @@ export async function runCuratedImportCommand(options: CuratedImportOptions): Pr
 
   if (indexed && !indexed.indexed) process.exitCode = 1;
 
+  const payload = { project, origin, dryRun: options.dryRun, sources: summary, supersession, indexed };
   if (options.json) {
-    console.log(JSON.stringify({ project, origin, dryRun: options.dryRun, sources: summary, supersession, indexed }, null, 2));
     if (failedTotal > 0) process.exitCode = 1;
-    return;
+    return payload;
   }
 
   const verb = options.dryRun ? 'Would import' : 'Imported';
@@ -292,6 +345,7 @@ export async function runCuratedImportCommand(options: CuratedImportOptions): Pr
   reportIndexOutcome(indexed);
 
   if (failedTotal > 0) process.exitCode = 1;
+  return payload;
 }
 
 /**
@@ -432,8 +486,7 @@ export async function ensureCuratedIndexed(project: string): Promise<IndexOutcom
 // ─────────────────────────────────────────────────────────────────────────
 
 export async function runCuratedVerifyCommand(options: CuratedImportOptions): Promise<void> {
-  const { loadCuratedSources, loadCuratedProject, missingSources } = await import('../../services/curated/sources.js');
-  const { verifyMigration } = await import('../../services/curated/migration-verify.js');
+  const { loadCuratedSources, loadCuratedProject, missingSources, sourcesByProject } = await import('../../services/curated/sources.js');
   const { SessionStore } = await import('../../services/sqlite/SessionStore.js');
   const { getProjectName } = await import('../../utils/project-name.js');
 
@@ -470,14 +523,38 @@ export async function runCuratedVerifyCommand(options: CuratedImportOptions): Pr
     return;
   }
 
-  const project = options.project ?? loadCuratedProject() ?? getProjectName(process.cwd());
+  // Same grouping as the import, and for the same reason: a source entry may
+  // name its own project, and comparing a directory against a project it was
+  // never imported into reports every record of it as MISSING — a false alarm
+  // that reads exactly like the real one this command exists to raise.
+  const fallback = options.project ?? loadCuratedProject() ?? getProjectName(process.cwd());
+  const grouped = sourcesByProject(sources, fallback);
+
   const store = new SessionStore();
+  const reports: Record<string, unknown>[] = [];
+  for (const [project, list] of grouped) {
+    reports.push(await verifyOneProject(project, list, origin, options, store));
+  }
+
+  if (options.json) {
+    console.log(JSON.stringify(reports.length === 1 ? reports[0] : { origin, reports }, null, 2));
+  }
+}
+
+/** One project's comparison, rendered. See `importOneProject` for the split. */
+async function verifyOneProject(
+  project: string,
+  sources: CuratedSource[],
+  origin: string,
+  options: CuratedImportOptions,
+  store: SessionStoreLike,
+): Promise<Record<string, unknown>> {
+  const { verifyMigration } = await import('../../services/curated/migration-verify.js');
   const report = verifyMigration(store.db as never, project, sources);
 
   if (options.json) {
-    console.log(JSON.stringify(report, null, 2));
     if (!report.complete) process.exitCode = 1;
-    return;
+    return report as unknown as Record<string, unknown>;
   }
 
   console.log(`Comparing ${sources.length} source director(y|ies) from ${origin} with project "${project}".\n`);
@@ -544,8 +621,9 @@ export async function runCuratedVerifyCommand(options: CuratedImportOptions): Pr
   if (report.complete) {
     console.log('\n  ✔ Every record, every declared relation, every validity window and every event log arrived.');
     console.log('    The file archive is now redundant — it can be removed.');
-    return;
+    return report as unknown as Record<string, unknown>;
   }
   console.log('\n  The corpus did NOT arrive complete. Do not remove the files.');
   process.exitCode = 1;
+  return report as unknown as Record<string, unknown>;
 }
