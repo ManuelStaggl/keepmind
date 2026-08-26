@@ -51,6 +51,36 @@ curated entry never reaches a provider" is a property of the code path, not a
 promise. Two Proxy tests fail the moment either path reaches for anything else
 (`tests/curated/akten-importer.test.ts`, `tests/curated/authoring.test.ts`).
 
+**Curated content is stored VERBATIM — the on-write redaction is skipped for it.**
+`storeObservation` masks secrets on write to keep an accidental credential out of
+the LOCAL database, but that guard is skipped when `source_kind === 'curated'`,
+and it must stay skipped. The reasoning is the paragraph above: a curated row
+never reaches a provider, so the network is already protected without touching
+the stored row (and if one is ever sent as prompt context, the OUTBOUND redaction
+in `src/sdk/prompts.ts` still guards that copy). What the write-path guard would
+cost here is exact: the entropy backstop over-redacts by design ("false-positives
+are acceptable" where readability is the only price), so it masked structured
+metadata like `aus=DURCHGANG-BEFUNDE.md#s1-5` as `«redacted:HIGH_ENTROPY»` — a
+SHORTER string — and the stored event log stopped matching the file byte for
+byte. `curated:verify` compares the stored log against the file AS TEXT, so a
+single mask made it report the corpus INCOMPLETE forever (re-importing re-masked
+the same tokens). The bypass covers the imported/authored corpus: file import,
+`curated:add`, `curated:edit`, AND `refreshCuratedDerived` (which rewrites a work
+item's metadata, where each event's raw log line lives under
+`metadata.events[].raw`). Do NOT restore redaction on those paths —
+`tests/curated/verbatim-redaction.test.ts` fails if you do.
+
+The one curated write that STAYS redacted is a session **checkpoint**
+(`storeCheckpoint`, `type='session-checkpoint'`). It is stored
+`source_kind='curated'` for the reconciler skip and the verbatim injection, but
+it has no verbatim CONTRACT — no source file, nothing byte-compares it — and it
+is a summary OF a session, the one curated shape where a secret the session
+touched could ride along. The gate is therefore `storeVerbatim = isCurated &&
+type !== CHECKPOINT_TYPE`, kept separate from `isCurated` because the reconciler
+skip still applies to EVERY curated row, checkpoints included
+(`tests/sqlite/session-store-checkpoint.test.ts` asserts a checkpoint is
+scrubbed).
+
 - **From files** — `keepmind curated:import` / `akten:import`. Still the only
   way to take over an existing archive, and it must stay working: the one-time
   hand-over of `C:\Projekte\entscheidungen` + `…\vorgaenge` runs through it, and

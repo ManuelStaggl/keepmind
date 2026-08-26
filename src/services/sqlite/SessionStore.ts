@@ -2577,13 +2577,50 @@ export class SessionStore {
     const timestampEpoch = overrideTimestampEpoch ?? Date.now();
     const timestampIso = new Date(timestampEpoch).toISOString();
 
+    // Curated content is stored VERBATIM — the write-path redaction is skipped
+    // for it, deliberately.
+    //
+    // The on-write redaction exists to keep an accidental secret out of the
+    // LOCAL database. Curated rows are different on both counts. They carry a
+    // person's hand-written archive that is answered from as if it were current,
+    // so the exact wording is the value — and, the load-bearing half, they NEVER
+    // reach a provider: the observation queue is the only thing in keepmind that
+    // calls a model, and no curated path enqueues (two Proxy tests enforce it).
+    // The network is therefore already protected without touching the stored
+    // row, and if a curated row is ever sent to a provider AS CONTEXT the
+    // outbound redaction in src/sdk/prompts.ts still guards that copy — this only
+    // keeps the STORED row exact.
+    //
+    // Left in, the entropy backstop's deliberate over-redaction ("false-positives
+    // are acceptable" where readability is the only cost) is NOT acceptable here:
+    // it masks structured metadata such as `aus=DURCHGANG-BEFUNDE.md#s1-5` as
+    // «redacted:HIGH_ENTROPY», which is SHORTER than the original, so the stored
+    // event log stops matching the file byte for byte. `curated:verify` compares
+    // the stored log against the file AS TEXT and then reports the corpus
+    // INCOMPLETE — permanently, because re-importing re-masks the same tokens.
+    //
+    // A CHECKPOINT is the exception. It is stored `source_kind='curated'` too —
+    // to keep the reconciler away and to be injected verbatim next session — but
+    // it carries no verbatim CONTRACT: there is no source file, `curated:verify`
+    // never byte-compares it, and its text is a summary OF a session, which is
+    // the one curated shape where a secret the session touched could ride along.
+    // Verbatim reproduction is owed to the imported/authored archive, not to a
+    // generated hand-off, so a checkpoint keeps the on-write scrub. (The
+    // reconciler skip below is broader — EVERY curated row, checkpoint included,
+    // states its own relations and must stay away from the guessing decider.)
+    const isCurated = observation.source_kind === 'curated';
+    const storeVerbatim = isCurated && observation.type !== CHECKPOINT_TYPE;
+
     // Phase 4 / Step 1 — redact secrets BEFORE hashing so dedup keys are stable
-    // over redacted text (no leak via hash divergence).
-    const rTitle = this.rt(observation.title);
-    const rSubtitle = this.rt(observation.subtitle);
-    const rNarrative = this.rt(observation.narrative);
-    const rFacts = this.rl(observation.facts);
-    const rMetadata = this.rt(observation.metadata ?? null);
+    // over redacted text (no leak via hash divergence). Verbatim curated content
+    // bypasses both — see above.
+    const rTitle = storeVerbatim ? observation.title : this.rt(observation.title);
+    const rSubtitle = storeVerbatim ? observation.subtitle : this.rt(observation.subtitle);
+    const rNarrative = storeVerbatim ? observation.narrative : this.rt(observation.narrative);
+    const rFacts = storeVerbatim ? observation.facts : this.rl(observation.facts);
+    const rMetadata = storeVerbatim
+      ? (observation.metadata ?? null)
+      : this.rt(observation.metadata ?? null);
 
     const contentHash = computeObservationContentHash(memorySessionId, rTitle ?? null, rNarrative ?? null);
 
@@ -2600,7 +2637,6 @@ export class SessionStore {
     // records onto one another; the bi-temporal columns are worth reusing, the
     // decider behind them is not. Curated supersession is written from the
     // declared note instead.
-    const isCurated = observation.source_kind === 'curated';
     if (this.mq.reconcile.enabled && !isCurated) {
       const decision = this.reconcileBeforeInsert(project, observation.type, rTitle ?? null, rNarrative ?? null);
       if (decision.action === 'NOOP' && decision.candidateId) {
@@ -3017,6 +3053,11 @@ export class SessionStore {
    * window closed. Idempotent: saving byte-identical text reuses the existing
    * row (content-hash dedup) and re-activates it, so re-running `/checkpoint`
    * never leaves two batons standing.
+   *
+   * Unlike the imported/authored corpus, a checkpoint DOES keep the on-write
+   * secret scrub: it is a summary of a session (a secret the session touched
+   * could ride along) and carries no verbatim contract — nothing byte-compares
+   * it against a source file. See the `storeVerbatim` gate in `storeObservation`.
    */
   storeCheckpoint(
     project: string,
@@ -3368,10 +3409,15 @@ export class SessionStore {
   ): void {
     const sets: string[] = [];
     const values: Array<string | number | null> = [];
-    // Through the same redaction as the write path, or a value could reach the
-    // store here that the insert would have stripped.
-    if (fields.subtitle !== undefined) { sets.push('subtitle = ?'); values.push(this.rt(fields.subtitle) ?? null); }
-    if (fields.metadata !== undefined) { sets.push('metadata = ?'); values.push(this.rt(fields.metadata) ?? null); }
+    // Stored VERBATIM, matching the curated insert path — this method only ever
+    // touches `source_kind='curated'` rows, which are not redacted on write (see
+    // `storeObservation`). Redacting here would re-introduce the very masks the
+    // insert avoids: the work-item metadata carries each event's raw log line
+    // under `metadata.events[].raw`, and the entropy backstop masks structured
+    // tokens in those lines (`aus=FILE.md#s1-5`), so a redacting refresh would
+    // silently re-mangle the verbatim event history the row is meant to preserve.
+    if (fields.subtitle !== undefined) { sets.push('subtitle = ?'); values.push(fields.subtitle ?? null); }
+    if (fields.metadata !== undefined) { sets.push('metadata = ?'); values.push(fields.metadata ?? null); }
     if (fields.lastVerifiedAt !== undefined) { sets.push('last_verified_at = ?'); values.push(fields.lastVerifiedAt ?? null); }
     if (sets.length === 0) return;
     values.push(id);
@@ -3445,10 +3491,12 @@ export class SessionStore {
    * from the surface entirely. Order therefore matters: store, re-activate the
    * stored row, then close every OTHER revision of the same record.
    *
-   * Goes through `storeObservation`, so the row is redacted, hashed, scored and
-   * stamped exactly like an imported one — and, being `source_kind='curated'`,
-   * kept away from the near-dup reconciler that would otherwise guess at
-   * relations the record states outright.
+   * Goes through `storeObservation`, so the row is hashed, scored and stamped
+   * exactly like an imported one — and, being `source_kind='curated'`, kept away
+   * from the near-dup reconciler that would otherwise guess at relations the
+   * record states outright AND stored VERBATIM: the authoring round-trip re-reads
+   * the rendered text with `parseAkte`, so a masked token would not read back as
+   * declared, and an authored record never reaches a provider anyway.
    */
   storeCuratedRecord(
     memorySessionId: string,
