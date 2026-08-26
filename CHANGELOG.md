@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [4.4.6] - 2026-08-26
+
+Two false alarms in `curated:verify` are fixed. Neither blocked anything — the corpus was complete and searchable throughout — but each reported a problem that was not there, and a checker that cries wolf gets clicked away.
+
+## A gilt record read as "retired without a successor"
+
+`curated:verify` listed an in-force record under `statusRetiredWithoutSupersession` because a retiring word ("abgelöst", "überholt", …) appeared *anywhere* in its `Stand:` value. But the corpus writes `Stand` as verdict + annotations — `gilt · <cross-reference>` — so a record whose status mentioned another document being "abgelöst" (a note about where a file now lives, not the record's own verdict) read as retired.
+
+`statusSaysValid` now takes the verdict from the word written **first**: a `gilt`-leading status is valid however much reference text trails it, while a record retired by its own status writes the retiring word first (`abgelöst durch 0137`, `ersetzt durch 0074`). Verified against every record in the live corpus — no record changes classification except the false positives, and a record retired by *another record* stays retired, because that has always been decided from the declared edge, never from this field. `akten:check` was already correct here and served as the reference.
+
+## Work-item relations counted as "in the graph, declared by no file"
+
+The importer writes edges out of work-item files (`haengt_an` → `depends_on`, `schliesst` → `closes`), but `verify`'s source re-scan skipped every edge for work items — so each stored work-item edge read as an extra relation no file declared, pushing `storedEdgeCount` above `sourceEdgeCount` for a corpus that was in fact complete.
+
+Both sides now read those relations through one shared `extractVorgangEdges` — the same "one reader, one rule" the record side already uses — so a work-item edge is neither missing nor extra and the two counts agree.
+
+## Not affected
+
+`complete` was already `true` in both cases, so no migration was ever blocked by these. The changes are correctness of the report, not of the stored data. New regression tests pin both: an in-force `gilt` record that references another document stays out of the retired bucket, and a work item's declared relations are counted in the source scan.
+
 ## [4.4.5] - 2026-08-26
 
 Curated content is stored verbatim now — the on-write secret redaction no longer runs over it.
