@@ -9,6 +9,7 @@ import { ErrorSeverity } from './error-taxonomy.js';
 import { installerError, type InstallSummary } from './error-reporter.js';
 import { IS_WINDOWS } from '../utils/paths.js';
 import { envValue } from '../../shared/legacy-env.js';
+import { certErrorCodeOf, describeCertInterception, findCertErrorCode } from '../../shared/tls-errors.js';
 
 const INSTALL_TIMEOUT_MS = (() => {
   const override = envValue('KEEPMIND_INSTALL_TIMEOUT_MS');
@@ -102,18 +103,66 @@ function getBunVersion(): string | null {
   }
 }
 
-function describeExecError(error: unknown): string {
-  if (error && typeof error === 'object') {
-    const e = error as { message?: string; stdout?: Buffer | string; stderr?: Buffer | string };
-    const parts: string[] = [];
-    if (e.message) parts.push(e.message);
-    const stderr = e.stderr ? e.stderr.toString().trim() : '';
-    if (stderr) parts.push(`stderr: ${stderr}`);
-    const stdout = e.stdout ? e.stdout.toString().trim() : '';
-    if (!stderr && stdout) parts.push(`stdout: ${stdout}`);
-    return parts.join('\n');
-  }
-  return String(error);
+/** How much of a dead child's output is evidence, and how much is noise. */
+const EXEC_ERROR_MAX_LINES = 8;
+
+/** Keep a multi-line explanation visually under the warning it belongs to. */
+function indentBlock(text: string): string {
+  return text.split('\n').map(line => (line ? `    ${line}` : '')).join('\n');
+}
+
+function clipOutput(text: string): string {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length <= EXEC_ERROR_MAX_LINES) return lines.join('\n');
+  const shown = lines.slice(0, EXEC_ERROR_MAX_LINES).join('\n');
+  return `${shown}\n    … ${lines.length - EXEC_ERROR_MAX_LINES} more line(s)`;
+}
+
+/**
+ * Explain a dead child process — and when the explanation is known, GIVE it
+ * rather than handing over the corpse.
+ *
+ * Two faults, both measured on a real company-machine install:
+ *
+ *   • It printed the same output twice. Node's `exec` builds its error message
+ *     as `Command failed: <cmd>` followed by the child's stderr, so appending
+ *     `stderr:` after it repeats every line — for a child that died on an
+ *     unhandled 'error' event, that is two full crash traces, about 30 lines,
+ *     for ONE non-fatal warning.
+ *   • It never named the cause. A rejected TLS chain is a specific, common and
+ *     fixable condition that `doctor` has always diagnosed by name, and the
+ *     installer showed the operator a stack trace instead. A successful install
+ *     read as a crash.
+ *
+ * `retryWith` is the command that re-attempts what just failed, so the remedy
+ * ends with a step instead of a diagnosis.
+ */
+export function describeExecError(error: unknown, retryWith?: string): string {
+  if (!error || typeof error !== 'object') return String(error);
+
+  const e = error as { message?: string; stdout?: Buffer | string; stderr?: Buffer | string };
+  const message = e.message?.trim() ?? '';
+  const stderr = e.stderr ? e.stderr.toString().trim() : '';
+  const stdout = e.stdout ? e.stdout.toString().trim() : '';
+
+  const parts: string[] = [];
+  if (message) parts.push(message);
+  // Only what the message does not already carry. `exec` folds stderr into it;
+  // `execSync` and a plain Error do not.
+  if (stderr && !message.includes(stderr)) parts.push(`stderr: ${stderr}`);
+  if (!stderr && stdout && !message.includes(stdout)) parts.push(`stdout: ${stdout}`);
+  const raw = parts.join('\n');
+
+  const certCode = certErrorCodeOf(error) ?? findCertErrorCode(raw);
+  if (!certCode) return clipOutput(raw);
+
+  // The code is the evidence; the trace around it is not. Keep the one line
+  // that names it so the diagnosis can still be checked, and drop the rest.
+  const evidence = raw.split(/\r?\n/).find(line => line.includes(certCode))?.trim();
+  return [
+    describeCertInterception(certCode, retryWith),
+    ...(evidence ? ['', `Reported as: ${evidence}`] : []),
+  ].join('\n');
 }
 
 function installBun(): void {
@@ -143,7 +192,7 @@ function installBun(): void {
       : '  - curl -fsSL https://bun.sh/install | bash\n  - Or: brew install oven-sh/bun/bun';
     throw new Error(
       `Failed to install Bun. Please install manually:\n${manualInstructions}\nThen restart your terminal and try again.\n` +
-        `Underlying error: ${describeExecError(error)}`,
+        `Underlying error: ${describeExecError(error, 'npx keepmind install')}`,
     );
   }
 }
@@ -318,7 +367,7 @@ export async function installPluginDependencies(targetDir: string, bunPath: stri
           error ? reject(Object.assign(error, { stdout, stderr })) : resolve());
       });
     } catch (error) {
-      throw new Error(`bun install failed in ${targetDir}\n${describeExecError(error)}`);
+      throw new Error(`bun install failed in ${targetDir}\n${describeExecError(error, 'npx keepmind repair')}`);
     }
 
     await ensureTreeSitterCliBinary(targetDir);
@@ -386,7 +435,8 @@ async function ensureTreeSitterCliBinary(targetDir: string): Promise<void> {
         error ? reject(Object.assign(error, { stdout, stderr })) : resolve());
     });
   } catch (error) {
-    console.warn(`  ⚠ Could not download the tree-sitter CLI; structural search will be unavailable until the next attempt.\n${describeExecError(error)}`);
+    console.warn('  ⚠ Could not download the tree-sitter CLI; structural search will be unavailable until the next attempt.');
+    console.warn(indentBlock(describeExecError(error, 'npx keepmind repair')));
     return;
   }
 

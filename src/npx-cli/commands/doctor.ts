@@ -39,6 +39,7 @@ import { spoolDepth } from '../../shared/hook-spool.js';
 import { checkSourceTreeDrift } from '../utils/source-tree-drift.js';
 import { curatedHealth, describeCuratedHealth, type CuratedHealth } from '../../services/curated/health.js';
 import { readCuratedRecordCounts } from '../../services/curated/stored-records.js';
+import { certErrorCodeOf, findCertErrorCode } from '../../shared/tls-errors.js';
 
 export type CheckStatus = 'ok' | 'warn' | 'fail' | 'skip';
 
@@ -911,18 +912,14 @@ async function buildConnectivityGroup(): Promise<CheckGroup> {
       (err as { cause?: { code?: string } })?.cause?.code ??
       (err as NodeJS.ErrnoException)?.code ??
       '';
-    const certCodes = [
-      'CERT_HAS_EXPIRED',
-      'SELF_SIGNED_CERT_IN_CHAIN',
-      'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
-      'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
-      'DEPTH_ZERO_SELF_SIGNED_CERT',
-      'CERT_UNTRUSTED',
-    ];
-    if (certCodes.includes(code)) {
+    // The list of "the chain was rejected" verdicts lives in one place, because
+    // the installer recognises them too and a second copy is how one of them
+    // starts missing a code the other has.
+    const certCode = certErrorCodeOf(err) ?? (findCertErrorCode(code));
+    if (certCode) {
       tlsStatus = 'fail';
       tlsDetail =
-        `certificate rejected (${code}) — corporate TLS interception. ` +
+        `certificate rejected (${certCode}) — corporate TLS interception. ` +
         `Export your corporate root CA to a .pem and set NODE_EXTRA_CA_CERTS to it. ` +
         `On Windows, Claude Code's bundled runtime currently IGNORES CA env vars ` +
         `(upstream bug #71581); until fixed, workaround: NODE_TLS_REJECT_UNAUTHORIZED=0.`;
