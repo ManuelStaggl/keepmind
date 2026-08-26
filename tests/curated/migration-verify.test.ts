@@ -247,6 +247,30 @@ Text.
     expect(report.complete).toBe(true);
   });
 
+  it('does not read a retirement out of a gilt record that mentions another document', () => {
+    // The 0140 false alarm: a record that STILL APPLIES (`Stand: gilt`) whose
+    // status text names a DOCUMENT as "abgelöst" — a reference to where a file
+    // now lives, not the record's own verdict. The verdict is the leading word;
+    // a retiring word trailing it is annotation. `akten:check` never flagged
+    // this (it does not compute the status buckets); `verify` did, because it
+    // matched the retiring word anywhere in the value.
+    write('0007-gilt-mit-referenz.md', `# 0007 — Gilt trotz Referenz
+
+**Stand:** gilt · der ursprüngliche Übergabe-Brief liegt abgelöst in archive/
+
+## Entscheidung
+
+Bleibt in Kraft.
+`);
+    importCorpus();
+
+    const report = verifyMigration(store.db as never, PROJECT, sources());
+    expect(report.statusRetiredWithoutSupersession).toEqual([]);
+    expect(report.endedWithoutSuccessor).toEqual([]);
+    expect(report.currentInStore).toContain('0007');
+    expect(report.complete).toBe(true);
+  });
+
   it('refuses to call the migration complete when a source file could not be read', () => {
     importCorpus();
     const report = verifyMigration(store.db as never, PROJECT, [{ path: join(dir, 'gibt-es-nicht'), kind: 'akten' }]);
@@ -310,6 +334,39 @@ describe('both curated namespaces — the blocker of the 4.3.0 hand-over', () =>
     const report = verifyMigration(store.db as never, PROJECT, bothSources());
     expect(report.missingRecords).toEqual(['V-0002']);
     expect(report.complete).toBe(false);
+  });
+
+  it('counts a work item\'s declared relations in the source scan', () => {
+    // Point 2 of the 4.4.5 false alarms: the importer writes `haengt_an` /
+    // `schliesst` edges out of work-item files, but the verifier only ever
+    // re-scanned records and control files — so every such edge read as "in the
+    // graph, declared by no file", pushing storedEdgeCount above sourceEdgeCount
+    // for a corpus that was in fact complete. Both sides read them now, through
+    // the one shared `extractVorgangEdges`.
+    writeFileSync(join(vorgaengeDir, 'v-0003-haengt-an-v-0001.md'), `---
+id: V-0003
+titel: "Dritter Vorgang"
+entscheidet: "offen"
+erstellt: "2026-08-02"
+herkunft: "Prüfstand"
+haengt_an: "V-0001"
+---
+
+Text des Vorgangs.
+`, 'utf8');
+
+    importAktenDirectory(store as never, dir, { project: PROJECT, nowEpoch: 1_700_000_000_000 });
+    importVorgaengeDirectory(store as never, vorgaengeDir, { project: PROJECT, nowEpoch: 1_700_000_000_000 });
+    applySupersessions(store.db as never, PROJECT, 1_700_000_000_000);
+
+    const report = verifyMigration(store.db as never, PROJECT, bothSources());
+
+    // The depends_on edge V-0003 → V-0001 is declared by the file and stored by
+    // the importer, so it is neither missing nor extra, and the two counts agree.
+    expect(report.sourceEdgeCount).toBe(report.storedEdgeCount);
+    expect(report.extraEdges).toEqual([]);
+    expect(report.missingEdges).toEqual([]);
+    expect(report.complete).toBe(true);
   });
 
   it('keeps the two namespaces apart when deciding what is in force', () => {

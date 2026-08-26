@@ -49,7 +49,7 @@ import { join, resolve, extname } from 'node:path';
 import { parseAkte } from './akten-parser.js';
 import { parseVorgang } from './vorgang-parser.js';
 import { parseEreignisLog } from './ereignis-log.js';
-import { EVENT_LOG_FILE } from './vorgang-importer.js';
+import { EVENT_LOG_FILE, extractVorgangEdges } from './vorgang-importer.js';
 import { extractEdges, extractEdgesFromControlFile, type DecisionEdge } from './edge-reader.js';
 import { supersededRecords, statusSaysValid, statusEndsWithoutSuccessor, type RecordState } from './contradiction-check.js';
 
@@ -139,12 +139,23 @@ function edgeKey(edge: { from: string; to: string; relation: string }): string {
 }
 
 /**
+ * A file-side edge. Records declare relations from the closed decision lexicon
+ * (`DecisionEdge`); a work item can declare `depends_on`, which lives outside
+ * it — so the relation is widened to `string` for the comparison, which only
+ * ever reads `from`/`to`/`relation`/`certainty` as opaque values.
+ */
+type SourceEdge = Omit<DecisionEdge, 'relation'> & { relation: string };
+
+/**
  * Read the file side of the comparison with the SAME readers the importer
- * uses. A verifier with its own parser verifies its own parser.
+ * uses. A verifier with its own parser verifies its own parser — including the
+ * work-item relations (`extractVorgangEdges`), without which every
+ * `haengt_an`/`schliesst` edge the importer stored reads as one no file
+ * declares.
  */
 function readSources(sources: VerifySource[], failed: VerifyReport['failed']) {
   const records: RecordState[] = [];
-  const edges: DecisionEdge[] = [];
+  const edges: SourceEdge[] = [];
   const vorgaenge: string[] = [];
 
   for (const source of sources) {
@@ -158,6 +169,7 @@ function readSources(sources: VerifySource[], failed: VerifyReport['failed']) {
         if (source.kind === 'vorgaenge') {
           const parsed = parseVorgang(content);
           if (parsed.id) vorgaenge.push(parsed.id);
+          edges.push(...extractVorgangEdges(parsed, file).edges);
           continue;
         }
         const parsed = parseAkte(content);

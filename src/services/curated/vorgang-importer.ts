@@ -86,6 +86,66 @@ export interface VorgangImportReport {
 /** `V-0001` and nothing else. Both namespaces are read, never conflated. */
 const VORGANG_ID_RE = /^V-\d{3,}$/;
 
+/**
+ * A relation a work item declares. `depends_on` is deliberately OUTSIDE the
+ * decision-record lexicon (`RelationName`): only a work item can carry it, and
+ * it is produced from a field, never matched out of prose.
+ */
+export interface VorgangEdge {
+  from: string;
+  to: string;
+  relation: 'closes' | 'depends_on';
+  certainty: 'sicher';
+  sourcePath: string;
+  sourceLine: number;
+  rawText: string;
+}
+
+export interface VorgangEdgeExtraction {
+  edges: VorgangEdge[];
+  /**
+   * Fields pointing at the item that declares them. One exists in the delivered
+   * corpus (V-0178 `schliesst: V-0178`) — almost certainly a typo, and an edge
+   * from a node to itself says nothing, so it is reported rather than written.
+   */
+  selfEdges: Array<{ vorgang: string; field: string; sourcePath: string; sourceLine: number }>;
+}
+
+/**
+ * Read the declared relations out of ONE work item.
+ *
+ * Shared by the importer, which WRITES these edges, and `curated:verify`, which
+ * re-reads the sources to check the graph. Two implementations of "what
+ * relations does a work item declare" would drift exactly the way the record
+ * side once did — and for one release they DID: the verifier never learned to
+ * read a work item's relations at all, so every `haengt_an`/`schliesst` edge
+ * the importer stored was reported as "in the graph, declared by no file",
+ * pushing `storedEdgeCount` above `sourceEdgeCount` for a corpus that was in
+ * fact complete. One reader, one rule.
+ *
+ * These are FIELDS, not prose — no lexicon, no guessing, certainty 'sicher'
+ * because the corpus wrote them as data.
+ */
+export function extractVorgangEdges(parsed: ParsedVorgang, sourcePath: string): VorgangEdgeExtraction {
+  const edges: VorgangEdge[] = [];
+  const selfEdges: VorgangEdgeExtraction['selfEdges'] = [];
+  const from = parsed.id;
+  if (!from || !VORGANG_ID_RE.test(from)) return { edges, selfEdges };
+
+  const declare = (target: string | null, relation: 'closes' | 'depends_on', fieldName: string): void => {
+    if (!target || !VORGANG_ID_RE.test(target)) return;
+    const sourceLine = parsed.fields.find(f => f.name === fieldName)?.line ?? parsed.frontmatterLine;
+    if (target === from) {
+      selfEdges.push({ vorgang: from, field: fieldName, sourcePath, sourceLine });
+      return;
+    }
+    edges.push({ from, to: target, relation, certainty: 'sicher', sourcePath, sourceLine, rawText: `${fieldName}: ${target}` });
+  };
+  declare(parsed.schliesst, 'closes', 'schliesst');
+  declare(parsed.haengtAn, 'depends_on', 'haengt_an');
+  return { edges, selfEdges };
+}
+
 function isMarkdown(file: string): boolean {
   return extname(file).toLowerCase() === '.md';
 }
@@ -294,27 +354,11 @@ export function importVorgaengeDirectory(
       // the record importer.
       store.settleCuratedRevisions?.(options.project, parsed.id!, result.id, options.nowEpoch);
 
-      // Declared relations. These are FIELDS, not prose — no lexicon, no
-      // guessing, certainty 'sicher' because the corpus wrote them as data.
-      const edges: Array<{ from: string; to: string; relation: string; certainty: string; sourceLine: number; rawText?: string | null }> = [];
-      const declare = (target: string | null, relation: string, fieldName: string) => {
-        if (!target || !VORGANG_ID_RE.test(target)) return;
-        if (target === parsed.id) {
-          report.selfEdges.push({
-            vorgang: parsed.id!, field: fieldName,
-            sourcePath: absolutePath,
-            sourceLine: parsed.fields.find(f => f.name === fieldName)?.line ?? parsed.frontmatterLine,
-          });
-          return;
-        }
-        edges.push({
-          from: parsed.id!, to: target, relation, certainty: 'sicher',
-          sourceLine: parsed.fields.find(f => f.name === fieldName)?.line ?? parsed.frontmatterLine,
-          rawText: `${fieldName}: ${target}`,
-        });
-      };
-      declare(parsed.schliesst, 'closes', 'schliesst');
-      declare(parsed.haengtAn, 'depends_on', 'haengt_an');
+      // Declared relations, read by the SAME function `curated:verify` uses to
+      // re-scan the sources — so the graph the importer writes and the graph the
+      // verifier expects can never disagree about a work item's edges.
+      const { edges, selfEdges } = extractVorgangEdges(parsed, absolutePath);
+      report.selfEdges.push(...selfEdges);
 
       let edgeCount = 0;
       if (store.replaceEdgesForSource) {
