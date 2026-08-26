@@ -1,6 +1,7 @@
 
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { resolve as resolvePath } from 'node:path';
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { spawn } from 'child_process';
 import { Database } from '../storage/db.js';
@@ -1769,16 +1770,40 @@ async function fetchWorkerHealth(port: number, timeoutMs: number): Promise<Worke
   }
 }
 
+/** Windows compares paths case-insensitively; every other platform does not. */
+function samePath(a: string, b: string): boolean {
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
 // ESM-safe: bare `__filename` is defined in the CJS bundle (prod) and under bun,
 // but is undeclared in node ESM (tsx tests) where referencing it throws
 // ReferenceError. The typeof guard keeps this expression evaluable in both.
 const __filenameSafe: string | undefined = typeof __filename !== 'undefined' ? __filename : undefined;
+
+/**
+ * "Was this module RUN, or merely imported?"
+ *
+ * The node-ESM branch used to compare `import.meta.url` against a hand-built
+ * `file://${argv[1]}`, then fall back to two extension-specific `endsWith`
+ * checks. On Windows none of the four can match a run from the source tree:
+ * the URL reads `file:///C:/…` while `argv[1]` reads `C:\…`, the entry ends in
+ * `.ts` rather than `worker-service` or `worker-service.cjs`, and
+ * `__filenameSafe` is undefined on precisely the branch that consulted it.
+ *
+ * So `npx tsx src/services/worker-service.ts --daemon` loaded the module, ran
+ * NOTHING, and exited 0 — a worker that was asked to start, did not, and said
+ * so nowhere. Measured: one WARN line from module init and nothing after it,
+ * with the log level at DEBUG. That is the failure shape this file spends its
+ * duplicate-guard comments on, arriving one layer above them.
+ *
+ * Comparing RESOLVED PATHS removes all four failure modes at once. The shipped
+ * CJS bundle keeps the `require.main` test it has always used.
+ */
+const entryPath = process.argv[1] ? resolvePath(process.argv[1]) : undefined;
+const selfPath = resolvePath(__filenameSafe ?? fileURLToPath(import.meta.url));
 const isMainModule = typeof require !== 'undefined' && typeof module !== 'undefined'
   ? require.main === module || !module.parent || envValue('KEEPMIND_MANAGED') === 'true'
-  : import.meta.url === `file://${process.argv[1]}`
-    || process.argv[1]?.endsWith('worker-service')
-    || process.argv[1]?.endsWith('worker-service.cjs')
-    || process.argv[1]?.replaceAll('\\', '/') === __filenameSafe?.replaceAll('\\', '/');
+  : entryPath !== undefined && samePath(entryPath, selfPath);
 
 if (isMainModule) {
   main().catch(async (error) => {
