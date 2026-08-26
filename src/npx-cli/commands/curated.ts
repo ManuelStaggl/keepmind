@@ -158,10 +158,18 @@ export async function runCuratedImportCommand(options: CuratedImportOptions): Pr
   // own project, because filing a declared corpus somewhere else is not
   // recoverable by re-running. But an explicit flag that does not apply
   // everywhere must not be silent about it.
-  const kept = options.project ? sources.filter(source => source.project && source.project !== options.project) : [];
+  // It must not be silent in EITHER rendering: a caller reading `--json` is
+  // exactly the one who cannot see a note printed for a human, and "my flag
+  // was partly ignored" is the kind of half-truth this project spends its
+  // effort on eliminating.
+  const kept = options.project
+    ? sources
+        .filter(source => source.project && source.project !== options.project)
+        .map(source => ({ path: source.path, keptProject: source.project as string }))
+    : [];
   if (kept.length > 0 && !options.json) {
     console.log(`  Note: --project ${options.project} covers only entries that name no project of their own.`);
-    for (const source of kept) console.log(`        ${source.path} keeps its own project "${source.project}"`);
+    for (const source of kept) console.log(`        ${source.path} keeps its own project "${source.keptProject}"`);
     console.log('');
   }
 
@@ -175,8 +183,12 @@ export async function runCuratedImportCommand(options: CuratedImportOptions): Pr
 
   if (options.json) {
     // One project keeps the shape it has always had. Several is new ground, so
-    // it is a list rather than a last-one-wins object.
-    console.log(JSON.stringify(runs.length === 1 ? runs[0] : { origin, dryRun: options.dryRun, runs }, null, 2));
+    // it is a list rather than a last-one-wins object. `keptOwnProject` rides
+    // alongside either shape rather than inside a run: it is a statement about
+    // the FLAG, not about any one project's import.
+    const body = runs.length === 1 ? { ...runs[0] } : { origin, dryRun: options.dryRun, runs };
+    if (kept.length > 0) (body as Record<string, unknown>).keptOwnProject = kept;
+    console.log(JSON.stringify(body, null, 2));
   }
 }
 

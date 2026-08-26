@@ -95,3 +95,57 @@ describe('curated:import project grouping', () => {
       .toEqual(['alpha-projekt', 'die-rueckfallebene']);
   });
 });
+
+// `curated:verify` answers "did the corpus arrive complete". Comparing a
+// directory against a project it was never imported into reports every record
+// of it as MISSING — a false alarm that reads exactly like the real one this
+// command exists to raise, and the corpus is mid-hand-over when it fires.
+describe('curated:verify project grouping', () => {
+  it('compares each source against the project it declares', async () => {
+    const { SessionStore } = await import('../../src/services/sqlite/SessionStore.js');
+    const { runCuratedImport } = await import('../../src/services/curated/import-run.js');
+    const { runCuratedVerifyCommand } = await import('../../src/npx-cli/commands/curated.js');
+
+    // Populate the default store the command will open, the way an import does.
+    const store = new SessionStore();
+    for (const [dir, project] of [[alpha, 'alpha-projekt'], [beta, 'beta-projekt']] as const) {
+      await runCuratedImport(store as never, [{ path: dir, kind: 'akten' }], {
+        project, dryRun: false, nowEpoch: Date.now(),
+      });
+    }
+    store.close();
+
+    captureStdout();
+    await runCuratedVerifyCommand({ directories: [], dryRun: false, json: true });
+    restore?.();
+
+    const payload = JSON.parse(lines.join('\n'));
+    const reports = payload.reports as Array<{ project: string; missingRecords: string[] }>;
+    expect(reports.map(r => r.project).sort()).toEqual(['alpha-projekt', 'beta-projekt']);
+    // The point: neither project reports the other's record as lost.
+    for (const report of reports) expect(report.missingRecords).toEqual([]);
+  });
+});
+
+describe('curated:import --project note', () => {
+  // A caller reading --json is exactly the one who cannot see a note printed
+  // for a human.
+  it('says in the JSON which entries kept their own project', async () => {
+    captureStdout();
+    await runCuratedImportCommand({ directories: [], dryRun: true, json: true, project: 'ganz-woanders' });
+    restore?.();
+
+    const payload = JSON.parse(lines.join('\n'));
+    expect(payload.keptOwnProject).toHaveLength(2);
+    expect(payload.keptOwnProject.map((k: { keptProject: string }) => k.keptProject).sort())
+      .toEqual(['alpha-projekt', 'beta-projekt']);
+  });
+
+  it('says nothing when --project was not given', async () => {
+    captureStdout();
+    await runCuratedImportCommand({ directories: [], dryRun: true, json: true });
+    restore?.();
+
+    expect(JSON.parse(lines.join('\n')).keptOwnProject).toBeUndefined();
+  });
+});
