@@ -1,6 +1,6 @@
 {
   "name": "keepmind",
-  "version": "4.4.5",
+  "version": "4.4.6",
   "description": "Memory compression system for Claude Code - persist context across sessions (node-only fork of claude-mem)",
   "keywords": [
     "claude",

@@ -1,6 +1,6 @@
 {
   "name": "keepmind-extras",
-  "version": "4.4.5",
+  "version": "4.4.6",
   "description": "Optional keepmind workflow skills - planning, releases, digests and reports. Install alongside keepmind when you want them; the memory system does not need them.",
   "author": {
     "name": "Manuel Staggl"
