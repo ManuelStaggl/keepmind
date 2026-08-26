@@ -149,12 +149,22 @@ export class CuratedAutoImport {
     if (configured.sources.length === 0) return [];
 
     const store = this.host.store();
-    const fallback = this.resolveFallbackProject(store);
-    if (!fallback) {
+    // The fallback is only the answer for entries that name NO project of their
+    // own. Demanding it unconditionally made the documented second half of the
+    // rule ("or a `project` on the source entry") unreachable: a fully declared
+    // configuration never ran on a machine where no project holds curated rows
+    // yet — a fresh machine, which is the case the unattended import exists for.
+    const needsFallback = configured.sources.some((source) => !source.project);
+    const fallback = needsFallback ? this.resolveFallbackProject(store) : null;
+    if (needsFallback && !fallback) {
       // Not guessed. Filing a whole corpus under the wrong project hides it
       // from every project-filtered read, and the mistake looks exactly like an
       // import that never ran. Same rule as the source `kind`: declared, or not
       // done at all.
+      //
+      // A MIXED configuration aborts whole, rather than importing the entries
+      // that do name a project: a half run leaves the corpus part fresh and
+      // part stale, and stamps a success over it.
       const reason = 'no project to import into — set "KEEPMIND_CURATED_PROJECT" in ~/.keepmind/settings.json, '
         + 'or give each entry in "curatedSources" its own "project"';
       logger.warn('DB', 'Curated auto-import skipped', { reason });

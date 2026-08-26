@@ -152,6 +152,46 @@ Reisekosten werden monatlich abgerechnet.
     expect(store.curatedProjects()).toHaveLength(0);
   });
 
+  // The other half of "declared, never guessed": a source that names its own
+  // project needs no fallback, and demanding one anyway meant a fully declared
+  // configuration never ran on a machine where no project holds curated rows.
+  it('runs without any fallback when every source names its own project', async () => {
+    writeFileSync(join(dataDir, 'settings.json'), JSON.stringify({
+      curatedSources: [{ path: corpus.replace(/\\/g, '/'), kind: 'akten', project: 'p1probe' }],
+    }), 'utf8');
+
+    importer = new CuratedAutoImport(host(indexerSpy()), dataDir);
+    const outcomes = await importer.start();
+
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].ran).toBe(true);
+    expect(outcomes[0].project).toBe('p1probe');
+    expect(store.getCuratedRecord('p1probe', '0001')?.narrative).toContain('sieben Jahre');
+  });
+
+  // A half run is worse than none: part of the corpus fresh, part stale, and a
+  // success stamped over it.
+  it('aborts whole when only SOME sources name a project and no fallback exists', async () => {
+    const second = mkdtempSync(join(tmpdir(), 'keepmind-auto-corpus2-'));
+    try {
+      writeFileSync(join(dataDir, 'settings.json'), JSON.stringify({
+        curatedSources: [
+          { path: corpus.replace(/\\/g, '/'), kind: 'akten', project: 'p1probe' },
+          { path: second.replace(/\\/g, '/'), kind: 'akten' },
+        ],
+      }), 'utf8');
+
+      importer = new CuratedAutoImport(host(indexerSpy()), dataDir);
+      const outcomes = await importer.start();
+
+      expect(outcomes[0].ran).toBe(false);
+      expect(outcomes[0].skipped).toContain('no project to import into');
+      expect(store.curatedProjects()).toHaveLength(0);
+    } finally {
+      rmSync(second, { recursive: true, force: true });
+    }
+  });
+
   it('files under the one project that already holds curated rows', async () => {
     // First run establishes the project the way a hand-run import would.
     importer = new CuratedAutoImport(host(indexerSpy()), dataDir);

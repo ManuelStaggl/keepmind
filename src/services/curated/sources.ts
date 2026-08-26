@@ -110,11 +110,19 @@ function validate(raw: unknown, rejected: CuratedSourceSet['rejected']): Curated
  *
  * `fallback` covers entries that name no project — the pre-existing shape of
  * the setting, and still the common case when everything lands in one project.
+ * It may be null when every entry names its own project, and then it is never
+ * read. An entry that DOES need it while it is null throws rather than filing
+ * the corpus under an empty name: a corpus under the wrong project is
+ * invisible to every project-filtered read, which looks exactly like an import
+ * that never ran.
  */
-export function sourcesByProject(sources: CuratedSource[], fallback: string): Map<string, CuratedSource[]> {
+export function sourcesByProject(sources: CuratedSource[], fallback: string | null): Map<string, CuratedSource[]> {
   const out = new Map<string, CuratedSource[]>();
   for (const source of sources) {
     const project = source.project ?? fallback;
+    if (!project) {
+      throw new Error(`Curated source "${source.path}" names no project and no fallback project was resolved`);
+    }
     const list = out.get(project);
     if (list) list.push(source);
     else out.set(project, [source]);
