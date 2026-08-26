@@ -1,7 +1,38 @@
 
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { resolve as resolvePath } from 'node:path';
+import { resolve as resolvePath, dirname as dirnameOf } from 'node:path';
+
+/**
+ * ESM-safe `__dirname`, the way `Server.ts` and `SearchRoutes.ts` already do it.
+ *
+ * A bare `__dirname` here threw ReferenceError whenever the worker ran as raw
+ * ESM, and it sat in `initializeBackground` — so the throw ABORTED the rest of
+ * that method (the MCP readiness flag and its self-check) and surfaced only as
+ * one line: "Background initialization failed __dirname is not defined". The
+ * right behaviour when the bundle's sibling is not there is to find no file
+ * and carry on, not to stop the method that was still doing other work.
+ */
+function dirnameHere(): string {
+  return typeof __dirname !== 'undefined' ? __dirname : dirnameOf(fileURLToPath(import.meta.url));
+}
+
+/**
+ * The path of THIS script — the one place in this file that answers it.
+ *
+ * There were four spellings of the same question, and three of them were a
+ * bare `__filename`, which is a ReferenceError under raw ESM rather than a
+ * wrong value. Two sat behind `??`, so they threw only when the resolver ahead
+ * of them came up empty; the third (`ensureWorkerStarted`) is unconditional,
+ * and `start` from the source tree died on it with "Fatal error in main
+ * __filename is not defined" — loud, and dead. Measured immediately after the
+ * entry-guard fix in 4.4.1, which is what made this path REACHABLE: before it,
+ * nothing in this file ran under ESM at all, so the three bare uses could not
+ * be seen to fail.
+ */
+export function selfScriptPath(): string {
+  return typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url);
+}
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { spawn } from 'child_process';
 import { Database } from '../storage/db.js';
@@ -320,9 +351,9 @@ export class WorkerService implements WorkerRef {
       getDependencyHealth: () => snapshotDependencyHealth(),
       onShutdown: (reason) => this.shutdown(reason ?? 'stop'),
       onRestart: () => this.shutdown('restart'),
-      // ESM-safe: __filename exists in the CJS bundle (prod) and under bun, but
+      // One spelling for "where is this script" — see selfScriptPath().
       // is undeclared in node ESM (tsx tests). Fall back to import.meta.url.
-      workerPath: typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url),
+      workerPath: selfScriptPath(),
       getAiStatus: () => {
         let provider = 'claude';
         if (isOpenRouterSelected() && isOpenRouterAvailable()) provider = 'openrouter';
@@ -800,7 +831,7 @@ export class WorkerService implements WorkerRef {
         this.startCuratedAutoImport();
       }
 
-      const mcpServerPath = path.join(__dirname, 'mcp-server.cjs');
+      const mcpServerPath = path.join(dirnameHere(), 'mcp-server.cjs');
       this.mcpReady = existsSync(mcpServerPath);
 
       this.runMcpSelfCheck(mcpServerPath).catch(err => {
@@ -1029,7 +1060,7 @@ export class WorkerService implements WorkerRef {
         // Prefer the marketplace-installed script so the successor boots the
         // freshly-synced plugin, falling back to this script for dev trees /
         // CI where no marketplace copy exists.
-        resolveSuccessorScript: () => resolveWorkerScriptPath() ?? __filename,
+        resolveSuccessorScript: () => resolveWorkerScriptPath() ?? selfScriptPath(),
         waitForPortFree,
         // Owner-or-dead guarded (Phase 5): the dying worker may delete the
         // PID file it owns (its own pid) or a dead pid's leftover — never a
@@ -1066,7 +1097,7 @@ export class WorkerService implements WorkerRef {
 }
 
 export async function ensureWorkerStarted(port: number): Promise<WorkerStartResult> {
-  return ensureWorkerStartedShared(port, __filename);
+  return ensureWorkerStartedShared(port, selfScriptPath());
 }
 
 export type ParsedWorkerCommand = {
@@ -1414,7 +1445,7 @@ async function main() {
       // Prefer the marketplace-installed script so restart boots the
       // freshly-synced plugin, falling back to this script for dev trees /
       // CI where no marketplace copy exists.
-      const restartScript = resolveWorkerScriptPath() ?? __filename;
+      const restartScript = resolveWorkerScriptPath() ?? selfScriptPath();
       let spawnedScript = 'none (port still bound — nothing spawned)';
       let spawnLockHeld = false;
       if (restartFreed) {
@@ -1775,11 +1806,6 @@ function samePath(a: string, b: string): boolean {
   return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
-// ESM-safe: bare `__filename` is defined in the CJS bundle (prod) and under bun,
-// but is undeclared in node ESM (tsx tests) where referencing it throws
-// ReferenceError. The typeof guard keeps this expression evaluable in both.
-const __filenameSafe: string | undefined = typeof __filename !== 'undefined' ? __filename : undefined;
-
 /**
  * "Was this module RUN, or merely imported?"
  *
@@ -1788,7 +1814,7 @@ const __filenameSafe: string | undefined = typeof __filename !== 'undefined' ? _
  * checks. On Windows none of the four can match a run from the source tree:
  * the URL reads `file:///C:/…` while `argv[1]` reads `C:\…`, the entry ends in
  * `.ts` rather than `worker-service` or `worker-service.cjs`, and
- * `__filenameSafe` is undefined on precisely the branch that consulted it.
+ * `__filename` is undefined on precisely the branch that consulted it.
  *
  * So `npx tsx src/services/worker-service.ts --daemon` loaded the module, ran
  * NOTHING, and exited 0 — a worker that was asked to start, did not, and said
@@ -1800,7 +1826,7 @@ const __filenameSafe: string | undefined = typeof __filename !== 'undefined' ? _
  * CJS bundle keeps the `require.main` test it has always used.
  */
 const entryPath = process.argv[1] ? resolvePath(process.argv[1]) : undefined;
-const selfPath = resolvePath(__filenameSafe ?? fileURLToPath(import.meta.url));
+const selfPath = resolvePath(selfScriptPath());
 const isMainModule = typeof require !== 'undefined' && typeof module !== 'undefined'
   ? require.main === module || !module.parent || envValue('KEEPMIND_MANAGED') === 'true'
   : entryPath !== undefined && samePath(entryPath, selfPath);
