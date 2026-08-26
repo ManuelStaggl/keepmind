@@ -616,9 +616,26 @@ Where an unattended import files records is DECLARED, never guessed:
 uses the one project that already holds curated rows — an observed fact — and
 otherwise refuses to run and says so. Same rule as the source `kind`: a corpus
 filed under the wrong project is invisible to every project-filtered read, and
-that looks exactly like an import that never ran. The CLI resolves the project
-in the same order (`--project`, then the setting, then the directory) so the
-same corpus cannot land under two names depending on who started the import.
+that looks exactly like an import that never ran.
+
+**A fallback is only owed to an entry that needs one.** `runIfStale` demanded
+one unconditionally, so a configuration in which EVERY entry named its own
+project still refused to run — on a fresh machine, where no project holds
+curated rows yet, which is the case the unattended import exists for. The only
+evidence was a WARN line saying `project=(unknown)`, the exact failure shape P1
+was built against. A MIXED set with no fallback still aborts whole: a half run
+leaves part of the corpus fresh and part stale and stamps a success over it.
+
+**Both entry points group by project, or they disagree about the corpus.**
+`curated:import` and `curated:verify` resolved ONE project per run and ignored
+`project` on the entry — measured: two sources that each named their own were
+both filed under the working directory's name, while the worker filed them
+correctly. Both now run `sourcesByProject` and loop, one run per project;
+`--project` is the FALLBACK, never an override (filing a declared corpus
+elsewhere is not undone by re-running), and when it is given while entries
+declare their own, the run says which entries kept theirs. `sourcesByProject`
+takes `fallback: string | null` and throws rather than filing under an empty
+name — the one place both callers' rule is enforced.
 
 ### Portability is a precondition, not a feature
 
