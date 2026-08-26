@@ -40,6 +40,7 @@ import { checkSourceTreeDrift } from '../utils/source-tree-drift.js';
 import { curatedHealth, describeCuratedHealth, type CuratedHealth } from '../../services/curated/health.js';
 import { readCuratedRecordCounts } from '../../services/curated/stored-records.js';
 import { certErrorCodeOf, findCertErrorCode } from '../../shared/tls-errors.js';
+import { resolveBunVersion } from '../utils/bun-resolver.js';
 
 export type CheckStatus = 'ok' | 'warn' | 'fail' | 'skip';
 
@@ -105,26 +106,11 @@ export interface WorkerProbe {
 // Small utilities
 // ---------------------------------------------------------------------------
 
-function probeVersion(bin: string): string | null {
-  try {
-    // On Windows, bun/uv resolve to .cmd/.exe shims that need a shell. Pass the
-    // whole command as ONE string (never args + shell:true together — that trips
-    // Node's DEP0190 deprecation warning and prints noise to stderr).
-    const result = IS_WINDOWS
-      ? spawnSync(`${bin} --version`, {
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-          shell: true,
-        })
-      : spawnSync(bin, ['--version'], {
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
-    return result.status === 0 ? result.stdout.trim() : null;
-  } catch {
-    return null;
-  }
-}
+// `probeVersion` lived here and probed PATH only. Its one caller now uses
+// `resolveBunVersion`, and leaving it behind would recreate exactly what this
+// change removes: a second, subtly different answer to a question that already
+// has one. The DEP0190 warning its comment described is fixed at the source, in
+// `utils/bun-resolver.ts`.
 
 /** Parse the credentials-only ~/.keepmind/.env into the SET of keys with a non-empty value. Values are never returned or logged. */
 function readEnvFileKeys(): Set<string> {
@@ -425,7 +411,12 @@ function buildRuntimeGroup(dataDir: string): CheckGroup {
   // that power SEMANTIC vector search — its absence degrades that one feature
   // (already a non-required warn below), it does not break the install. Reporting
   // it as a required failure made a healthy, working install look broken.
-  const bunVersion = probeVersion('bun');
+  // The SAME resolver the installer uses. Probing PATH alone made this report
+  // "not found" minutes after the installer reported "Runtime ready (Bun
+  // 1.3.14) OK" on the same machine — Bun lands in `~/.bun/bin`, and the shell
+  // that ran the installer does not learn about it until it is restarted. The
+  // remedy printed below then told the operator to install what they had.
+  const bunVersion = resolveBunVersion();
   checks.push({
     name: 'Bun runtime',
     status: bunVersion ? 'ok' : 'warn',

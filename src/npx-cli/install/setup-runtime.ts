@@ -10,6 +10,7 @@ import { installerError, type InstallSummary } from './error-reporter.js';
 import { IS_WINDOWS } from '../utils/paths.js';
 import { envValue } from '../../shared/legacy-env.js';
 import { certErrorCodeOf, describeCertInterception, findCertErrorCode } from '../../shared/tls-errors.js';
+import { isBunAvailable, resolveBunBinaryPath, resolveBunVersion } from '../utils/bun-resolver.js';
 
 const INSTALL_TIMEOUT_MS = (() => {
   const override = envValue('KEEPMIND_INSTALL_TIMEOUT_MS');
@@ -26,10 +27,6 @@ export function platformBunRemediation(): string {
     ? 'Install Bun manually: `winget install Oven-sh.Bun` (or `powershell -c "irm bun.sh/install.ps1 | iex"`), then re-run `npx keepmind install`.'
     : 'Install Bun manually: `curl -fsSL https://bun.sh/install | bash` (or `brew install oven-sh/bun/bun`), then re-run `npx keepmind install`.';
 }
-
-const BUN_COMMON_PATHS = IS_WINDOWS
-  ? [join(homedir(), '.bun', 'bin', 'bun.exe')]
-  : [join(homedir(), '.bun', 'bin', 'bun'), '/usr/local/bin/bun', '/opt/homebrew/bin/bun'];
 
 interface MarkerSchema {
   version: string;
@@ -68,39 +65,23 @@ function markerPath(targetDir: string): string {
   return join(targetDir, '.install-version');
 }
 
+// "Where is Bun" is answered in exactly one place — `utils/bun-resolver.ts`.
+// There used to be three answers to it, and two of them contradicted each other
+// on a live machine: this file reported "Runtime ready (Bun 1.3.14) OK" while
+// `doctor`, probing PATH only, reported "not found" and told the operator to
+// install what they already had. The local copies also passed an argv array
+// together with `shell: true`, which is Node's DEP0190 — the deprecation
+// warning that appeared mid-install in that same report.
 function getBunPath(): string | null {
-  try {
-    const result = spawnSync('bun', ['--version'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      shell: IS_WINDOWS,
-    });
-    if (result.status === 0) return 'bun';
-  } catch {
-    // Not in PATH
-  }
-
-  return BUN_COMMON_PATHS.find(existsSync) || null;
+  return resolveBunBinaryPath();
 }
 
 function isBunInstalled(): boolean {
-  return getBunPath() !== null;
+  return isBunAvailable();
 }
 
 function getBunVersion(): string | null {
-  const bunPath = getBunPath();
-  if (!bunPath) return null;
-
-  try {
-    const result = spawnSync(bunPath, ['--version'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      shell: IS_WINDOWS,
-    });
-    return result.status === 0 ? result.stdout.trim() : null;
-  } catch {
-    return null;
-  }
+  return resolveBunVersion();
 }
 
 /** How much of a dead child's output is evidence, and how much is noise. */
@@ -302,10 +283,9 @@ export async function ensureBun(summary?: InstallSummary): Promise<{ bunPath: st
     }
   }
 
-  let bunPath = getBunPath();
-  if (!bunPath) {
-    bunPath = BUN_COMMON_PATHS.find(existsSync) ?? null;
-  }
+  // The candidate paths are inside the resolver now, so a second sweep here
+  // would only re-ask the same question with a shorter list.
+  const bunPath = getBunPath();
   if (!bunPath) {
     installerError(ErrorSeverity.ABORT, {
       component: 'bun-install',
