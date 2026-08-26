@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [4.4.5] - 2026-08-26
+
+Curated content is stored verbatim now — the on-write secret redaction no longer runs over it.
+
+`curated:import` promised the work-item event log was "reproducible from keepmind", and `curated:verify` immediately contradicted it: the stored log differed from the file (e.g. 63512 vs 63890 characters), and re-importing never closed the gap. `curated:verify` reported the corpus "NOT complete" permanently.
+
+## The cause
+
+The verbatim store was not verbatim. `SessionStore.storeObservation` runs a secret scrub on every write, and its Shannon-entropy backstop — deliberately over-eager, "false-positives are acceptable" where readability is the only price — fired on ordinary structured metadata. A token like `aus=DURCHGANG-BEFUNDE.md#s1-5` (a filename with a kebab-case stem and a section anchor) clears the entropy gate at ~4.38 bits/char and was masked as `«redacted:HIGH_ENTROPY»` — a **shorter** string. That is the character difference `verify` measured, and because `verify` compares the stored log against the file as text, a single mask made the whole migration read as incomplete. Re-importing re-masked the same tokens, so it could never converge.
+
+## The fix
+
+Curated content never reaches a provider — the observation queue is the only thing in keepmind that calls a model, and no curated path enqueues (two Proxy tests enforce it). So the on-write redaction protected nothing for these rows and cost the byte-for-byte reproduction the entire curated design rests on. It is now skipped for the imported/authored corpus: file import, `curated:add`, `curated:edit`, and the derived-field refresh that rewrites a work item's metadata (where each event's raw log line lives). If a curated row is ever sent to a provider as prompt context, the outbound redaction in `src/sdk/prompts.ts` still guards that copy — this only keeps the stored row exact.
+
+Session checkpoints stay redacted, deliberately: a checkpoint is a summary of a session (a secret the session touched could ride along) and carries no verbatim contract — nothing byte-compares it against a source file.
+
+## Not weakened
+
+The entropy detector is unchanged. Real high-entropy secrets — API keys, tokens — are still masked on the observed path, which does reach a provider. Only curated rows, which do not, are now stored as written. A new regression test pins both halves: the event log survives an entropy-triggering metadata token untouched and `verify` reports it complete, while an AWS key in an ordinary observation is still redacted.
+
+## For an already-affected corpus
+
+Run `curated:import` once. The verbatim row is written under a fresh content hash, and the previously masked row for the same source is closed — nothing is deleted. `curated:verify` then reports the event log complete.
+
 ## [4.4.4] - 2026-08-26
 
 Three symptoms, one cause: "where is Bun" was implemented three times.
