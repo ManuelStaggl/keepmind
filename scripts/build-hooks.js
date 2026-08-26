@@ -295,7 +295,7 @@ async function buildHooks() {
         // In-process vector search runtime (externalized from the worker bundle).
         '@huggingface/transformers': '^4.2.0',
         'sqlite-vec': '^0.1.9',
-        'tree-sitter-cli': '^0.26.10',
+        'tree-sitter-cli': '^0.26.13',
         // CORE GRAMMARS ONLY — must stay in sync with CORE_LANGUAGES in
         // src/services/smart-file-read/parser.ts.
         //
@@ -316,7 +316,7 @@ async function buildHooks() {
         '@tree-sitter-grammars/tree-sitter-toml': '^0.7.0',
         '@tree-sitter-grammars/tree-sitter-yaml': '^0.7.1',
         '@tree-sitter-grammars/tree-sitter-markdown': '^0.3.2',
-        'shell-quote': '^1.9.0',
+        'shell-quote': '^1.10.0',
       },
       overrides: {
         'tree-sitter': '^0.25.0',
