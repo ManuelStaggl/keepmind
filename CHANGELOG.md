@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [4.4.4] - 2026-08-26
+
+Three symptoms, one cause: "where is Bun" was implemented three times.
+
+Reported from a company machine, minutes apart, about the same binary:
+
+```
+installer:  Runtime ready (Bun 1.3.14) OK
+doctor:     Bun runtime not found — … `winget install Oven-sh.Bun`
+```
+
+The installer resolved PATH and then fell back to `~/.bun/bin`, so it found the Bun it had just put there. `keepmind doctor` probed PATH **only** — and the shell that ran the installer does not learn about `~/.bun/bin` until it is restarted. So the health check reported "not found" about a Bun that was installed, and its remedy told the operator to install what they already had.
+
+Meanwhile `utils/bun-resolver.ts`, written to be the shared implementation, had the most thorough candidate list of the three and **no callers at all**.
+
+Both callers use it now, and `probeVersion` is deleted rather than left in place: an unused second answer to a question that already has one is exactly what this removes.
+
+## The deprecation warning in the same install log
+
+```
+(node:35152) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true …
+```
+
+Printed immediately before "Runtime ready (Bun …)", and it is the same code. Passing an argv array together with `shell: true` trips DEP0190, and both local copies did precisely that — including the shared module, whose comment in `doctor` had documented the trap next to a probe that carefully avoided it. On Windows the command now goes as a single string, and `where` still resolves a `.cmd`/`.exe` shim.
+
+## Measured, not assumed
+
+With PATH stripped of every Bun on the machine: `where bun` finds nothing, the resolver returns `~/.bun/bin/bun.exe`, and reads `1.3.14` out of it. That is the exact shell state in the report, and the previous `doctor` said "not found" in it.
+
+The new guards scan both callers for a locally spelled candidate path or a `spawnSync('bun', …)`, and scan the resolver for argv-plus-shell. All three flag the previous code.
+
+Nothing else changed: the installer does the same work, and `doctor` checks the same things.
+
 ## [4.4.3] - 2026-08-26
 
 A successful install that read as a crash.
