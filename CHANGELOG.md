@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [4.4.1] - 2026-08-26
+
+Three follow-ups to 4.4.0, all of the same kind: something declined to do what it was asked and said so nowhere.
+
+## A worker started from the source tree did nothing, quietly
+
+`npx tsx src/services/worker-service.ts --daemon` loaded the module, ran NOTHING, and exited 0. No daemon, no command, one WARN line from module init and nothing after it — measured with the log level at DEBUG. A worker that was asked to start, did not, and reported neither fact. That is the failure shape this file spends its duplicate-guard comments on, arriving one layer above them.
+
+The node-ESM branch of "was this module RUN, or merely imported?" could not match a Windows source path by any of its four routes. It compared `import.meta.url` against a hand-built `file://${argv[1]}` — `file:///C:/…` against `C:\…`. It tested `endsWith('worker-service')` and `endsWith('worker-service.cjs')` against an entry ending in `.ts`. And it compared against `__filename`, which is undefined on precisely the branch that consulted it.
+
+Comparing resolved paths removes all four at once. The shipped CJS bundle keeps the `require.main` test it has always used, so nothing about the installed plugin changes; what changes is that a probe can be driven from the source tree at all — which is how the curated fixes in 4.4.0 had to be verified, by a detour around this.
+
+The test spawns **node** explicitly rather than the running interpreter: under `bun test` that is bun, which takes the CJS branch and cannot see this failure. A first version of it asserted merely "some output" and passed on runner noise with the fix reverted; it now has to be an answer about the worker.
+
+## `--project` was partly ignored, and only said so to humans
+
+4.4.0 made `curated:import` honour a `project` declared on a source entry, with `--project` as the fallback rather than an override — and printed a note naming the entries that kept their own. The note went to the human rendering only, and was withheld from `--json`: from exactly the caller who cannot see a printed note. It now rides alongside either JSON shape as `keptOwnProject`, outside the per-project runs, because it is a statement about the flag rather than about any one import.
+
+## A test carried along by symmetry is not a test
+
+`curated:verify`'s per-project grouping shipped in 4.4.0 with no test of its own — it was believed correct because the import beside it was tested, and the same change moved what the "Comparing N source director(y|ies)" count means. It is measured now, against the pre-4.4.0 command where it fails: one project reports the other's records as MISSING, which reads exactly like the real alarm that command exists to raise.
+
 ## [4.4.0] - 2026-08-26
 
 The curated corpus is the part of memory a person wrote by hand, and it is answered from as if it were current. This release makes that claim honest on machines other than the one it was authored on, teaches search to say which of its answers are the wording and whether that wording still applies, and adds three reports that ask "how much has happened since this was written" without guessing.
