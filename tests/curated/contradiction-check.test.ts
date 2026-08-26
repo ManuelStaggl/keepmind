@@ -30,10 +30,17 @@ describe('statusSaysValid', () => {
     expect(statusSaysValid('gilt · Leitentscheidung')).toBe(true);
   });
 
-  it('checks the retiring words FIRST — both spellings contain "gilt"', () => {
-    // `nicht mehr gültig` and `ersetzt durch …` can sit beside a `gilt`.
-    // Testing the positive first reports a dead record as live.
-    expect(statusSaysValid('gilt, ersetzt durch 0012')).toBe(false);
+  it('reads the verdict from the FIRST status word, not from trailing references', () => {
+    // The live corpus writes a genuinely retired record's verdict FIRST —
+    // `abgelöst durch 0137`, `ersetzt durch 0074` — and lets a `gilt` status
+    // mention ANOTHER record, or a document, being replaced without meaning
+    // itself: 0054 `gilt, in einem Punkt abgelöst`, 0140 `gilt · … liegt
+    // abgelöst in archive`. Both still apply. So the leftmost classifier wins;
+    // a retiring word after `gilt` is annotation, not a retirement.
+    expect(statusSaysValid('gilt, in einem Punkt abgelöst')).toBe(true);
+    expect(statusSaysValid('gilt · Schliesst: V-0187 · der Brief liegt abgelöst in archive')).toBe(true);
+    expect(statusSaysValid('abgelöst durch 0137 am 14.08.2026')).toBe(false);
+    expect(statusSaysValid('ersetzt durch 0074')).toBe(false);
   });
 
   it('returns null for a record that carries no status', () => {

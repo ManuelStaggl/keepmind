@@ -79,7 +79,13 @@ export interface Finding {
 
 /** Words in a `Stand:` value that mean the record still applies. */
 const VALID_STATUS = /\bgilt\b/i;
-/** Words that mean it does not. Checked first — `gilt` occurs inside both. */
+/**
+ * Words that mean it does not: the record was replaced, withdrawn or used up.
+ * Matched anywhere in the value — but WHERE the word sits decides the verdict,
+ * see `statusSaysValid`. A `gilt` status routinely names ANOTHER record being
+ * "abgelöst" without meaning itself, so a raw substring match reads a
+ * cross-reference as a retirement.
+ */
 const INVALID_STATUS = /\b(abgel(?:ö|oe)st|ersetzt\s+durch|zur(?:ü|ue)ckgezogen|erloschen|verbraucht|gegenstandslos|ausgelaufen|nicht\s+mehr\s+g(?:ü|ue)ltig|(?:ü|ue)berholt)\b/i;
 
 /**
@@ -114,12 +120,33 @@ const SUCCESSOR_IMPLIED = /\b(abgel(?:ö|oe)st|ersetzt\s+durch|(?:ü|ue)berholt)
  * Returns null when the record carries no status at all — three records in the
  * measured corpus do not, and treating "absent" as "gilt" would make them
  * claim a validity nobody wrote down.
+ *
+ * When BOTH a valid and a retiring word appear, the one written FIRST is the
+ * record's own verdict; anything after it is annotation — a partial caveat, a
+ * note about where a document now lives, a cross-reference to another record.
+ * The `Stand:` value carries exactly this in the live corpus: `gilt, in einem
+ * Punkt abgelöst` (0054, still applies), `gilt, Wirkweg überholt` (0059),
+ * `gilt Schliesst: … · … liegt abgelöst in archive` (0140). Every record that
+ * is genuinely retired BY ITS STATUS writes the retiring word first —
+ * `abgelöst durch 0137`, `ersetzt durch 0074`, `zurückgezogen …`. So the
+ * leftmost classifier wins: a `gilt`-leading status is valid however much
+ * reference text trails it.
+ *
+ * Reading a retiring word out of a trailing reference is precisely what put
+ * an in-force 0140 into `statusRetiredWithoutSupersession` (and would have done
+ * the same to 0054). A record superseded by ANOTHER record is still retired,
+ * but that is decided from the declared edge (`supersededRecords`), never from
+ * this field — the same split the importer makes when it stores `Stand:`
+ * verbatim without closing a validity window.
  */
 export function statusSaysValid(status: string | null): boolean | null {
   if (!status) return null;
-  if (INVALID_STATUS.test(status)) return false;
-  if (VALID_STATUS.test(status)) return true;
-  return null;
+  const invalid = status.match(INVALID_STATUS);
+  const valid = status.match(VALID_STATUS);
+  if (!invalid) return valid ? true : null;
+  if (!valid) return false;
+  // Both present: the verdict is whichever word the author wrote first.
+  return (invalid.index ?? 0) < (valid.index ?? 0) ? false : true;
 }
 
 /**
