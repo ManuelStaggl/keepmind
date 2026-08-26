@@ -1,6 +1,6 @@
 {
   "name": "keepmind",
-  "version": "4.4.4",
+  "version": "4.4.5",
   "description": "Memory compression system for Claude Code - persist context across sessions (node-only fork of claude-mem)",
   "author": {
     "name": "Manuel Staggl"
