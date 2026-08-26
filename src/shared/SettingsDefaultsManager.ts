@@ -221,7 +221,16 @@ export class SettingsDefaultsManager {
     KEEPMIND_FOLDER_CLAUDEMD_ENABLED: 'false',
     KEEPMIND_FOLDER_USE_LOCAL_MD: 'false',  // When true, writes to CLAUDE.local.md instead of CLAUDE.md
     KEEPMIND_TRANSCRIPTS_ENABLED: 'true',
-    KEEPMIND_TRANSCRIPTS_CONFIG_PATH: join(homedir(), '.keepmind', 'transcript-watch.json'),
+    // Empty, and deliberately: the resolved path belongs to `paths.ts`
+    // (`transcriptsConfig()`), which derives it from DATA_DIR. Spelling it out
+    // here re-stated the DEFAULT of KEEPMIND_DATA_DIR forty lines up as a
+    // literal, so the two agreed only for as long as nobody moved the data
+    // directory — and the moment anyone did, a worker pointed at a scratch
+    // DATA_DIR read the REAL machine's transcript configuration while
+    // reporting the path it used. It also made the `|| DEFAULT_CONFIG_PATH`
+    // fallback at the one place that reads this setting unreachable: a
+    // populated default can never be falsy. An explicit value still wins.
+    KEEPMIND_TRANSCRIPTS_CONFIG_PATH: '',
     KEEPMIND_CODEX_TRANSCRIPT_INGESTION: 'false',
     KEEPMIND_MAX_CONCURRENT_AGENTS: '2',  // Max concurrent Claude SDK agent subprocesses
     KEEPMIND_HOOK_FAIL_LOUD_THRESHOLD: '3',  // Plan 05 Phase 8 — escalate to exit code 2 after N consecutive worker-unreachable hook invocations
