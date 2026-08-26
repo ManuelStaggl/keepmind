@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [4.4.2] - 2026-08-26
+
+Two faults found by reading the log of a worker started from the source tree, and a third that 4.4.1 made visible by fixing the entry guard above it. Until then nothing in `worker-service.ts` ran under raw ESM at all, so none of these could be seen to fail.
+
+## A method that stopped halfway and said one line about it
+
+A bare `__dirname` inside `initializeBackground` is a ReferenceError under raw ESM — a throw, not a wrong value. It aborted the remainder of that method, so the MCP readiness flag was never set and its self-check never ran, and the whole thing surfaced as `Background initialization failed __dirname is not defined`. When the bundle's sibling file is not there the right answer is to find no file and carry on, not to stop work that was still pending.
+
+## Four spellings of "where am I", three of which could throw
+
+`__filename` was written out four times for the same question. Two sat behind `??` and threw only when the resolver ahead of them came up empty; the third is unconditional, and `start` from the source tree died on it — `Fatal error in main __filename is not defined`. Loud, and dead.
+
+They now go through one `selfScriptPath()`, guarded the way `Server.ts` and `SearchRoutes.ts` already guard theirs. The test asserts the helper answers with a file that exists, and scans the source so a new bare use fails the build — verified by planting one rather than assumed.
+
+**Not fixed, and worth knowing:** `start` from the source tree now resolves its own path correctly and spawns a daemon, but that child cannot execute a `.ts` without a loader. The recipe for an isolated probe remains `--daemon` in the foreground.
+
+## A path that stopped following the data directory
+
+The settings default for the transcript-watch configuration spelled out `~/.keepmind/transcript-watch.json` as a literal — a second statement of the DEFAULT of `KEEPMIND_DATA_DIR` forty lines above it. The two agreed for exactly as long as nobody moved the data directory. Measured: a worker started with `KEEPMIND_DATA_DIR` pointing at a scratch directory read the real machine's transcript configuration, printed that path in its log, and nothing else about the run looked wrong.
+
+It also made the `|| DEFAULT_CONFIG_PATH` fallback at the single place that reads the setting unreachable, since a populated default is never falsy — so the DATA_DIR-derived path that every other consumer already used was dead code. The default is empty now, which is the established shape for this file, and one place says where the file lives again. An explicit setting still wins.
+
 ## [4.4.1] - 2026-08-26
 
 Three follow-ups to 4.4.0, all of the same kind: something declined to do what it was asked and said so nowhere.
