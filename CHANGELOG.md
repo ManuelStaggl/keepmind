@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [4.4.3] - 2026-08-26
+
+A successful install that read as a crash.
+
+Reported from a machine behind a corporate TLS proxy: `npx keepmind@latest install` did everything it was supposed to — plugin registered, runtime ready, worker healthy, and `keepmind doctor` green afterwards, semantic search included — and printed a thirty-line Node crash trace in the middle of it. The tree-sitter CLI download had been rejected by a proxy that re-signs certificates, which the installer already treats as non-fatal *by design*: structural search degrades, the install continues. Nothing on screen said any of that.
+
+Two faults, both in the one function that explains a dead child process.
+
+**It printed the child's output twice.** Node's `exec` builds its error message as `Command failed: <cmd>` followed by the child's stderr, so appending a `stderr:` section after it repeats every line. Verified by running the previous function against the reported failure: `SELF_SIGNED_CERT_IN_CHAIN` appears twice inside eleven lines.
+
+**It never named the cause** — although `keepmind doctor` has diagnosed exactly these six OpenSSL verdicts by name for as long as it has existed, complete with the remedy. That knowledge now lives in one module and both read it; a second copy is how one of them starts missing a code the other has. The installer scans the child's *text* as well as the error object, because a child that dies on its own leaves the parent nothing but stderr.
+
+A recognised failure now prints the diagnosis, the remedy, the command that retries it, and the single line carrying the code so the diagnosis stays checkable:
+
+```
+  ⚠ Could not download the tree-sitter CLI; structural search will be unavailable until the next attempt.
+    The connection was refused by certificate validation (SELF_SIGNED_CERT_IN_CHAIN) — the hallmark of
+    corporate TLS interception, where a proxy re-signs traffic with a root Node does
+    not trust. Nothing is wrong with keepmind or with the download server.
+
+    Export your corporate root CA to a .pem file and point NODE_EXTRA_CA_CERTS at it
+    (a new shell is needed for the variable to take effect).
+    Then re-run `npx keepmind repair`; `npx keepmind doctor` re-checks the chain.
+
+    Reported as: code: 'SELF_SIGNED_CERT_IN_CHAIN'
+```
+
+An unrecognised failure is clipped at eight lines rather than paging the terminal. `bun install` and the Bun bootstrap get the same treatment, since a proxy rejects those downloads too.
+
+Nothing about what the installer *does* changed — only what it says while doing it.
+
 ## [4.4.2] - 2026-08-26
 
 Two faults found by reading the log of a worker started from the source tree, and a third that 4.4.1 made visible by fixing the entry guard above it. Until then nothing in `worker-service.ts` ran under raw ESM at all, so none of these could be seen to fail.
