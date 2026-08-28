@@ -256,9 +256,67 @@ function readAndClearCleanShutdownSentinel(): string | null {
   return contents;
 }
 
+/**
+ * Hard deadline for background init to complete. If neither completion nor a
+ * (retried, then thrown) failure lands within it — the "init hangs" case a
+ * try/catch cannot catch — the boot watchdog exits the process non-zero so the
+ * next hook respawns a healthy one, rather than the worker holding its port
+ * forever at initialized:false. Comfortably above a normal boot (<10s) and the
+ * SQLITE_BUSY retry budget (~31s); well below the 3-minute window an operator
+ * would wait before restarting by hand.
+ */
+const BOOT_INIT_DEADLINE_MS = 180_000;
+
+/**
+ * Injected at SessionStart when the worker is not yet ready (S5). A visible line
+ * so a memory-less session is self-explaining, instead of an empty context that
+ * reads exactly like "this project has no memory".
+ */
+const WORKER_NOT_READY_CONTEXT_NOTICE =
+  '⚠️ keepmind ist nicht bereit (Initialisierung nicht abgeschlossen) — diese Sitzung startet ohne Gedächtnis.';
+
+/** Backoff schedule for the SQLITE_BUSY init retry (S2): 1s, 2s, 4s, 8s, 16s. */
+const SQLITE_BUSY_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 16000] as const;
+
+function isSqliteBusyError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /SQLITE_BUSY|database is locked|database table is locked/i.test(message);
+}
+
+/**
+ * Run a database open/init operation, retrying with backoff ONLY on a locked
+ * database (SQLITE_BUSY / "database is locked"). Any other error rethrows at
+ * once. This is the "retry instead of give up" half of S2: a start-time race
+ * between two launchers (one holding the file open while the other builds its
+ * DB) was a transient the worker treated as fatal-but-silent, sitting wedged
+ * forever. busy_timeout (S6) already absorbs a brief lock inside a single open;
+ * this covers a lock held longer than that.
+ */
+async function retryOnSqliteBusy<T>(operation: () => Promise<T>, label: string): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isSqliteBusyError(error) || attempt >= SQLITE_BUSY_RETRY_DELAYS_MS.length) {
+        throw error;
+      }
+      const delayMs = SQLITE_BUSY_RETRY_DELAYS_MS[attempt];
+      logger.warn('WORKER', `${label} hit a locked database — retrying`, {
+        attempt: attempt + 1,
+        of: SQLITE_BUSY_RETRY_DELAYS_MS.length,
+        delayMs,
+      });
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
 export class WorkerService implements WorkerRef {
   private server: Server;
   private startTime: number = Date.now();
+  // S4 boot watchdog: armed in start(), cleared the moment init completes (or
+  // the worker shuts down). Fires process.exit(1) if init never finishes.
+  private bootWatchdog: ReturnType<typeof setTimeout> | null = null;
   // Crash detection (worker_started telemetry): derived once at startup from
   // the previous run's stale PID file + the clean-shutdown sentinel.
   private previousShutdown: 'clean' | 'crash' | 'unknown' = 'unknown';
@@ -393,12 +451,16 @@ export class WorkerService implements WorkerRef {
 
     this.server.app.get('/api/context/inject', async (req, res, next) => {
       if (!this.initializationCompleteFlag || !this.searchRoutes) {
-        logger.warn('SYSTEM', 'Context requested before initialization complete, returning empty');
-        res.status(200).json({ content: [{ type: 'text', text: '' }] });
+        // S5: keep failing open (never block SessionStart), but an EMPTY text is
+        // indistinguishable from "no memory exists" — that silence let 28 hours
+        // of memory-less sessions pass unnoticed. Return a visible notice so the
+        // session shows WHY it started without memory.
+        logger.warn('SYSTEM', 'Context requested before initialization complete — returning a not-ready notice');
+        res.status(200).json({ content: [{ type: 'text', text: WORKER_NOT_READY_CONTEXT_NOTICE }] });
         return;
       }
 
-      next(); 
+      next();
     });
 
     this.server.app.use(['/api', '/v1'], async (req, res, next) => {
@@ -423,9 +485,13 @@ export class WorkerService implements WorkerRef {
       }
 
       logger.debug('WORKER', `Request to ${req.method} ${req.path} rejected — DB not initialized`);
+      // S5: honest wording. The old "please retry" implied a further attempt
+      // would land — but a wedged worker never becomes ready, so retrying was
+      // futile. Say what is actually true: the worker is still starting, and if
+      // it cannot finish it restarts itself (S2/S4).
       res.status(503).json({
         error: 'Service initializing',
-        message: 'Database is still initializing, please retry'
+        message: 'keepmind is still starting up (the database is initializing). If startup does not complete, the worker restarts itself.'
       });
       return;
     });
@@ -645,9 +711,31 @@ export class WorkerService implements WorkerRef {
     // session history) as a person property, so IDE-level DAU/retention
     // breakdowns are non-null for installs that never re-run the installer.
 
+    // S4 — arm the boot watchdog before the fire-and-forget init below. If init
+    // neither completes nor throws within the deadline (a hang, which the
+    // try/catch in initializeBackground cannot see), exit non-zero so the next
+    // hook respawns a healthy worker instead of this one holding the port at
+    // initialized:false. unref() so the timer never keeps the process alive.
+    this.bootWatchdog = setTimeout(() => {
+      if (!this.initializationCompleteFlag) {
+        logger.failure('SYSTEM', 'Worker initialization did not complete within the boot deadline — exiting so a healthy worker can replace it', {
+          deadlineMs: BOOT_INIT_DEADLINE_MS,
+        });
+        process.exit(1);
+      }
+    }, BOOT_INIT_DEADLINE_MS);
+    this.bootWatchdog.unref?.();
+
     this.initializeBackground().catch((error) => {
       logger.error('SYSTEM', 'Background initialization failed', {}, error as Error);
     });
+  }
+
+  private clearBootWatchdog(): void {
+    if (this.bootWatchdog) {
+      clearTimeout(this.bootWatchdog);
+      this.bootWatchdog = null;
+    }
   }
 
   private async initializeBackground(): Promise<void> {
@@ -767,7 +855,11 @@ export class WorkerService implements WorkerRef {
       }
 
       logger.info('WORKER', 'Initializing database manager...');
-      await this.dbManager.initialize();
+      // S2: a locked database at start (two launchers racing the open) is a
+      // transient, not a fatal — retry with backoff before giving up. With
+      // busy_timeout (S6) now on the shared connection, a brief lock is already
+      // waited out inside the open; this covers a longer hold.
+      await retryOnSqliteBusy(() => this.dbManager.initialize(), 'Database initialization');
 
       runOneTimeV12_4_3Cleanup();
 
@@ -801,6 +893,7 @@ export class WorkerService implements WorkerRef {
       logger.info('WORKER', 'CorpusRoutes registered');
 
       this.initializationCompleteFlag = true;
+      this.clearBootWatchdog();
       this.resolveInitialization();
       logger.info('SYSTEM', 'Core initialization complete (DB + search ready)');
 
@@ -840,7 +933,20 @@ export class WorkerService implements WorkerRef {
 
       return;
     } catch (error) {
-      logger.error('SYSTEM', 'Background initialization failed', {}, error instanceof Error ? error : undefined);
+      // S2: init failed for good (retries exhausted, or a non-lock error). A
+      // worker that cannot serve must NOT keep running with initialized:false —
+      // that is exactly the wedged state that hid for 28 hours. Exit non-zero so
+      // a dead process gets respawned; a seemingly-alive one never would. Guard
+      // on the flag in case a late error arrives after init already succeeded.
+      if (!this.initializationCompleteFlag) {
+        logger.failure('SYSTEM', 'Background initialization failed — the worker cannot serve requests and will exit so a healthy one can replace it', {}, error instanceof Error ? error : new Error(String(error)));
+        this.clearBootWatchdog();
+        // Small delay so the (synchronous) failure log and any telemetry flush
+        // land before the process goes; unref-free because we WANT the exit.
+        setTimeout(() => process.exit(1), 250);
+        return;
+      }
+      logger.error('SYSTEM', 'Background initialization failed after core init completed', {}, error instanceof Error ? error : undefined);
     }
   }
 
@@ -1030,6 +1136,7 @@ export class WorkerService implements WorkerRef {
       beforeGracefulShutdown: async () => {
         // Stop the lifecycle timers and drop the published port mirror so no
         // stale endpoint advertisement survives this shutdown.
+        this.clearBootWatchdog();
         this.sessionRefCounter.stop();
         this.maintenanceLoop?.stop();
         this.curatedAutoImport?.stop();
