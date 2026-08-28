@@ -15,6 +15,8 @@ import {
   isPortInUse,
   waitForHealth,
   waitForReadiness,
+  waitForPortFree,
+  httpShutdown,
 } from './infrastructure/HealthMonitor.js';
 import { acquireSpawnLock, releaseSpawnLock } from '../shared/worker-spawn-gate.js';
 import { ensurePluginDependencies } from './plugin-deps-repair.js';
@@ -53,6 +55,40 @@ async function waitForSpawnedWorker(configuredPort: number, timeoutMs: number): 
   return null;
 }
 
+/**
+ * Tear down a wedged worker (answers the port but never reaches readiness) so a
+ * healthy one can replace it. Ask it to STOP — not restart: a restart would
+ * have it spawn its OWN successor, racing the respawn the caller is about to do
+ * under the spawn lock. If the graceful stop does not free the port, kill the
+ * recorded PID directly as a backstop; if that still fails, the caller's spawn
+ * path routes around the squatted port with an ephemeral fallback. The PID file
+ * is cleared either way so the stale-PID branch does not re-adopt the corpse.
+ */
+async function replaceWedgedWorker(port: number): Promise<void> {
+  const info = readPidFile();
+  try {
+    await httpShutdown(port, 'stop');
+  } catch (error) {
+    logger.debug('SYSTEM', 'Shutdown request to wedged worker failed', {},
+      error instanceof Error ? error : new Error(String(error)));
+  }
+  let freed = await waitForPortFree(port, getPlatformTimeout(HOOK_TIMEOUTS.POST_SPAWN_WAIT));
+  if (!freed && info && isProcessAlive(info.pid)) {
+    logger.warn('SYSTEM', 'Wedged worker did not exit on request — killing it directly', { pid: info.pid });
+    try {
+      process.kill(info.pid, 'SIGKILL');
+    } catch {
+      // Already gone, or not ours to kill — the spawn path's ephemeral-port
+      // fallback is the final safety net.
+    }
+    freed = await waitForPortFree(port, getPlatformTimeout(HOOK_TIMEOUTS.PORT_IN_USE_WAIT));
+  }
+  if (!freed) {
+    logger.warn('SYSTEM', 'Wedged worker port still not free — the spawn will fall back to an ephemeral port');
+  }
+  removePidFile();
+}
+
 export async function ensureWorkerStarted(
   port: number,
   workerScriptPath: string
@@ -79,12 +115,20 @@ export async function ensureWorkerStarted(
   // stale-PID / respawn path, where the ownership check is worth its cost.
   if (await waitForHealth(port, 1000)) {
     const ready = await waitForReadiness(port, getPlatformTimeout(HOOK_TIMEOUTS.READINESS_WAIT));
-    if (!ready) {
-      logger.warn('SYSTEM', 'Worker is alive but readiness timed out — proceeding anyway');
+    if (ready) {
+      // DEBUG: the healthy fast path is the normal case and ran ~4k times/day.
+      logger.debug('SYSTEM', 'Worker already running and healthy (fast path)');
+      return 'ready';
     }
-    // DEBUG: the healthy fast path is the normal case and ran ~4k times/day.
-    logger.debug('SYSTEM', 'Worker already running and healthy (fast path)');
-    return ready ? 'ready' : 'warming';
+    // S1: a process answers the port but never reached readiness within the
+    // full cold-boot budget. That is a WEDGED worker — e.g. background DB init
+    // failed (or hung) and was never retried — and it is self-perpetuating: a
+    // healthy worker can never take the port while the wedged one holds it, so
+    // every hook returned 'warming' and "proceeded anyway" indefinitely (28h in
+    // the field). Tear it down and fall through to (re)spawn a healthy one.
+    logger.warn('SYSTEM', 'Worker answers the port but never became ready within the boot budget — treating it as wedged and replacing it');
+    await replaceWedgedWorker(port);
+    // fall through to the spawn path below.
   }
 
   const pidFileStatus = cleanStalePidFile();
