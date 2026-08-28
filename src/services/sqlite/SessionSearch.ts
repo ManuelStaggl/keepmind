@@ -48,8 +48,9 @@ export class SessionSearch {
     } else {
       ensureDir(DATA_DIR);
       const openPath = dbPathOrDb === DB_PATH ? resolveOpenDbPath() : dbPathOrDb;
+      // Connection pragmas (incl. busy_timeout) are applied by the Database
+      // constructor for every read-write file connection — see pragmas.ts.
       this.db = new Database(openPath);
-      this.db.run('PRAGMA journal_mode = WAL');
     }
 
     this._fts5Available = this.isFts5Available();

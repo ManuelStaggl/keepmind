@@ -25,7 +25,6 @@ import { subjectKey } from '../reconcile/subject-key.js';
 import { DEFAULT_PLATFORM_SOURCE, normalizePlatformSource, sortPlatformSources } from '../../shared/platform-source.js';
 import { findRecentDuplicateUserPrompt as findRecentDuplicateUserPromptRecord } from './prompts/get.js';
 import { normalizeStoredPromptText } from './prompt-storage.js';
-import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_JOURNAL_SIZE_LIMIT_BYTES } from './pragmas.js';
 import { envValue } from '../../shared/legacy-env.js';
 import { CHECKPOINT_TYPE, deriveCheckpointTitle, type CheckpointRecord } from '../../shared/checkpoint.js';
 import { CURATED_ID_SQL, curatedKindOfRow, AUTHORED_SOURCE_SCHEME, REVISION_MARKER, type CuratedKindLabel } from '../curated/record-key.js';
@@ -86,16 +85,13 @@ export class SessionStore {
       // For the canonical DB, run the one-time legacy claude-mem.db → keepmind.db
       // rename and open whichever file actually holds the data (fallback-safe).
       const openPath = dbPathOrDb === DB_PATH ? resolveOpenDbPath() : dbPathOrDb;
+      // The canonical connection pragmas (WAL, synchronous, foreign_keys,
+      // journal_size_limit and — load-bearing — busy_timeout) are applied by
+      // the Database constructor itself now (see storage/db.ts and pragmas.ts),
+      // so every read-write file connection gets them, INCLUDING the worker's
+      // shared connection which reaches SessionStore as an already-open
+      // Database. Nothing to set here.
       this.db = new Database(openPath);
-
-      this.db.run('PRAGMA journal_mode = WAL');
-      this.db.run('PRAGMA synchronous = NORMAL');
-      this.db.run('PRAGMA foreign_keys = ON');
-      this.db.run(`PRAGMA journal_size_limit = ${SQLITE_JOURNAL_SIZE_LIMIT_BYTES}`);
-      // See pragmas.ts: without a busy_timeout SQLite fails a locked read/write
-      // immediately instead of waiting, which silently emptied the injected
-      // context block whenever a hook read during an observation write.
-      this.db.run(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
     }
 
     this.initializeSchema();

@@ -23,6 +23,7 @@
 // order is the SELECT column order, so `Object.values(row)` preserves it).
 
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
+import { applyConnectionPragmas } from '../services/sqlite/pragmas.js';
 
 /** Scalar value bindable to a single SQL placeholder. */
 export type BindValue = string | number | bigint | boolean | null | undefined | Uint8Array;
@@ -146,15 +147,15 @@ export class Database {
       allowExtension: true,
     });
 
-    // bun:sqlite leaves journal mode to the caller, but the main DB is always
-    // opened WAL by its callers. Setting it here for read-write file DBs is
-    // harmless and idempotent; skip it for read-only (would fail) and memory.
+    // Apply the canonical connection pragmas for every read-write file DB, so
+    // the worker's SHARED connection (opened here by DatabaseManager and handed
+    // to SessionStore/SessionSearch as an already-open Database) gets the full
+    // set — busy_timeout above all. This used to set only `journal_mode=WAL`
+    // and swallow any failure, which left the shared connection with
+    // busy_timeout=0: a locked open failed immediately, wedging the worker for
+    // 28 hours. Skip for read-only (the pragmas would fail) and memory.
     if (!readOnly && location !== ':memory:') {
-      try {
-        this.db.exec('PRAGMA journal_mode=WAL');
-      } catch {
-        // Best effort — never fail open() over a journal-mode pragma.
-      }
+      applyConnectionPragmas(sql => { this.db.exec(sql); });
     }
   }
 
