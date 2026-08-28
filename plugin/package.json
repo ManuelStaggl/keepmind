@@ -1,6 +1,6 @@
 {
   "name": "keepmind-plugin",
-  "version": "4.4.6",
+  "version": "4.4.7",
   "private": true,
   "description": "Runtime dependencies for keepmind bundled hooks",
   "type": "module",
