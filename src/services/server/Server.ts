@@ -265,8 +265,18 @@ export class Server {
       const dependencyHealth = this.options.getDependencyHealth
         ? this.options.getDependencyHealth()
         : snapshotDependencyHealth();
-      res.status(queueDegraded ? 503 : 200).json({
-        status: queueDegraded ? 'degraded' : 'ok',
+      // A worker whose background init has not completed is NOT healthy, and
+      // /api/health must say so — the previous unconditional `ok` (only queue
+      // degradation could flip it) let a worker sit at initialized:false for 28
+      // hours while every `curl /api/health` reported `ok`. The full body still
+      // ships (pid/version/uptime and initialized:false), so liveness probes and
+      // restart verification, which read the body regardless of status, are
+      // unaffected. `status` is the honest verdict; `initialized` the reason.
+      const initialized = this.options.getInitializationComplete();
+      const notHealthy = queueDegraded || !initialized;
+      const status = !initialized ? 'initializing' : (queueDegraded ? 'degraded' : 'ok');
+      res.status(notHealthy ? 503 : 200).json({
+        status,
         ...(this.options.runtime ? { runtime: this.options.runtime } : {}),
         version: BUILT_IN_VERSION,
         workerPath: this.options.workerPath,
@@ -275,7 +285,7 @@ export class Server {
         hasIpc: typeof process.send === 'function',
         platform: process.platform,
         pid: process.pid,
-        initialized: this.options.getInitializationComplete(),
+        initialized,
         mcpReady: this.options.getMcpReady(),
         ai: this.options.getAiStatus(),
         dependencies: dependencyHealth,

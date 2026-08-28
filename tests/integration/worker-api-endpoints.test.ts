@@ -92,7 +92,7 @@ describe('Worker API Endpoints Integration', () => {
         expect(typeof body.pid).toBe('number');
       });
 
-      it('should reflect uninitialized state', async () => {
+      it('reports 503 + initializing while background init is incomplete (S3)', async () => {
         const uninitOptions: ServerOptions = {
           getInitializationComplete: () => false,
           getMcpReady: () => false,
@@ -106,11 +106,16 @@ describe('Worker API Endpoints Integration', () => {
         await server.listen(testPort, '127.0.0.1');
 
         const response = await fetch(`http://127.0.0.1:${testPort}/api/health`);
+        // /api/health must NOT say ok while uninitialized — that gap hid a
+        // 28-hour wedged worker. 503 with the honest status, and the full body
+        // (initialized:false, pid, version) still ships for liveness/restart
+        // verification which read the body regardless of status code.
+        expect(response.status).toBe(503);
         const body = await response.json();
-
-        expect(body.status).toBe('ok'); 
+        expect(body.status).toBe('initializing');
         expect(body.initialized).toBe(false);
         expect(body.mcpReady).toBe(false);
+        expect(typeof body.pid).toBe('number');
       });
 
       it('includes dependency health and stays HTTP 200 for dependency-only degradation', async () => {

@@ -59,17 +59,20 @@ export async function isPortInUse(port: number): Promise<boolean> {
   });
 }
 
-async function pollEndpointUntilOk(
+async function pollEndpoint(
   port: number,
   endpointPath: string,
   timeoutMs: number,
-  retryLogMessage: string
+  retryLogMessage: string,
+  // 'ok' => succeed only on a 2xx (readiness gate); 'responds' => succeed on
+  // ANY HTTP status, i.e. the worker answered at all (liveness/presence).
+  mode: 'ok' | 'responds'
 ): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
       const result = await httpRequestToWorker(port, endpointPath);
-      if (result.ok) return true;
+      if (mode === 'responds' || result.ok) return true;
     } catch (error) {
       if (error instanceof Error) {
         logger.debug('SYSTEM', retryLogMessage, {}, error);
@@ -82,12 +85,20 @@ async function pollEndpointUntilOk(
   return false;
 }
 
+/**
+ * LIVENESS, not readiness: resolves true as soon as the worker answers
+ * /api/health with ANY status. Since 3.x /api/health returns 503 while
+ * background init is incomplete (so `curl` tells the truth), so a 2xx-only
+ * probe would report a normally-booting worker as absent and let a duplicate
+ * spawn. Every caller here uses this to mean "is a worker process present on
+ * the port" — the readiness gate is waitForReadiness.
+ */
 export function waitForHealth(port: number, timeoutMs: number = 30000): Promise<boolean> {
-  return pollEndpointUntilOk(port, '/api/health', timeoutMs, 'Service not ready yet, will retry');
+  return pollEndpoint(port, '/api/health', timeoutMs, 'Service not answering yet, will retry', 'responds');
 }
 
 export function waitForReadiness(port: number, timeoutMs: number = 30000): Promise<boolean> {
-  return pollEndpointUntilOk(port, '/api/readiness', timeoutMs, 'Worker not ready yet, will retry');
+  return pollEndpoint(port, '/api/readiness', timeoutMs, 'Worker not ready yet, will retry', 'ok');
 }
 
 export async function waitForPortFree(port: number, timeoutMs: number = 10000): Promise<boolean> {

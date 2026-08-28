@@ -131,6 +131,21 @@ describe('HealthMonitor', () => {
       expect(callCount).toBeGreaterThanOrEqual(3);
     });
 
+    it('treats a 503 (booting worker) as alive — liveness, not readiness', async () => {
+      // Since S3, /api/health answers 503 while init is incomplete. waitForHealth
+      // is a LIVENESS probe (is a process answering the port?), so a 503 must
+      // count as alive — otherwise a normally-booting worker reads as absent and
+      // a duplicate spawns.
+      global.fetch = mock(() => Promise.resolve({
+        ok: false,
+        status: 503,
+        text: () => Promise.resolve(JSON.stringify({ status: 'initializing', initialized: false }))
+      } as unknown as Response));
+
+      const result = await waitForHealth(37777, 1000);
+      expect(result).toBe(true);
+    });
+
     it('should check health endpoint for liveness', async () => {
       const fetchMock = mock(() => Promise.resolve({
         ok: true,

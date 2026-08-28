@@ -248,8 +248,13 @@ export function workerHttpRequest(
 }
 
 async function isWorkerHealthy(): Promise<boolean> {
+  // LIVENESS, not readiness. Since 3.x /api/health answers 503 while background
+  // init is incomplete (so `curl` tells the truth), and a process that answers
+  // 503 is still ALIVE on the port. A 2xx-only check here would read a normally
+  // booting worker as absent and trigger a redundant lazy-spawn every cold
+  // boot; readiness is gated separately by isWorkerReady()/waitForWorkerReadiness.
   const response = await workerHttpRequest('/api/health', { timeoutMs: HEALTH_CHECK_TIMEOUT_MS });
-  return response.ok;
+  return response.status > 0;
 }
 
 async function isWorkerReady(): Promise<boolean> {
