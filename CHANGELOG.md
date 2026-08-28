@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [4.4.7] - 2026-08-28
+
+The worker now starts reliably — and is loud when it cannot. A start-time race between two launchers left a worker running for 28 hours at `initialized: false`: every session in that window started without memory, `save_checkpoint` failed with "please retry" (a retry that could never land), and `/api/health` reported `ok` throughout. The failure was real; the silence around it was the bug. This release closes both.
+
+## The root cause: the worker's main connection had no `busy_timeout`
+
+The worker opens one shared SQLite connection and hands it to the store and the search index as an already-open handle — so their own connection-tuning never ran, and the base connection was left with `busy_timeout = 0`. A locked open therefore failed *immediately* instead of waiting, which is exactly what happened when two launchers raced the database open. The canonical pragmas (WAL, `synchronous`, `foreign_keys`, `journal_size_limit` and — load-bearing — `busy_timeout`) now live in one place and are applied to **every** read-write connection, including the shared one. A pragma that fails is logged, never swallowed.
+
+## `/api/health` tells the truth
+
+`/api/health` returned `status: "ok"` unless the (removed) queue was degraded, so a worker wedged at `initialized: false` looked healthy to every `curl` and every monitor. It now answers **503 with `status: "initializing"`** while startup is incomplete; the full body (pid, version, `initialized`) still ships, so liveness and restart-verification are unaffected.
+
+## A wedged worker gets replaced, not tolerated
+
+When a process answered the port but never became ready, the hook fast path logged "proceeding anyway" and moved on — and because a healthy worker can never claim a port the wedged one is holding, that state sustained itself indefinitely. A worker that answers the port but never reaches readiness within the boot budget is now treated as **wedged**: it is torn down and a healthy one is spawned in its place.
+
+## Startup retries, then gives up loudly
+
+- **Retry instead of stall.** A locked database at start is a transient, not a fatal — background init now retries on `SQLITE_BUSY` with backoff (1/2/4/8/16 s).
+- **Self-exit instead of a zombie.** If init ultimately fails, the worker exits non-zero so a dead process gets respawned, rather than running on unusable. A boot-deadline watchdog (180 s) covers the hang case a `try/catch` cannot see.
+- **A visible notice instead of empty memory.** When the worker is not ready, session-start context now shows a clear "not ready — starting without memory" line instead of an empty string that reads exactly like "this project has no memory". The 503 body drops the misleading "please retry".
+
+## Operational note
+
+Until a release carries this, `/api/health`'s `initialized` field (read against `uptime`) and `/api/readiness` are the truthful checks; a wedged worker is fixed by killing its process, and the next hook respawns it. Nothing was ever lost in the incident — the spool stayed intact throughout.
+
 ## [4.4.6] - 2026-08-26
 
 Two false alarms in `curated:verify` are fixed. Neither blocked anything — the corpus was complete and searchable throughout — but each reported a problem that was not there, and a checker that cries wolf gets clicked away.
