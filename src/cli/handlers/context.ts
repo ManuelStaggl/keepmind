@@ -15,9 +15,17 @@ import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { logger } from '../../utils/logger.js';
 import { loadFromFileOnce } from '../../shared/hook-settings.js';
 import { shouldTrackProject } from '../../shared/should-track-project.js';
-import { readStaleMarker } from '../../shared/oauth-token.js';
 import { readUpdateHint } from '../../shared/update-check.js';
-import { readVectorHealthHint } from '../../shared/vector-health.js';
+import {
+  CHECKPOINT_BLOCK_END_MARKER,
+  CHECKPOINT_BUDGET_MULTIPLIER,
+  CHECKPOINT_RELOAD_HINT,
+} from '../../shared/checkpoint.js';
+import {
+  collectUserAlerts,
+  renderAlertsForModel,
+  renderAlertsForTerminal,
+} from '../../shared/user-alerts.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { callMcpToolOnce } from '../../shared/mcp-client.js';
 
@@ -60,14 +68,62 @@ async function fetchSessionStartContextViaMcp(args: {
  * Trimmed on a line boundary so a row is never half-shown, and the truncation
  * is announced — an unmarked cut would read as "there was nothing more".
  */
-export function capInjectedContext(text: string, maxChars: number): string {
-  if (maxChars <= 0 || text.length <= maxChars) return text;
-  const notice = '\n… (trimmed by KEEPMIND_SESSION_START_MAX_CHARS)';
-  const room = Math.max(0, maxChars - notice.length);
-  const cut = text.slice(0, room);
+function trimToLineBoundary(text: string, room: number): string {
+  const cut = text.slice(0, Math.max(0, room));
   const lastBreak = cut.lastIndexOf('\n');
-  const body = lastBreak > room * 0.5 ? cut.slice(0, lastBreak) : cut;
-  return `${body}${notice}`;
+  return lastBreak > room * 0.5 ? cut.slice(0, lastBreak) : cut;
+}
+
+/**
+ * S20: spend the ceiling from the RIGHT end.
+ *
+ * The checkpoint is the single most expensive text in the block to lose: it was
+ * curated by hand for exactly this moment and it is the documented alternative
+ * to `/compact`. The observation list below it is regenerated every session and
+ * is searchable besides. So the checkpoint is served FIRST and in full, and the
+ * budget is spent on what follows it.
+ *
+ * "In full" has a ceiling of its own (CHECKPOINT_BUDGET_MULTIPLIER) so one
+ * runaway checkpoint cannot fill a session's context. When even that is
+ * exceeded the checkpoint IS trimmed — but then the notice names what is
+ * missing and how to fetch it, because a silent cut reads as "there was nothing
+ * more", which is the whole failure being fixed.
+ */
+export function capInjectedContext(
+  text: string,
+  maxChars: number,
+  checkpointMaxChars?: number,
+): string {
+  if (maxChars <= 0 || text.length <= maxChars) return text;
+
+  const notice = '\n… (trimmed by KEEPMIND_SESSION_START_MAX_CHARS)';
+  const markerAt = text.indexOf(CHECKPOINT_BLOCK_END_MARKER);
+
+  // No checkpoint in this block: unchanged behaviour.
+  if (markerAt === -1) {
+    return `${trimToLineBoundary(text, Math.max(0, maxChars - notice.length))}${notice}`;
+  }
+
+  const headEnd = markerAt + CHECKPOINT_BLOCK_END_MARKER.length;
+  const head = text.slice(0, headEnd);
+  const tail = text.slice(headEnd);
+  const checkpointCeiling = checkpointMaxChars ?? maxChars * CHECKPOINT_BUDGET_MULTIPLIER;
+
+  if (head.length > checkpointCeiling) {
+    const cutNotice =
+      `\n… (checkpoint trimmed at KEEPMIND_CHECKPOINT_MAX_CHARS — ${CHECKPOINT_RELOAD_HINT})`;
+    const body = trimToLineBoundary(head, Math.max(0, checkpointCeiling - cutNotice.length));
+    return `${body}${cutNotice}`;
+  }
+
+  // The checkpoint fits. Whatever is left of the budget goes to the timeline;
+  // when nothing is left, say so rather than ending on a bare marker.
+  const remaining = maxChars - head.length;
+  if (remaining <= notice.length) {
+    return `${head}\n… (timeline omitted — the checkpoint used the KEEPMIND_SESSION_START_MAX_CHARS budget; ${CHECKPOINT_RELOAD_HINT})`;
+  }
+  if (tail.length <= remaining) return text;
+  return `${head}${trimToLineBoundary(tail, remaining - notice.length)}${notice}`;
 }
 
 export const contextHandler: EventHandler = {
@@ -106,6 +162,15 @@ export const contextHandler: EventHandler = {
       return Number.isFinite(parsed) && parsed > 0 ? parsed : 4_500;
     })();
 
+    // S20: the checkpoint's own ceiling, so the baton is not measured against a
+    // budget that was tuned for the observation list.
+    const checkpointMaxChars = (() => {
+      const parsed = parseInt(String(settings.KEEPMIND_CHECKPOINT_MAX_CHARS ?? ''), 10);
+      return Number.isFinite(parsed) && parsed > 0
+        ? parsed
+        : maxInjectChars * CHECKPOINT_BUDGET_MULTIPLIER;
+    })();
+
     const projectsParam = context.allProjects.join(',');
     const normalizedPlatformSource = input.platform
       ? normalizePlatformSource(input.platform)
@@ -116,8 +181,21 @@ export const contextHandler: EventHandler = {
     const apiPath = `/api/context/inject?projects=${encodeURIComponent(projectsParam)}${platformSourceParam}`;
     const colorApiPath = input.platform === 'claude-code' ? `${apiPath}&colors=true` : apiPath;
 
+    // S15: computed BEFORE the worker is asked anything. Every alert source is
+    // a file on disk, so an alert survives exactly the situation it is most
+    // needed in — a worker that is down, wedged, or not writing memory. The old
+    // code read the markers only AFTER a successful context fetch, so a dead
+    // worker returned an empty context and said nothing at all.
+    const alerts = collectUserAlerts();
+    const alertBlockForModel = renderAlertsForModel(alerts);
+    const alertBlockForTerminal = renderAlertsForTerminal(alerts);
+
     const emptyResult: HookResult = {
-      hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: '' },
+      hookSpecificOutput: {
+        hookEventName: 'SessionStart',
+        additionalContext: alertBlockForModel,
+        ...(alertBlockForTerminal ? { systemMessage: alertBlockForTerminal } : {}),
+      },
       exitCode: HOOK_EXIT_CODES.SUCCESS,
     };
 
@@ -150,7 +228,11 @@ export const contextHandler: EventHandler = {
     // Apply the ceiling to the timeline BEFORE the hints are prepended: the
     // hints are short, urgent and must never be the thing that gets trimmed.
     const beforeCap = additionalContext.length;
-    additionalContext = capInjectedContext(additionalContext, maxInjectChars);
+    additionalContext = capInjectedContext(
+      additionalContext,
+      maxInjectChars,
+      checkpointMaxChars,
+    );
     if (additionalContext.length < beforeCap) {
       logger.debug('HOOK', 'Session start context trimmed to ceiling', {
         beforeCap,
@@ -171,25 +253,17 @@ export const contextHandler: EventHandler = {
       }
     }
 
-    // Issue #2215: surface stale OAuth token marker as a session-start hint.
-    // Marker is written by EnvManager.buildIsolatedEnvWithFreshOAuth() when
-    // a previous worker spawn detected an expired keychain entry.
-    const staleReason = readStaleMarker();
-    if (staleReason) {
-      const hint = `[keepmind] Claude Desktop OAuth token is stale: ${staleReason}\nPlease re-login via Claude Desktop to refresh the token.`;
+    // S15: one block, at the very top, carrying an explicit instruction to the
+    // model to relay it. The stale-OAuth and vector hints used to be prepended
+    // as bare lines, which reaches the MODEL but never the person: verified
+    // 29.08.2026 that the Claude Code Desktop App displays neither a hook's
+    // `systemMessage` nor a status line, so a notice with no relay instruction
+    // is a notice the user never sees. collectUserAlerts() carries both of
+    // those plus the generator-health state (S13/S14).
+    if (alertBlockForModel) {
       additionalContext = additionalContext
-        ? `${hint}\n\n${additionalContext}`
-        : hint;
-    }
-
-    // Degraded semantic search is the one failure mode with no natural symptom:
-    // search keeps answering, just worse, so nothing prompts the user to look.
-    // Surface it above everything else — it changes how much the rest of this
-    // context can be trusted. Unlike the hints above it also goes to
-    // systemMessage below, because the person, not the model, has to fix it.
-    const vectorHint = readVectorHealthHint();
-    if (vectorHint) {
-      additionalContext = additionalContext ? `${vectorHint}\n\n${additionalContext}` : vectorHint;
+        ? `${alertBlockForModel}\n\n${additionalContext}`
+        : alertBlockForModel;
     }
 
     let coloredTimeline = '';
@@ -220,8 +294,8 @@ export const contextHandler: EventHandler = {
     const timelineMessage = showTerminalOutput && displayContent
       ? `${displayContent}\n\nView Observations Live @ http://localhost:${port}`
       : undefined;
-    const systemMessage = vectorHint
-      ? (timelineMessage ? `${vectorHint}\n\n${timelineMessage}` : vectorHint)
+    const systemMessage = alertBlockForTerminal
+      ? (timelineMessage ? `${alertBlockForTerminal}\n\n${timelineMessage}` : alertBlockForTerminal)
       : timelineMessage;
 
     return {

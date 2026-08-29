@@ -71,6 +71,7 @@ export interface SettingsDefaults {
   KEEPMIND_SESSION_START_INJECT: string;
   /** Hard character ceiling for the SessionStart injection, applied after rendering. */
   KEEPMIND_SESSION_START_MAX_CHARS: string;
+  KEEPMIND_CHECKPOINT_MAX_CHARS: string;
   KEEPMIND_CONTEXT_SHOW_LAST_SUMMARY: string;
   KEEPMIND_CONTEXT_SHOW_LAST_MESSAGE: string;
   /**
@@ -210,6 +211,9 @@ export class SettingsDefaultsManager {
     KEEPMIND_FILE_CONTEXT_MIN_SCORE: '2',  // require real specificity: the observation named this file as modified, or touched few files.
     KEEPMIND_SESSION_START_INJECT: 'true',
     KEEPMIND_SESSION_START_MAX_CHARS: '4500',  // ~1.1k tokens — the measured size of today's injection, which is the part that demonstrably works.
+    // S20: empty = CHECKPOINT_BUDGET_MULTIPLIER x the line above. The baton is
+    // served before the timeline and is not measured against the timeline's budget.
+    KEEPMIND_CHECKPOINT_MAX_CHARS: '',
     KEEPMIND_CONTEXT_SHOW_LAST_SUMMARY: 'true',
     KEEPMIND_CONTEXT_SHOW_LAST_MESSAGE: 'false',
     KEEPMIND_INJECT_SOURCE_KIND: 'all',  // A9 origin filter: 'all' | 'curated' | 'observed'.

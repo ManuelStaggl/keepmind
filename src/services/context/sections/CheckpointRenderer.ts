@@ -1,5 +1,5 @@
 
-import type { CheckpointRecord } from '../../../shared/checkpoint.js';
+import { CHECKPOINT_BLOCK_END_MARKER, type CheckpointRecord } from '../../../shared/checkpoint.js';
 import { relativeDayLabel } from '../formatters/AgentFormatter.js';
 
 /**
@@ -42,6 +42,12 @@ export function renderCheckpoints(checkpoints: CheckpointRecord[]): string[] {
     output.push('---');
     output.push('');
   }
+
+  // S20: the boundary the character ceiling trims from. Emitted once, after
+  // the LAST checkpoint — the hook spends the budget on everything to the
+  // right of it, so the baton is served first instead of eaten first.
+  output.push(CHECKPOINT_BLOCK_END_MARKER);
+  output.push('');
 
   return output;
 }
