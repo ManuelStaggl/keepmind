@@ -518,12 +518,16 @@ export class WorkerService implements WorkerRef {
     };
     this.server.app.post('/api/session/acquire', (req, res) => {
       const sessionId = readSessionId(req);
-      const active = this.sessionRefCounter.acquire(sessionId);
-      res.status(200).json({ status: 'acquired', sessionId, activeSessions: active });
+      const acquired = this.sessionRefCounter.acquire(sessionId);
+      // S11: `sessionsAcquired`, not `activeSessions` — the counter only ever
+      // goes up, because release() is never called (the SessionEnd hook it
+      // needed was removed). A field named for something it does not measure is
+      // a diagnostic that reads as reassuring while being wrong.
+      res.status(200).json({ status: 'acquired', sessionId, sessionsAcquired: acquired });
     });
     this.server.app.post('/api/session/release', (req, res) => {
       const sessionId = readSessionId(req);
-      const active = this.sessionRefCounter.release(sessionId);
+      const acquired = this.sessionRefCounter.release(sessionId);
       // Phase 4 / Step 6 — evaporate session-scoped scratch observations on
       // SessionEnd (best-effort; type='scratch' rows are ephemeral working memory).
       try {
@@ -537,7 +541,7 @@ export class WorkerService implements WorkerRef {
       } catch (error) {
         logger.debug('SYSTEM', 'scratch evaporation on release failed', {}, error instanceof Error ? error : new Error(String(error)));
       }
-      res.status(200).json({ status: 'released', sessionId, activeSessions: active });
+      res.status(200).json({ status: 'released', sessionId, sessionsAcquired: acquired });
     });
 
     this.server.registerRoutes(new ViewerRoutes(this.sseBroadcaster, this.dbManager, this.sessionManager));
@@ -895,6 +899,12 @@ export class WorkerService implements WorkerRef {
       this.initializationCompleteFlag = true;
       this.clearBootWatchdog();
       this.resolveInitialization();
+      // S8: the never-used idle window starts HERE, not at process start, so a
+      // slow cold boot (embedder load, 320-520 MB) is never mistaken for an
+      // idle worker. An orphan — replaced by the launcher before it was ever
+      // given a session — is ready but never active, and this is what lets it
+      // reap itself instead of running until the next reboot.
+      this.sessionRefCounter.markReady();
       logger.info('SYSTEM', 'Core initialization complete (DB + search ready)');
 
       // Replay hook calls that arrived while this worker was starting (or while

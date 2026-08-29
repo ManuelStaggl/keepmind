@@ -9,6 +9,7 @@ import { toError } from '../../utils/to-error.js';
 import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
 import { getSupervisor, validateWorkerPidFile, type ValidateWorkerPidStatus } from '../../supervisor/index.js';
 import { paths } from '../../shared/paths.js';
+import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 
 const DATA_DIR = paths.dataDir();
 const PID_FILE = paths.workerPid();
@@ -231,6 +232,49 @@ export function removePidFileIfOwner(expectedOwnerPid: number | null): void {
 export function getPlatformTimeout(baseMs: number): number {
   const WINDOWS_MULTIPLIER = 2.0;
   return process.platform === 'win32' ? Math.round(baseMs * WINDOWS_MULTIPLIER) : baseMs;
+}
+
+/**
+ * S9 — how long a cold-booting worker gets before the launcher gives up on it
+ * and spawns a replacement.
+ *
+ * This is the number that manufactures orphans. When it expires the launcher
+ * declares the PID stale and starts a second worker; the first one finishes
+ * booting moments later, finds its port taken, falls back to an ephemeral one,
+ * and is then referenced by nothing. On the affected machine that pair of
+ * warnings fired 36 times in one day. It was hard-coded, and of the 123
+ * KEEPMIND_* settings not one could change it — so the failure could not even
+ * be worked around without a code change, which is the actual complaint.
+ *
+ * Now settable, and more generous by default. A cold boot loads the embedder
+ * (320-520 MB); measured on this machine it completes in ~4s warm, but the
+ * machine that failed needed more than the old window, and the cost of waiting
+ * too long is one slow hook while the cost of waiting too little is a permanent
+ * orphan holding the database open.
+ *
+ * Env first, then ~/.keepmind/settings.json, so an operator can set it either
+ * way. An out-of-range or unparseable value falls back to the default rather
+ * than to zero — a boot window of 0 would respawn on every single hook.
+ */
+export const WORKER_BOOT_WINDOW_DEFAULT_MS = 25_000;
+
+export function getBootWindowMs(): number {
+  const raw =
+    process.env.KEEPMIND_WORKER_BOOT_TIMEOUT_MS ??
+    (() => {
+      try {
+        return SettingsDefaultsManager.loadFromFile(paths.settings()).KEEPMIND_WORKER_BOOT_TIMEOUT_MS;
+      } catch {
+        return undefined;
+      }
+    })();
+
+  const parsed = parseInt(String(raw ?? ''), 10);
+  const base =
+    Number.isFinite(parsed) && parsed >= 1_000 && parsed <= 600_000
+      ? parsed
+      : WORKER_BOOT_WINDOW_DEFAULT_MS;
+  return getPlatformTimeout(base);
 }
 
 const CHROMA_MIGRATION_MARKER_FILENAME = '.chroma-cleaned-v10.3';

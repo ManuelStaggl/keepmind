@@ -72,6 +72,7 @@ export interface SettingsDefaults {
   /** Hard character ceiling for the SessionStart injection, applied after rendering. */
   KEEPMIND_SESSION_START_MAX_CHARS: string;
   KEEPMIND_CHECKPOINT_MAX_CHARS: string;
+  KEEPMIND_WORKER_BOOT_TIMEOUT_MS: string;
   KEEPMIND_CONTEXT_SHOW_LAST_SUMMARY: string;
   KEEPMIND_CONTEXT_SHOW_LAST_MESSAGE: string;
   /**
@@ -214,6 +215,8 @@ export class SettingsDefaultsManager {
     // S20: empty = CHECKPOINT_BUDGET_MULTIPLIER x the line above. The baton is
     // served before the timeline and is not measured against the timeline's budget.
     KEEPMIND_CHECKPOINT_MAX_CHARS: '',
+    // S9: the cold-boot window, doubled on Windows. Empty = 25000.
+    KEEPMIND_WORKER_BOOT_TIMEOUT_MS: '',
     KEEPMIND_CONTEXT_SHOW_LAST_SUMMARY: 'true',
     KEEPMIND_CONTEXT_SHOW_LAST_MESSAGE: 'false',
     KEEPMIND_INJECT_SOURCE_KIND: 'all',  // A9 origin filter: 'all' | 'curated' | 'observed'.

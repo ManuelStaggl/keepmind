@@ -158,6 +158,35 @@ export function captureProcessStartToken(pid: number): string | null {
   }
 }
 
+/**
+ * S7 — the strict twin of `verifyPidFileOwnership`, for the one caller that
+ * needs PROOF rather than a benefit of the doubt: killing the process.
+ *
+ * `verifyPidFileOwnership` fails SAFE to true — no stored token, or a token
+ * lookup that failed, both count as "ours". That is right when the answer means
+ * "wait for it a little longer" and catastrophically wrong when it means "send
+ * SIGKILL": on Windows a recycled PID belongs to an unrelated program, and the
+ * whole reason the stale-PID branch exists is that PID reuse happens there.
+ *
+ * So this one fails safe to FALSE. No token stored (a pid file written by an
+ * older build), or a token that cannot be read right now, means the process is
+ * merely forgotten the way it always was — the idle shutdown (S8) then reaps it
+ * a few minutes later instead.
+ */
+// NOT a type predicate: `false` here means "cannot prove it is ours", which is
+// a statement about the EVIDENCE, not about the argument being null. Declaring
+// it as `info is PidInfo` would have TypeScript narrow the negative branch to
+// `null` and silently hide the case this function exists for.
+export function isProvenWorkerProcess(info: PidInfo | null): boolean {
+  if (!info) return false;
+  if (!isPidAlive(info.pid)) return false;
+  if (!info.startToken) return false;
+
+  const currentToken = captureProcessStartToken(info.pid);
+  if (currentToken === null) return false;
+  return currentToken === info.startToken;
+}
+
 export function verifyPidFileOwnership(info: PidInfo | null): info is PidInfo {
   if (!info) return false;
   if (!isPidAlive(info.pid)) return false;

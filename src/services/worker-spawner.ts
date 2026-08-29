@@ -4,6 +4,7 @@ import { logger } from '../utils/logger.js';
 import { HOOK_TIMEOUTS } from '../shared/hook-constants.js';
 import {
   cleanStalePidFile,
+  getBootWindowMs,
   getPlatformTimeout,
   spawnDaemon,
   touchPidFile,
@@ -19,9 +20,13 @@ import {
   httpShutdown,
 } from './infrastructure/HealthMonitor.js';
 import { acquireSpawnLock, releaseSpawnLock } from '../shared/worker-spawn-gate.js';
+import { isProvenWorkerProcess } from '../supervisor/process-registry.js';
 import { ensurePluginDependencies } from './plugin-deps-repair.js';
 
 export type WorkerStartResult = 'ready' | 'warming' | 'dead';
+
+/** How long a replaced worker gets to exit on SIGTERM before it is killed. */
+const REPLACED_WORKER_GRACE_MS = 5_000;
 
 /**
  * Resolve the live worker's ACTUAL bound port from the PID file (which the
@@ -72,7 +77,7 @@ async function replaceWedgedWorker(port: number): Promise<void> {
     logger.debug('SYSTEM', 'Shutdown request to wedged worker failed', {},
       error instanceof Error ? error : new Error(String(error)));
   }
-  let freed = await waitForPortFree(port, getPlatformTimeout(HOOK_TIMEOUTS.POST_SPAWN_WAIT));
+  let freed = await waitForPortFree(port, getBootWindowMs());
   if (!freed && info && isProcessAlive(info.pid)) {
     logger.warn('SYSTEM', 'Wedged worker did not exit on request — killing it directly', { pid: info.pid });
     try {
@@ -87,6 +92,48 @@ async function replaceWedgedWorker(port: number): Promise<void> {
     logger.warn('SYSTEM', 'Wedged worker port still not free — the spawn will fall back to an ephemeral port');
   }
   removePidFile();
+}
+
+/**
+ * S7 — end a worker the launcher has decided to replace.
+ *
+ * Only a PROVEN worker is killed (`isProvenWorkerProcess`, which fails safe to
+ * FALSE): on Windows the recorded PID may have been recycled by an unrelated
+ * program, and that possibility is exactly why the stale-PID branch exists.
+ * When the proof is missing the process is left alone and merely forgotten, as
+ * before — S8's idle shutdown then reaps it.
+ *
+ * Asked to stop first, killed second. A graceful stop lets it close the SQLite
+ * handle rather than leaving a WAL for the successor to recover.
+ */
+function terminateReplacedWorker(info: ReturnType<typeof readPidFile>): void {
+  if (!info) return;
+  const pid = info.pid;
+  if (!isProvenWorkerProcess(info)) {
+    logger.info('SYSTEM', 'Replaced worker left running — its identity could not be proven, so it is not ours to kill', { pid });
+    return;
+  }
+
+  logger.warn('SYSTEM', 'Ending the worker being replaced so it cannot become an orphan', { pid });
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch {
+    // Already gone between the proof and the signal — nothing to do.
+    return;
+  }
+  // A short grace period, then insist. Deliberately not awaited: this runs on
+  // the hook's critical path, and an orphan that dies half a second later is
+  // still not an orphan.
+  setTimeout(() => {
+    try {
+      if (isProcessAlive(pid)) {
+        logger.warn('SYSTEM', 'Replaced worker ignored SIGTERM — killing it', { pid });
+        process.kill(pid, 'SIGKILL');
+      }
+    } catch {
+      // Gone in the meantime.
+    }
+  }, REPLACED_WORKER_GRACE_MS).unref?.();
 }
 
 export async function ensureWorkerStarted(
@@ -132,6 +179,9 @@ export async function ensureWorkerStarted(
   }
 
   const pidFileStatus = cleanStalePidFile();
+  // Read BEFORE the branch below removes the file — S7 needs the pid and the
+  // start token to prove the process is ours before ending it.
+  const pidInfoBeforeRespawn = pidFileStatus === 'alive' ? readPidFile() : null;
   if (pidFileStatus === 'alive') {
     // A live PID means one of two things: (a) our worker is still cold-booting
     // (embedder + DB init, ~6-8s), or (b) the recorded PID was REUSED by an
@@ -147,13 +197,23 @@ export async function ensureWorkerStarted(
     // to (re)spawn below. A genuinely slow booter is protected by the daemon's
     // own health-probe duplicate guard, which makes the loser exit 0.
     logger.info('SYSTEM', 'Worker PID file points to a live process, waiting for it to become healthy');
-    const healthy = await waitForHealth(port, getPlatformTimeout(HOOK_TIMEOUTS.POST_SPAWN_WAIT));
+    const healthy = await waitForHealth(port, getBootWindowMs());
     if (healthy) {
       const ready = await waitForReadiness(port, getPlatformTimeout(HOOK_TIMEOUTS.READINESS_WAIT));
       logger.info('SYSTEM', 'Worker became healthy while waiting on live PID');
       return ready ? 'ready' : 'warming';
     }
     logger.warn('SYSTEM', 'PID file marked live but worker never became healthy within the cold-boot window — treating it as a stale/reused PID and re-spawning');
+    // S7: a replaced worker is ENDED, not merely forgotten. `removePidFile()`
+    // alone is how an orphan is made: the process finishes its cold boot
+    // moments later, finds the configured port taken by its replacement, falls
+    // back to an ephemeral port, and then runs until the machine reboots
+    // because nothing references it any more. Measured 29.08.2026 — three
+    // worker-service processes, two of them unreferenced, one alive for 4h14m
+    // at 860s CPU, ~660 MB between them, and every one of them holding
+    // keepmind.db open. That contention is the `database is locked` that
+    // wedged the worker for 28 hours on 27.08.
+    terminateReplacedWorker(pidInfoBeforeRespawn);
     removePidFile();
     // fall through to the spawn path below
   }
@@ -208,7 +268,7 @@ export async function ensureWorkerStarted(
     // Re-resolve the worker's actual port each poll: an ephemeral-fallback
     // worker (configured port squatted) answers on a different port than the
     // one we asked it to try.
-    const livePort = await waitForSpawnedWorker(port, getPlatformTimeout(HOOK_TIMEOUTS.POST_SPAWN_WAIT));
+    const livePort = await waitForSpawnedWorker(port, getBootWindowMs());
     if (livePort === null) {
       logger.warn('SYSTEM', spawnLockHeld
         ? 'Worker spawned but health endpoint not responding within window — likely still starting in background'
