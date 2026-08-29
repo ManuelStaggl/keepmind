@@ -256,6 +256,12 @@ export function ensureStatelessMemorySessionId(
   return synthetic;
 }
 
+/**
+ * A compression turn whose assistant message carried no text, held back until
+ * the turn ends. See ClaudeProvider.flushEmptyTurn.
+ */
+type EmptyTurn = { discoveryTokens: number; originalTimestamp: number | null } | null;
+
 export class ClaudeProvider {
   private dbManager: DatabaseManager;
   private sessionManager: SessionManager;
@@ -384,6 +390,9 @@ export class ClaudeProvider {
       }),
     });
 
+    // An assistant message with no text is not an answer — see flushEmptyTurn.
+    let pendingEmptyTurn: EmptyTurn = null;
+
     try {
       for await (const message of queryResult) {
         // Quota-aware wall-clock guard (#2234): the SDK pushes `system` events
@@ -503,6 +512,12 @@ export class ClaudeProvider {
             throw new Error('Invalid API key: check your API key configuration in ~/.keepmind/settings.json or ~/.keepmind/.env');
           }
 
+          if (!textContent) {
+            pendingEmptyTurn = { discoveryTokens, originalTimestamp };
+            continue;
+          }
+          pendingEmptyTurn = null;
+
           await processAgentResponse(
             textContent,
             session,
@@ -518,6 +533,11 @@ export class ClaudeProvider {
         }
 
         if (message.type === 'result') {
+          // The turn is over: an empty message that nothing followed WAS the
+          // answer, so hand it to the skip path now.
+          await this.flushEmptyTurn(pendingEmptyTurn, session, worker, cwdTracker.lastCwd, modelId);
+          pendingEmptyTurn = null;
+
           // The result message carries the turn's finalized usage (per-turn,
           // not cumulative — verified empirically against the SDK) plus a
           // CUMULATIVE total_cost_usd; per-compression cost is the delta
@@ -896,6 +916,9 @@ export class ClaudeProvider {
       }),
     });
 
+    // An assistant message with no text is not an answer — see flushEmptyTurn.
+    let pendingEmptyTurn: EmptyTurn = null;
+
     try {
       for await (const message of queryResult) {
         if (
@@ -955,6 +978,15 @@ export class ClaudeProvider {
           const discoveryTokens =
             (session.cumulativeInputTokens + session.cumulativeOutputTokens) - tokensBefore;
 
+          if (!textContent) {
+            pendingEmptyTurn = {
+              discoveryTokens,
+              originalTimestamp: session.earliestPendingTimestamp,
+            };
+            continue;
+          }
+          pendingEmptyTurn = null;
+
           await processAgentResponse(
             textContent,
             session,
@@ -968,6 +1000,13 @@ export class ClaudeProvider {
             args.modelId
           );
         }
+
+        if (message.type === 'result') {
+          // The turn is over: an empty message that nothing followed WAS the
+          // answer, so hand it to the skip path now.
+          await this.flushEmptyTurn(pendingEmptyTurn, session, worker, args.lastCwd, args.modelId);
+          pendingEmptyTurn = null;
+        }
       }
     } finally {
       const tracked = getSdkProcessForSession(session.sessionDbId);
@@ -975,6 +1014,45 @@ export class ClaudeProvider {
         await ensureSdkProcessExit(tracked, 5000);
       }
     }
+  }
+
+  /**
+   * Hand a turn that produced NO text to the parser, once, after the fact.
+   *
+   * An assistant message with no text is not an answer. Claude Code 2.1.234
+   * splits a compression turn in two — a thinking-only message first, the XML
+   * second (measured; see `hardened-options.ts`, which now suppresses the split
+   * with `maxThinkingTokens: 0`). Parsing the first one is not merely wasteful:
+   * `processAgentResponse('')` takes the invalid-output branch and confirms the
+   * claimed batch as `skipped`, so the batch is closed while its real answer is
+   * still in flight. The empty message is therefore held back and only parsed
+   * if the TURN ends without any text at all — which is the case the skip path
+   * was written for, a model that genuinely returned nothing usable.
+   *
+   * Deliberately NOT flushed when the stream ends without a `result` (error or
+   * abort): leaving the batch claimed lets the existing recovery re-queue it,
+   * and re-queueing beats closing an errored turn as `skipped`.
+   */
+  private async flushEmptyTurn(
+    pending: EmptyTurn,
+    session: ActiveSession,
+    worker: WorkerRef | undefined,
+    lastCwd: string | undefined,
+    modelId: string | undefined
+  ): Promise<void> {
+    if (!pending) return;
+    await processAgentResponse(
+      '',
+      session,
+      this.dbManager,
+      this.sessionManager,
+      worker,
+      pending.discoveryTokens,
+      pending.originalTimestamp,
+      'SDK',
+      lastCwd,
+      modelId
+    );
   }
 
   /**
