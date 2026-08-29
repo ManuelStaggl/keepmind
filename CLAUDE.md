@@ -45,6 +45,17 @@ them changes the cost or the safety of the system, not just its structure.
   are calibrated on software development, so the default profile is derived from
   `KEEPMIND_MODE`; a mode observing another domain falls back to `balanced`.
   Its text matcher is bilingual (DE/EN) for the same reason the embedder is.
+  **It reads `tool_input` as JSON TEXT, because that is what the queue holds** —
+  the ingest route stores `JSON.stringify(payload.toolInput)`
+  (`http/shared.ts`), so a gate that accepts only an object returns the empty
+  string for every live tool use. That was the state until it was measured:
+  `decisiveCommand` and `governancePath` were false for every batch the gate has
+  ever seen, silently, because the remaining signals kept answering. The
+  governance profile was therefore dropping the very commits it exists to keep,
+  and `git tag --list` was gated as `read_only` on the running worker. The tests
+  could not catch it — they all passed objects, the one shape production never
+  sends — so `tests/worker/gate-json-tool-input.test.ts` asserts that both shapes
+  decide alike.
 - **Deterministic fields never come from the model.** `files_read`,
   `files_modified`, tool name and timestamp are derived in
   `src/sdk/deterministic-fields.ts` from the hook payload and overwrite whatever
