@@ -4,7 +4,7 @@ keepmind is a Claude Code plugin providing persistent memory across sessions. It
 
 ## Observer cost and safety invariants
 
-Five properties were each paid for with a measured regression. Changing any of
+Six properties were each paid for with a measured regression. Changing any of
 them changes the cost or the safety of the system, not just its structure.
 
 - **Redaction happens on the OUTBOUND path.** `src/sdk/prompts.ts` is the only
@@ -20,6 +20,24 @@ them changes the cost or the safety of the system, not just its structure.
   of all tokens billed, growing 14k → 50k cache-read within one session. The
   fixed-size `buildStatelessContextBlock` replaces that history — keep it capped
   by BOTH count and characters.
+- **Thinking is off because of `maxThinkingTokens: 0`, not because of
+  `thinkingConfig`.** The SDK types document `thinkingConfig: { type: 'disabled' }`
+  as taking precedence over the "deprecated" `maxThinkingTokens`, but Claude Code
+  2.1.234 does not act on it. Measured on the real prompt pair
+  (`buildObserverSystemPrompt` + `buildStatelessObservationPrompt`, haiku-4-5):
+  the observer answered with a thinking-only message FIRST and the XML second —
+  two billed turns for one observation, 4,788 input tokens and $0.0107 against
+  2,364 and $0.0050 — and in one run of four a third turn after the CLI appended
+  "[Your previous response had no visible output…]". Removing `thinkingConfig`
+  changed nothing; `maxThinkingTokens: 0` collapsed every run to one message, on
+  haiku-4-5, sonnet-5 and opus-5 alike. `src/sdk/hardened-options.ts` sets BOTH
+  and both must stay: they say the same thing, and the documented one takes over
+  by itself once the CLI honours it. The empty first message is also a
+  correctness trap — `processAgentResponse('')` takes the invalid-output branch
+  and confirms the claimed batch as `skipped` while the real answer is still in
+  flight — so `ClaudeProvider` holds an assistant message with no text back and
+  parses it only if the TURN ends without any text at all.
+  `tests/security/observer-tool-enforcement.test.ts` fails if the options go.
 - **The "is this worth recording?" decision is made before the model call.**
   `src/services/worker/observation-gate.ts` decides from the hook payload. It
   used to be the model's job, which meant paying a full turn to be told
