@@ -1,5 +1,9 @@
 export type DependencyStatusKind =
   | 'ok'
+  // S12: a present-but-logged-out CLI. Kept apart from 'setup_required'
+  // because the two have opposite remediations, and the wrong one sent the
+  // reader off to reinstall a binary that was never broken.
+  | 'auth_expired'
   | 'setup_required';
 
 export type DependencyName = 'claude_cli' | 'vector_search';
@@ -17,6 +21,10 @@ export const CLAUDE_CLI_SETUP_RECHECK_COOLDOWN_MS = 30_000;
 export const CLAUDE_CLI_SETUP_REMEDIATION =
   'Install or update Claude Code CLI, then restart keepmind. Try `claude update`, ' +
   '`npm install -g @anthropic-ai/claude-code@latest`, or set CLAUDE_CODE_PATH in ~/.keepmind/settings.json.';
+
+export const CLAUDE_CLI_AUTH_REMEDIATION =
+  'Claude Code is installed but not logged in. Run `claude auth login` (or re-login via Claude Desktop); ' +
+  'keepmind resumes capturing on its own afterwards.';
 
 const statuses = new Map<DependencyName, DependencyStatus>();
 
@@ -48,6 +56,10 @@ export const VECTOR_SEARCH_SETUP_REMEDIATION =
 
 export function recordClaudeCliSetupRequired(message: string): DependencyStatus {
   return recordDependencyStatus('claude_cli', 'setup_required', message, CLAUDE_CLI_SETUP_REMEDIATION);
+}
+
+export function recordClaudeCliAuthExpired(message: string): DependencyStatus {
+  return recordDependencyStatus('claude_cli', 'auth_expired', message, CLAUDE_CLI_AUTH_REMEDIATION);
 }
 
 export function recordVectorSearchSetupRequired(message: string): DependencyStatus {

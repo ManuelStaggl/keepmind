@@ -255,17 +255,22 @@ describe('readClaudeOAuthToken — Windows branch', () => {
   });
 });
 
-// CodeRabbit Minor (PR #2282 follow-up): when the OAuth token is absent, any
-// previously-written stale marker is no longer accurate (the token is gone,
-// not expired). buildIsolatedEnvWithFreshOAuth must clear it on the absent
-// branch the same way it does on present.
-describe('buildIsolatedEnvWithFreshOAuth — absent token clears stale marker', () => {
+// S16 — this asserted the OPPOSITE until 29.08.2026, on the reasoning of PR
+// #2282 that a marker saying "expired, re-login" is inaccurate once the token
+// is gone entirely. Measured against that reasoning: `~/.claude/.credentials.json`
+// held empty tokens for 31 hours, the absent branch ran, the marker was cleared
+// on every spawn, and neither day's log holds a single [OAUTH] line while 47
+// generator failures piled up behind it. A token that is GONE is the same
+// outage as one that has EXPIRED — the subprocess cannot authenticate either
+// way — so the marker is the thing that must survive, not the thing that gets
+// withdrawn exactly when it is needed.
+describe('buildIsolatedEnvWithFreshOAuth — absent token KEEPS the stale marker (S16)', () => {
   beforeEach(() => {
     setPlatform('aix' as NodeJS.Platform); // unsupported -> always absent
     delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
   });
 
-  it('clears a pre-existing stale marker when token is absent', async () => {
+  it('keeps a marker when the token is absent, so the session start can say so', async () => {
     // Pre-existing marker from an earlier "expired" pass.
     writeStaleMarker('left over from previous run');
     expect(readStaleMarker()).toBe('left over from previous run');
@@ -283,6 +288,10 @@ describe('buildIsolatedEnvWithFreshOAuth — absent token clears stale marker', 
       }
     }
 
-    expect(readStaleMarker()).toBeUndefined();
+    // The marker survives, and now carries the ABSENT reason rather than the
+    // leftover one — the alert has to describe the outage that is happening.
+    const marker = readStaleMarker();
+    expect(typeof marker).toBe('string');
+    expect(marker).not.toBe('left over from previous run');
   });
 });

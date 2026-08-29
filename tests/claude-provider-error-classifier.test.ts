@@ -191,3 +191,34 @@ describe('classifyClaudeError — model identifier rejections without .status (#
     expect(classified.kind).toBe('transient');
   });
 });
+
+// S12 — an expired LOGIN is its own kind.
+//
+// The real text on 28./29.08.2026 was
+// `Claude Code returned an error result: Failed to authenticate: OAuth session
+// expired and could not be refreshed`, 47 times. It matched no branch, fell
+// into the generic `transient` arm, and was retried forever with nothing said.
+// It must not become `setup_required` either: that kind's remediation is
+// "Install or update Claude Code CLI", which is the wrong instruction when the
+// binary is present and only the login is gone.
+describe('classifyClaudeError — expired login (S12)', () => {
+  it('classifies the real OAuth failure text as auth_expired', () => {
+    const err = new Error(
+      'Claude Code returned an error result: Failed to authenticate: OAuth session expired and could not be refreshed',
+    );
+    expect(classifyClaudeError(err).kind).toBe('auth_expired');
+  });
+
+  it('classifies a bare "OAuth session expired" as auth_expired', () => {
+    expect(classifyClaudeError(new Error('OAuth session expired')).kind).toBe('auth_expired');
+  });
+
+  it('leaves a missing executable on setup_required', () => {
+    expect(classifyClaudeError(new Error('spawn claude ENOENT')).kind).toBe('setup_required');
+    expect(classifyClaudeError(new Error('Claude executable not found')).kind).toBe('setup_required');
+  });
+
+  it('leaves a rejected API key on auth_invalid — a key is corrected, not logged in', () => {
+    expect(classifyClaudeError(new Error('Invalid API key')).kind).toBe('auth_invalid');
+  });
+});

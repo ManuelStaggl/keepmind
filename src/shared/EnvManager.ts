@@ -282,13 +282,23 @@ export async function buildIsolatedEnvWithFreshOAuth(
       writeStaleMarker(result.reason);
       break;
     case 'absent':
-      logger.debug('OAUTH', `No OAuth token available: ${result.reason}`);
-      // Token is absent — any prior stale-marker would have been written
-      // when the token was expired, but is no longer accurate now that the
-      // token is gone. Clear it so the session-start hook stops surfacing
-      // a stale "expired token, re-login" warning (CodeRabbit review on PR
-      // #2282).
-      clearStaleMarker();
+      // S16. This branch used to log at DEBUG and CLEAR the marker, on the
+      // reasoning of PR #2282 that a marker saying "expired, re-login" is
+      // "no longer accurate now that the token is gone". That reasoning is
+      // backwards: a token that is GONE is the same outage as a token that has
+      // EXPIRED, not a milder one — the subprocess cannot authenticate either
+      // way. Measured 28./29.08.2026: the credentials file held empty tokens
+      // for 31 hours, this branch ran, and the logs of both days contain not a
+      // single [OAUTH] line while 47 generator failures piled up behind it.
+      //
+      // So: WARN (visible at the default level), and the marker stays — it is
+      // the only proactive channel to the session-start hook, and withdrawing
+      // it during the outage is exactly when it was needed.
+      logger.warn(
+        'OAUTH',
+        `No OAuth token available: ${result.reason}. The observer subprocess cannot authenticate — re-login via Claude Desktop or \`claude auth login\`.`,
+      );
+      writeStaleMarker(result.reason);
       break;
   }
 

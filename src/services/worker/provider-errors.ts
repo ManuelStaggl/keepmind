@@ -5,6 +5,12 @@ export type ProviderErrorClass =
   | 'rate_limit'
   | 'quota_exhausted'
   | 'auth_invalid'
+  // S12. Distinct from BOTH neighbours on purpose. It is not `setup_required`
+  // — that kind's remediation is "install or update the Claude CLI", which is
+  // the wrong instruction when the binary is present and only the login is
+  // gone. It is not `auth_invalid` either: that means a rejected API key, and
+  // the fix there is to correct a configured value, not to log in.
+  | 'auth_expired'
   | 'setup_required'
   | (string & {}); // open union: providers may emit custom kinds
 

@@ -28,10 +28,17 @@ import {
   getDependencyStatus,
   isDependencyStatusInCooldown,
   recordClaudeCliSetupRequired,
+  recordClaudeCliAuthExpired,
 } from '../../../../shared/dependency-health.js';
 import { findClaudeExecutable } from '../../../../shared/find-claude-executable.js';
 import { isClassified } from '../../provider-errors.js';
 import { classifyClaudeError } from '../../ClaudeProvider.js';
+import {
+  recordGeneratorFailure,
+  recordGeneratorSuccess,
+  readGeneratorHealth,
+} from '../../../../shared/generator-health.js';
+import { isClaudeLoginUsable } from '../../../../shared/claude-login.js';
 
 const MAX_USER_PROMPT_BYTES = 256 * 1024;
 
@@ -84,6 +91,49 @@ export class SessionRoutes extends BaseRouteHandler {
 
     if (!session.generatorPromise) {
       if (selectedProvider === 'claude') {
+        // S17: an authentication failure is rechecked by asking about the
+        // AUTHENTICATION. The old path proved a repaired dependency with
+        // `findClaudeExecutable`, which for a missing login is no proof at all
+        // — the file is right where it was, the status was cleared, and the
+        // worker walked into the same failure 44 times in one day.
+        const generatorHealth = readGeneratorHealth();
+        if (generatorHealth.degraded && generatorHealth.kind === 'auth_expired') {
+          if (
+            Date.now() - generatorHealth.lastFailureAtMs <
+            CLAUDE_CLI_SETUP_RECHECK_COOLDOWN_MS
+          ) {
+            logger.warn('SESSION', 'Skipping Claude generator start — not logged in', {
+              sessionId: sessionDbId,
+              source,
+              consecutiveFailures: generatorHealth.consecutiveFailures,
+              remediation: generatorHealth.remediation,
+            });
+            return;
+          }
+          const login = await isClaudeLoginUsable();
+          if (!login.usable) {
+            // Re-stamp so the cooldown restarts from NOW: otherwise every
+            // later start re-runs the (process-spawning) credential probe.
+            recordGeneratorFailure(
+              'claude',
+              `OAuth session expired and could not be refreshed: ${login.reason}`,
+            );
+            logger.warn('SESSION', 'Claude login still unusable after cooldown', {
+              sessionId: sessionDbId,
+              source,
+              reason: login.reason,
+            });
+            return;
+          }
+          recordGeneratorSuccess();
+          clearDependencyStatus('claude_cli');
+          logger.info('SESSION', 'Claude login repaired; resuming generator start', {
+            sessionId: sessionDbId,
+            source,
+            reason: login.reason,
+          });
+        }
+
         const claudeStatus = getDependencyStatus('claude_cli');
         if (claudeStatus?.kind === 'setup_required') {
           if (isDependencyStatusInCooldown(claudeStatus, CLAUDE_CLI_SETUP_RECHECK_COOLDOWN_MS)) {
@@ -169,6 +219,9 @@ export class SessionRoutes extends BaseRouteHandler {
     const myController = session.abortController;
 
     let skipGeneratorExitFinalization = false;
+    // S13: "no failure" is what clears the counter, so it has to be observed
+    // here — the finally runs on both paths and cannot tell them apart.
+    let generatorFailed = false;
     let generatorPromise: Promise<void>;
 
     generatorPromise = agent.startSession(session, this.workerService)
@@ -181,7 +234,9 @@ export class SessionRoutes extends BaseRouteHandler {
         const errorMsg = error instanceof Error ? error.message : String(error);
         if (provider === 'claude' && isClassified(error) && error.kind === 'setup_required') {
           skipGeneratorExitFinalization = true;
+          generatorFailed = true;
           recordClaudeCliSetupRequired(error.message);
+          recordGeneratorFailure(provider, error.message);
           logger.warn('SESSION', 'Claude generator start requires setup; future Claude starts will be skipped until repaired', {
             sessionId: session.sessionDbId,
             provider,
@@ -191,6 +246,9 @@ export class SessionRoutes extends BaseRouteHandler {
         }
 
         if (errorMsg.includes('code 143') || errorMsg.includes('signal SIGTERM')) {
+          // A signal is us shutting the subprocess down, not the generator
+          // failing — counting it would make an ordinary idle timeout look
+          // like an outage.
           logger.warn('SESSION', 'Generator killed by external signal', {
             sessionId: session.sessionDbId,
             provider,
@@ -213,8 +271,29 @@ export class SessionRoutes extends BaseRouteHandler {
           },
           error,
         );
+        // S21: the batch that was in flight really did fail — say so, per
+        // position. Without this the only trace was one 'Generator failed'
+        // line whose blast radius (how many observations were lost) was
+        // unknowable.
+        await this.sessionManager.confirmClaimedMessages(
+          session.sessionDbId,
+          'failed',
+          'generator_error',
+        );
+        // S13: a failure whose text nobody recognises must still be counted.
+        generatorFailed = true;
+        const health = recordGeneratorFailure(provider, errorMsg);
+        // S12: mirror the diagnosis into the in-RAM snapshot too, so
+        // `keepmind doctor` and /api/settings/dependency-health say the same
+        // thing as the persisted state rather than a milder version of it.
+        if (provider === 'claude' && health.kind === 'auth_expired') {
+          recordClaudeCliAuthExpired(errorMsg);
+        }
       })
       .finally(async () => {
+        if (!generatorFailed) {
+          recordGeneratorSuccess();
+        }
         if (skipGeneratorExitFinalization) {
           if (session.generatorPromise === generatorPromise) {
             session.generatorPromise = null;
