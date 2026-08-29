@@ -61,3 +61,6 @@ reports/
 # Release (which is what CHANGELOG.md is generated from), so a copy in the repo
 # would only ever go stale.
 RELEASE_NOTES.md
+
+# Staffelstab der laufenden Sitzung (Sitzungszustand, kein Projektwissen)
+.claude/handoff.md
