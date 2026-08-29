@@ -17,7 +17,7 @@ import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js
 import { USER_SETTINGS_PATH, OBSERVER_SESSIONS_DIR, ensureDir, paths } from '../../shared/paths.js';
 import { buildIsolatedEnvWithFreshOAuth, getAuthMethodDescription } from '../../shared/EnvManager.js';
 import { findClaudeExecutable } from '../../shared/find-claude-executable.js';
-import type { ActiveSession, SDKUserMessage, PendingMessage } from '../worker-types.js';
+import type { ActiveSession, SDKUserMessage, PendingMessage, PendingMessageWithId } from '../worker-types.js';
 import { ModeManager } from '../domain/ModeManager.js';
 import { processAgentResponse, type WorkerRef } from './agents/index.js';
 import {
@@ -63,6 +63,20 @@ export function __resetEffortHintLatchForTesting(): void {
 export function classifyClaudeError(err: unknown): ClassifiedProviderError {
   const message = err instanceof Error ? err.message : String(err);
   const errAny = err as { name?: string; status?: number; error?: { type?: string }; body?: unknown };
+
+  // S12 — a missing LOGIN, which reaches us as the CLI's own text result
+  // rather than as an HTTP status or an API-key message. Checked BEFORE the
+  // spawn branch: 'Failed to authenticate' arrives from a process that started
+  // perfectly well, and misreading it as a setup problem is what produced
+  // "Install or update Claude Code CLI" as the advice for an expired session.
+  if (
+    message.includes('Failed to authenticate') ||
+    message.includes('OAuth session expired') ||
+    message.includes('could not be refreshed') ||
+    message.includes('OAuth token has expired')
+  ) {
+    return new ClassifiedProviderError(message, { kind: 'auth_expired', cause: err });
+  }
 
   // Executable / spawn issues — unrecoverable, no point retrying.
   if (
@@ -589,7 +603,7 @@ export class ClaudeProvider {
     // happened within a few seconds of each other, which is why a single working
     // session still produced dozens of compressions.
     const trigger = this.getObserveTrigger();
-    const deferred: PendingMessage[] = [];
+    const deferred: PendingMessageWithId[] = [];
     // A hard ceiling so an unusually long stretch cannot grow the buffer without
     // bound; past it the oldest work is compressed and the buffer drains.
     const DEFERRED_MAX = 200;
@@ -668,6 +682,12 @@ export class ClaudeProvider {
         if (!decision.compress) {
           session.gatedBatches = (session.gatedBatches ?? 0) + 1;
           logGateDecision(session.sessionDbId, batch.length, decision);
+          // S21: a gated position is decided, so it leaves the queue with its
+          // closing line. Before this it was merely `continue`d — still claimed,
+          // still buffered, re-yielded and re-gated by every later generator
+          // pass, and invisible at INFO. That is what made "the queue is not
+          // being drained" indistinguishable from "the gate drops everything".
+          await this.retireBatch(session, batch, 'gated', decision.reason);
           continue;
         }
         session.compressionTurns = (session.compressionTurns ?? 0) + 1;
@@ -740,6 +760,27 @@ export class ClaudeProvider {
   }
 
   /**
+   * S21: retire a batch that will never reach the model, with one closing line
+   * per position. `claimedMessageIds` is trimmed in the same step — leaving the
+   * ids on the session would have the next `confirmClaimedMessages` try to
+   * resolve them a second time.
+   */
+  private async retireBatch(
+    session: ActiveSession,
+    batch: readonly PendingMessageWithId[],
+    outcome: 'gated' | 'skipped' | 'failed',
+    reason?: string
+  ): Promise<void> {
+    const ids = batch.map(m => m._persistentId);
+    this.sessionManager.getMessageBuffer().resolveMany(ids, outcome, reason);
+    const retired = new Set(ids);
+    session.claimedMessageIds = session.claimedMessageIds.filter(id => !retired.has(id));
+    if (session.claimedMessageIds.length === 0) {
+      session.earliestPendingTimestamp = null;
+    }
+  }
+
+  /**
    * Drain the session-end buffer: chunk it into batches of the configured size,
    * gate each one, and compress what survives. The buffer is emptied in place so
    * the caller can keep using the same array.
@@ -747,7 +788,7 @@ export class ClaudeProvider {
   private async compressDeferred(
     session: ActiveSession,
     worker: WorkerRef | undefined,
-    deferred: PendingMessage[],
+    deferred: PendingMessageWithId[],
     args: {
       systemPrompt: string;
       modelId: string;
@@ -769,6 +810,7 @@ export class ClaudeProvider {
       if (!decision.compress) {
         session.gatedBatches = (session.gatedBatches ?? 0) + 1;
         logGateDecision(session.sessionDbId, batch.length, decision);
+        await this.retireBatch(session, batch, 'gated', decision.reason);
         continue;
       }
       session.compressionTurns = (session.compressionTurns ?? 0) + 1;

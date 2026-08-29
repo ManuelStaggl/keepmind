@@ -238,7 +238,10 @@ describe('ResponseProcessor', () => {
         expect.objectContaining({ sessionId: 1, outputClass: 'prose', skippedBatches: 1 })
       );
       expect(logger.warn).not.toHaveBeenCalled();
-      expect(confirmClaimedMessages).toHaveBeenCalledWith(1);
+      // S21: the closing line says the model was asked and returned nothing
+      // usable ('skipped'), which is a different fact from the gate never
+      // asking ('gated').
+      expect(confirmClaimedMessages).toHaveBeenCalledWith(1, 'skipped', 'model_returned_prose');
       expect(session.earliestPendingTimestamp).toBeNull();
       expect(mockStoreObservations).not.toHaveBeenCalled();
     });
@@ -479,7 +482,7 @@ describe('ResponseProcessor', () => {
       );
 
       expect(mockStoreObservations).not.toHaveBeenCalled();
-      expect(confirmClaimedMessages).toHaveBeenCalledWith(1);
+      expect(confirmClaimedMessages).toHaveBeenCalledWith(1, 'skipped', 'model_returned_nothing');
       expect(session.earliestPendingTimestamp).toBeNull();
     });
 
@@ -500,7 +503,7 @@ describe('ResponseProcessor', () => {
       );
 
       expect(mockStoreObservations).not.toHaveBeenCalled();
-      expect(confirmClaimedMessages).toHaveBeenCalledWith(1);
+      expect(confirmClaimedMessages).toHaveBeenCalledWith(1, 'skipped', 'model_returned_prose');
       expect(session.earliestPendingTimestamp).toBeNull();
     });
   });

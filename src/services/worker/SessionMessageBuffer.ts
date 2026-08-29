@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import type { PendingMessage, PendingMessageWithId } from '../worker-types.js';
 import { logger } from '../../utils/logger.js';
+import { logQueueOutcome, type QueueOutcome, type QueuePositionFacts } from './queue-outcome.js';
 
 // Just under the 5-minute Anthropic prompt-cache TTL: keeping the observer
 // subprocess alive slightly longer than the old 3 min means a follow-up turn
@@ -48,6 +49,13 @@ export class SessionMessageBuffer {
   private readonly buffers = new Map<number, BufferedMessage[]>();
   private readonly events = new Map<number, EventEmitter>();
   private readonly seenToolUseIds = new Map<number, Set<string>>();
+  /**
+   * S21 ledger: every position that has been enqueued and not yet accounted
+   * for. It outlives the buffer entry on purpose — `confirm()` removes the
+   * entry, and without the ledger the position's fate would be unknowable one
+   * line later.
+   */
+  private readonly open = new Map<number, QueuePositionFacts>();
   private nextId = 1;
 
   constructor(private readonly onMutate?: () => void) {}
@@ -70,13 +78,64 @@ export class SessionMessageBuffer {
 
     const id = this.nextId++;
     this.getList(sessionDbId).push({ id, message, claimed: false, enqueuedAt: Date.now() });
+    this.open.set(id, {
+      sessionDbId,
+      messageId: id,
+      type: message.type,
+      tool: message.tool_name ?? null,
+    });
     this.onMutate?.();
     this.signal(sessionDbId);
     return id;
   }
 
+  /**
+   * S21: write the closing line for a position and remove it from the buffer.
+   *
+   * This is the ONLY way a position leaves the queue accounted for, and it is
+   * idempotent — a second call for the same id is a no-op, so a batch that is
+   * resolved and then confirmed cannot produce two lines.
+   *
+   * Removing the buffer entry is part of the same act, not a separate courtesy.
+   * Before this, a gated batch was `continue`d without ever being confirmed, so
+   * it stayed in the buffer for the life of the session: measured 29.08.2026,
+   * one session's depth climbed monotonically to 67 and never fell, and every
+   * generator restart re-gated the whole accumulated backlog (which is how ~130
+   * tool uses produced 1002 gate decisions in a day).
+   */
+  resolve(messageId: number, outcome: QueueOutcome, reason?: string): boolean {
+    const facts = this.open.get(messageId);
+    if (!facts) return false;
+    this.open.delete(messageId);
+    this.remove(messageId);
+    logQueueOutcome(facts, outcome, reason);
+    return true;
+  }
+
+  /** Resolve a whole batch with one outcome. Returns how many were still open. */
+  resolveMany(messageIds: readonly number[], outcome: QueueOutcome, reason?: string): number {
+    let resolved = 0;
+    for (const id of messageIds) {
+      if (this.resolve(id, outcome, reason)) resolved++;
+    }
+    return resolved;
+  }
+
+  /** Ids still awaiting a closing line for this session, in buffer order. */
+  openIds(sessionDbId: number): number[] {
+    const ids: number[] = [];
+    for (const facts of this.open.values()) {
+      if (facts.sessionDbId === sessionDbId) ids.push(facts.messageId);
+    }
+    return ids.sort((a, b) => a - b);
+  }
+
   /** Remove a stored message by id. Returns 1 if found, 0 otherwise. */
   confirm(messageId: number): number {
+    return this.remove(messageId);
+  }
+
+  private remove(messageId: number): number {
     for (const list of this.buffers.values()) {
       const idx = list.findIndex(m => m.id === messageId);
       if (idx !== -1) {
@@ -109,6 +168,9 @@ export class SessionMessageBuffer {
   /** Drop everything buffered for a session. */
   clear(sessionDbId: number): number {
     const cleared = this.buffers.get(sessionDbId)?.length ?? 0;
+    // S21 floor: a position must not vanish silently just because its session
+    // went away. Whatever is still open here really was dropped.
+    this.resolveMany(this.openIds(sessionDbId), 'dropped', 'session_cleared');
     this.buffers.delete(sessionDbId);
     // Mirror dispose(): drop the dedup set too. Otherwise a clear() not followed
     // by dispose() leaves seenToolUseIds intact, so a later enqueue carrying a
@@ -122,6 +184,7 @@ export class SessionMessageBuffer {
 
   /** Forget a session entirely (buffer, dedup set, event emitter). */
   dispose(sessionDbId: number): void {
+    this.resolveMany(this.openIds(sessionDbId), 'dropped', 'session_disposed');
     this.buffers.delete(sessionDbId);
     this.seenToolUseIds.delete(sessionDbId);
     this.events.get(sessionDbId)?.removeAllListeners();

@@ -83,7 +83,7 @@ describe('observer invalid-output handling (Phase 3 recovery)', () => {
       'TestAgent',
     );
 
-    expect(confirmSpy).toHaveBeenCalledWith(1);
+    expect(confirmSpy).toHaveBeenCalledWith(1, 'skipped', 'model_returned_unparsable_xml');
     expect(resetSpy).not.toHaveBeenCalled();
     expect(sm.getMessageBuffer().getPendingCount(1)).toBe(0);
     expect(session.claimedMessageIds).toEqual([]);

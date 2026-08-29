@@ -5,6 +5,7 @@ import { SessionMessageBuffer } from './SessionMessageBuffer.js';
 import { getSdkProcessForSession, ensureSdkProcessExit } from '../../supervisor/process-registry.js';
 import { getSupervisor } from '../../supervisor/index.js';
 import { carryOverMemorySessionId } from './memory-session-id.js';
+import type { QueueOutcome } from './queue-outcome.js';
 
 export class SessionManager {
   private dbManager: DatabaseManager;
@@ -234,18 +235,29 @@ export class SessionManager {
     return this.buffer.resetClaimed(sessionDbId);
   }
 
-  async confirmClaimedMessages(sessionDbId: number): Promise<number> {
+  /**
+   * Retire the claimed batch. `outcome` is S21's closing line: every claimed
+   * position gets exactly one, so an absence of observations is readable from
+   * the log without counting rows in SQLite.
+   */
+  async confirmClaimedMessages(
+    sessionDbId: number,
+    outcome: QueueOutcome = 'stored',
+    reason?: string
+  ): Promise<number> {
     const session = this.sessions.get(sessionDbId);
     const claimedIds = session?.claimedMessageIds ?? [];
-    let confirmed = 0;
-    for (const messageId of claimedIds) {
-      confirmed += this.buffer.confirm(messageId);
-    }
+    const confirmed = this.buffer.resolveMany(claimedIds, outcome, reason);
     if (session) {
       session.claimedMessageIds = [];
       session.earliestPendingTimestamp = null;
     }
     return confirmed;
+  }
+
+  /** Close out whatever this session still has open (S21: no silent vanishing). */
+  resolveOpen(sessionDbId: number, outcome: QueueOutcome, reason?: string): number {
+    return this.buffer.resolveMany(this.buffer.openIds(sessionDbId), outcome, reason);
   }
 
   async deleteSession(sessionDbId: number): Promise<void> {

@@ -19,6 +19,13 @@ import type { SessionManager } from '../SessionManager.js';
 import type { WorkerRef, StorageResult } from './types.js';
 import { broadcastObservation, broadcastSummary } from './ObservationBroadcaster.js';
 
+/** S21 reasons, one per classifier verdict. See classifyObserverOutput. */
+const SKIP_REASONS: Record<'idle' | 'prose' | 'xml', string> = {
+  idle: 'model_returned_nothing',
+  prose: 'model_returned_prose',
+  xml: 'model_returned_unparsable_xml',
+};
+
 export async function processAgentResponse(
   text: string,
   session: ActiveSession,
@@ -85,7 +92,15 @@ export async function processAgentResponse(
 
     // Plain-text skip responses are intentionally ignored. Re-queueing them
     // creates an observer loop where the same low-signal batch is retried.
-    await sessionManager.confirmClaimedMessages(session.sessionDbId);
+    // S21: `skipped` is the closing line — the model was asked and returned
+    // nothing usable, which is a different fact from "the gate never asked".
+    // The reason spells out WHICH of the three it was, because 'xml' on its own
+    // reads as success in a log line about a dropped batch.
+    await sessionManager.confirmClaimedMessages(
+      session.sessionDbId,
+      'skipped',
+      SKIP_REASONS[outputClass],
+    );
     session.earliestPendingTimestamp = null;
     return;
   }
@@ -171,7 +186,11 @@ export async function processAgentResponse(
     });
   }
 
-  await sessionManager.confirmClaimedMessages(session.sessionDbId);
+  await sessionManager.confirmClaimedMessages(
+    session.sessionDbId,
+    'stored',
+    `obs=${result.observationIds.length}${result.summaryId ? ' summary=1' : ''}`
+  );
   session.earliestPendingTimestamp = null;
   worker?.broadcastProcessingStatus?.();
 
