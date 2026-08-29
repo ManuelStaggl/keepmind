@@ -221,6 +221,61 @@ export class SearchManager {
     return [...verbatim, ...fused.filter(id => !promoted.has(id))];
   }
 
+  /**
+   * S22 — put the active session checkpoint back where a reader can find it.
+   *
+   * The active checkpoint is the state baton and the documented alternative to
+   * `/compact`. Search is how it is fetched when the injection did not deliver
+   * it whole (S20), so the two failures compound: a halved hand-off plus a
+   * search that cannot find the other half means the baton is lost while
+   * sitting intact in the database.
+   *
+   * Measured 29.08.2026 against the running worker. `Nummernkollision` occurs
+   * verbatim in exactly ONE row in the entire store — the active keepmind
+   * checkpoint #16021. Keyword-only search ranked it 1 of 1. The unified search
+   * returned three observations, none of them that one, and filled the rest
+   * with user prompts reading "ja", "erledigt" and "passt". The reported
+   * six-word query behaved the same way and additionally returned a RETIRED
+   * Krossr checkpoint while two active ones were missing.
+   *
+   * Same shape as `promoteExactWording`, and the same three reasons:
+   *
+   *  - It is a PROMOTION, not a third fusion channel. "The corpus holds an
+   *    active hand-off containing these words" is a fact the keyword index
+   *    answers exactly; re-entering it as "rank 1 of a third list" would let
+   *    two resemblance channels outvote it, which is what buried it in the
+   *    first place. RRF at k=60 scores a rank-1 sparse hit 0.25/61 ≈ 0.0041 and
+   *    a rank-120 dense hit 0.75/180 ≈ 0.0042, so a unique exact match sits
+   *    below roughly the first 120 semantic neighbours before the limit is even
+   *    applied.
+   *  - Nothing is dropped and nothing is demoted. The fused ranking follows in
+   *    full, minus the ids that moved up. A query that matches no active
+   *    checkpoint — the ordinary case — returns it untouched.
+   *  - No relevance threshold. The probe fires on a keyword match or not at
+   *    all, which is a fact rather than a score; `decision-candidates.ts`
+   *    already records what happens when a threshold is put on this corpus.
+   *
+   * It runs AFTER the verbatim promotion so a reader who quoted a sentence
+   * still gets that sentence first: quoting is a statement about what they are
+   * looking for, and the baton is a statement about what is current.
+   */
+  private promoteActiveCheckpoints(query: string, ranked: number[], options: SearchOptions): number[] {
+    if (!query) return ranked;
+
+    let active: number[];
+    try {
+      active = this.sessionSearch.activeCheckpointIdsMatching(query, options);
+    } catch (error) {
+      logger.warn('SEARCH', 'Active-checkpoint promotion skipped', {}, error instanceof Error ? error : undefined);
+      return ranked;
+    }
+    if (active.length === 0) return ranked;
+
+    const promoted = new Set(active);
+    logger.debug('SEARCH', 'Active checkpoint matched — promoting', { count: active.length });
+    return [...active, ...ranked.filter(id => !promoted.has(id))];
+  }
+
   /** BM25 (FTS5) row ids for a doc type, in rank order. Errors degrade to []. */
   /**
    * How many semantic candidates to ask the vector index for.
@@ -649,9 +704,13 @@ export class SearchManager {
           : this.sessionStore.filterObservationIdsBySourceKind(denseObs, sourceKind);
         const obsScopedOptions = { ...options, type: obs_type, concepts, files, sourceKind };
         const obsIds = searchObservations
-          ? this.promoteExactWording(
+          ? this.promoteActiveCheckpoints(
               query,
-              this.rrfFuse(denseObsScoped, this.ftsIdsFor('observation', query, obsScopedOptions), fuseOptions),
+              this.promoteExactWording(
+                query,
+                this.rrfFuse(denseObsScoped, this.ftsIdsFor('observation', query, obsScopedOptions), fuseOptions),
+                obsScopedOptions,
+              ),
               obsScopedOptions,
             )
           : [];

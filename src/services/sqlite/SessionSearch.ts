@@ -17,6 +17,7 @@ import {
 import { DEFAULT_PLATFORM_SOURCE, normalizePlatformSource } from '../../shared/platform-source.js';
 import { buildFtsMatchExpression, buildPhraseMatchExpression } from './fts-query.js';
 import { normalizeSourceKind, sourceKindCondition } from './source-kind.js';
+import { CHECKPOINT_TYPE } from '../../shared/checkpoint.js';
 
 /** The observations FTS table, named once so the ranking check cannot drift. */
 const OBSERVATIONS_FTS = 'observations_fts';
@@ -41,6 +42,13 @@ export class SessionSearch {
    * matches hundreds, and then the ordinary ranking is the better answer anyway.
    */
   private static readonly PHRASE_MATCH_LIMIT = 20;
+
+  /**
+   * S22 — a bound, not a judgement. There is exactly one active checkpoint per
+   * project by construction, so this can only be large on a machine with very
+   * many projects, and then the ordinary ranking is the better answer anyway.
+   */
+  private static readonly ACTIVE_CHECKPOINT_LIMIT = 10;
 
   constructor(dbPathOrDb: string | Database = DB_PATH) {
     if (dbPathOrDb instanceof Database) {
@@ -469,6 +477,62 @@ export class SessionSearch {
       // An exact-wording probe that fails must cost nothing but the promotion:
       // the ordinary ranking is already computed and still correct.
       logger.warn('DB', 'Exact-wording probe failed', {}, error instanceof Error ? error : undefined);
+      return [];
+    }
+  }
+
+  /**
+   * S22 — the ACTIVE session checkpoints whose text the keyword leg matches.
+   *
+   * A checkpoint is the state baton: the documented alternative to `/compact`,
+   * written by hand for the next session, and the thing search exists to fetch
+   * when the injection did not deliver it whole (S20). Whether the corpus holds
+   * one for a set of words is a FACT the keyword index can answer exactly — it
+   * is not a similarity question, and putting it through one loses it.
+   *
+   * Measured 29.08.2026 against the running worker: `Nummernkollision` occurs
+   * verbatim in exactly one row in the whole store, the active keepmind
+   * checkpoint #16021. Keyword-only search ranked it 1 of 1. The unified search
+   * returned three observations, none of them that one, and filled the rest
+   * with user prompts reading "ja", "erledigt" and "passt". The arithmetic is
+   * not subtle: RRF at k=60 scores a rank-1 sparse hit 0.25/61 = 0.0041 and a
+   * rank-120 dense hit 0.75/180 = 0.0042, so a unique exact match sits below
+   * roughly the first 120 semantic neighbours — and then the result limit
+   * discards it.
+   *
+   * `valid_to IS NULL` is the whole point: a retired checkpoint is a hand-off
+   * that has already been handed over, and the finding that prompted this saw a
+   * retired one returned while two active ones were not.
+   */
+  activeCheckpointIdsMatching(query: string, options: SearchOptions = {}): number[] {
+    if (!this._fts5Available) return [];
+    const expression = buildFtsMatchExpression(query);
+    if (expression === null) return [];
+
+    const { limit: _limit, offset: _offset, orderBy: _orderBy, type: _type, ...filters } = options;
+    const params: any[] = [];
+    const filterClause = this.buildFilterClause(filters, params, 'o');
+
+    const sql = `
+      SELECT o.id
+      FROM observations o
+      JOIN observations_fts ON observations_fts.rowid = o.id
+      WHERE observations_fts MATCH ?
+        AND o.type = ?
+        AND o.valid_to IS NULL
+        ${filterClause ? 'AND ' + filterClause : ''}
+      ORDER BY bm25(observations_fts, ${OBSERVATION_BM25_WEIGHTS.join(', ')}) ASC
+      LIMIT ?
+    `;
+    params.unshift(expression, CHECKPOINT_TYPE);
+    params.push(SessionSearch.ACTIVE_CHECKPOINT_LIMIT);
+
+    try {
+      return (this.db.prepare(sql).all(...params) as Array<{ id: number }>).map(row => row.id);
+    } catch (error) {
+      // Same rule as the exact-wording probe: a failed promotion costs the
+      // promotion and nothing else. The ordinary ranking is already computed.
+      logger.warn('DB', 'Active-checkpoint probe failed', {}, error instanceof Error ? error : undefined);
       return [];
     }
   }
