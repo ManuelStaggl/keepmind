@@ -66,29 +66,11 @@ Only approve overrides when ALL of these are true:
 
 ## Critical Path Rules
 
-For files in the CRITICAL_PATHS list (SDKAgent.ts, GeminiAgent.ts, OpenRouterAgent.ts, SessionStore.ts, worker-service.ts):
+For files the detector marks as critical paths (the `CRITICAL_PATHS` list in
+`scripts/anti-pattern-test/detect-error-handling-antipatterns.ts` — do not maintain a second copy here):
 
-- **NEVER** approve overrides on critical paths without exceptional justification
-- Errors on critical paths MUST be visible (logged) or fatal (thrown)
-- Catch-and-continue on critical paths is BANNED unless explicitly approved
-- If in doubt, make it throw - fail loud, not silent
-
-## Output Format
-
-After each fix:
-```
-✅ Fixed: src/utils/example.ts:42
-   Pattern: NO_LOGGING_IN_CATCH
-   Solution: Added logger.error() with context
-
-Progress: 3/28 critical issues remaining
-```
-
-After completing a batch:
-```
-🎯 Batch complete! Re-running detector...
-[shows new results]
-```
+- An error on a critical path is either visible (logged) or fatal (thrown).
+- An override there needs exceptional justification; when in doubt, throw.
 
 ## Important
 
@@ -100,22 +82,5 @@ After completing a batch:
 
 ## When Complete
 
-Report final statistics:
-```
-🎉 Anti-pattern cleanup complete!
-
-Before:
-  🔴 CRITICAL: 28
-  🟠 HIGH: 47
-  🟡 MEDIUM: 76
-
-After:
-  🔴 CRITICAL: 0
-  🟠 HIGH: 47
-  🟡 MEDIUM: 76
-  ⚪ APPROVED OVERRIDES: 15
-
-All critical anti-patterns resolved!
-```
-
-Now, ask the user: "Ready to fix error handling anti-patterns? I'll start with the critical issues."
+Report the detector's counts per severity, before and after, and the number of
+approved overrides that were added.

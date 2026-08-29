@@ -59,8 +59,9 @@ function stripHardcodedDirname(filePath) {
  * command string to the buildShellCommand() options that generate it. The
  * build asserts the hand-maintained files still match the generator output so
  * the defensive shell prelude can't drift between the three files (issues
- * #1215, #1533). See src/build/hook-shell-template.ts and CLAUDE.md →
- * "Spawn-Contract Resolution".
+ * #1215, #1533). See src/build/hook-shell-template.ts — the CLAUDE.md section
+ * this used to name ("Spawn-Contract Resolution") was planned in
+ * plans/02-spawn-contract-templating.md and never written.
  */
 function shellTemplateManifest(buildShellCommand) {
   const ccTrailing = (...tail) => [
