@@ -24,7 +24,10 @@ beforeEach(() => {
   const modeManager = ModeManager.getInstance() as unknown as { activeMode: unknown };
   modeManager.activeMode = {
     observation_types: [{ id: 'bugfix' }, { id: 'discovery' }, { id: 'refactor' }],
-    observation_concepts: [],
+    // S10 needs a non-empty concept vocabulary: telling a misplaced concept
+    // apart from an invented value is the whole point of the resolution, and an
+    // empty list makes every wrong type look invented.
+    observation_concepts: [{ id: 'gotcha' }, { id: 'how-it-works' }, { id: 'pattern' }],
   };
 });
 
@@ -134,7 +137,13 @@ describe('parseAgentXml — observations', () => {
     expect(result.valid).toBe(false);
   });
 
-  it('uses first mode type as fallback when type is missing', () => {
+  // S10 — this asserted `bugfix` until 29.08.2026: the FIRST entry of the mode's
+  // type list, chosen for no reason but being first, and then stored as if the
+  // model had said it. A substitute that looks like a valid classification is
+  // worse than an admitted "unknown", because nothing downstream can tell it
+  // from a real one — `search(type=bugfix)` answered with rows nobody had
+  // classified.
+  it('records an absent type as unknown, not as the first entry of the list', () => {
     const xml = `<observation>
       <title>Missing type field</title>
     </observation>`;
@@ -142,7 +151,36 @@ describe('parseAgentXml — observations', () => {
     const result = expectObservation(xml);
 
     expect(result).toHaveLength(1);
-    expect(result[0].type).toBe('bugfix');
+    expect(result[0].type).toBe('unknown');
+    expect(result[0].type).not.toBe('bugfix');
+  });
+
+  it('S10 — a concept in the type slot is kept as a concept, not as a type', () => {
+    const xml = `<observation>
+      <type>gotcha</type>
+      <title>A trap worth remembering</title>
+      <concepts><concept>how-it-works</concept></concepts>
+    </observation>`;
+
+    const result = expectObservation(xml);
+
+    expect(result[0].type).toBe('unknown');
+    // The model's information is not thrown away — `gotcha` IS a concept here.
+    expect(result[0].concepts).toContain('gotcha');
+    expect(result[0].concepts).toContain('how-it-works');
+  });
+
+  it('S10 — an invented type does not become a concept either', () => {
+    const xml = `<observation>
+      <type>xyzzy</type>
+      <title>Something happened</title>
+      <concepts><concept>gotcha</concept></concepts>
+    </observation>`;
+
+    const result = expectObservation(xml);
+
+    expect(result[0].type).toBe('unknown');
+    expect(result[0].concepts).toEqual(['gotcha']);
   });
 
   it('returns a fail-fast result when no observation/summary blocks are present', () => {

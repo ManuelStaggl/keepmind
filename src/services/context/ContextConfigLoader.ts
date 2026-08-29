@@ -4,13 +4,21 @@ import { paths } from '../../shared/paths.js';
 import { ModeManager } from '../domain/ModeManager.js';
 import type { ContextConfig } from './types.js';
 import { normalizeSourceKind } from '../sqlite/source-kind.js';
+import { UNKNOWN_OBSERVATION_TYPE } from '../../sdk/observation-type.js';
 
 export function loadContextConfig(): ContextConfig {
   const settingsPath = paths.settings();
   const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
 
   const mode = ModeManager.getInstance().getActiveMode();
-  const observationTypes = new Set(mode.observation_types.map(t => t.id));
+  // S10: `unknown` is not a choice offered to the model, but a row that carries
+  // it is still a real observation — filtering the injection to the mode's
+  // vocabulary alone would make the honest fallback cost more than the
+  // dishonest one it replaced.
+  const observationTypes = new Set([
+    ...mode.observation_types.map(t => t.id),
+    UNKNOWN_OBSERVATION_TYPE,
+  ]);
   const observationConcepts = new Set(mode.observation_concepts.map(c => c.id));
 
   return {

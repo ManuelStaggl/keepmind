@@ -1,6 +1,7 @@
 
 import { logger } from '../utils/logger.js';
 import { ModeManager } from '../services/domain/ModeManager.js';
+import { resolveObservationType } from './observation-type.js';
 
 // TODO(#2233): migrate to Anthropic tool-use API for deterministic JSON output. This text-XML path is the bridge.
 // Only strip fences when the entire payload is a single fenced block. Stripping
@@ -104,25 +105,44 @@ function parseObservationBlocks(text: string, correlationId?: string | number): 
 
     const mode = ModeManager.getInstance().getActiveMode();
     const validTypes = mode.observation_types.map(t => t.id);
-    const fallbackType = validTypes[0];
-    let finalType = fallbackType;
-    if (type) {
-      if (validTypes.includes(type.trim())) {
-        finalType = type.trim();
-      } else {
-        logger.error('PARSER', `Invalid observation type: ${type}, using "${fallbackType}"`, { correlationId });
-      }
-    } else {
-      logger.error('PARSER', `Observation missing type field, using "${fallbackType}"`, { correlationId });
+    const validConcepts = mode.observation_concepts.map(c => c.id);
+    // S10: an unusable type becomes `unknown`, never the first entry of the
+    // list. The old fallback stored `bugfix` — a value that reads as a genuine
+    // classification and is indistinguishable from one, so `search(type=…)`
+    // answered with the wrong drawer and every count over `type` was wrong by
+    // exactly the rows nobody could identify.
+    const resolution = resolveObservationType(type, validTypes, validConcepts);
+    const finalType = resolution.type;
+    if (resolution.reason === 'concept_in_type_slot') {
+      // A diagnosis about OUR prompt, not about the model: `pattern` and
+      // `gotcha` are concepts in this mode, and the guidance forbade the mix-up
+      // in one direction only. Kept as a concept so the information survives.
+      logger.warn(
+        'PARSER',
+        `Observation type "${resolution.offered}" is a CONCEPT, not a type — recording it as one and leaving the type unknown`,
+        { correlationId, offered: resolution.offered },
+      );
+    } else if (resolution.reason === 'unrecognised') {
+      logger.warn(
+        'PARSER',
+        `Observation type "${resolution.offered}" is not in this mode's vocabulary — recording it as unknown`,
+        { correlationId, offered: resolution.offered, validTypes },
+      );
+    } else if (resolution.reason === 'missing') {
+      logger.warn('PARSER', 'Observation carries no type — recording it as unknown', { correlationId });
     }
 
-    const cleanedConcepts = concepts.filter(c => c !== finalType);
+    const withMisplacedConcept =
+      resolution.reason === 'concept_in_type_slot' && resolution.offered
+        ? [...concepts, resolution.offered]
+        : concepts;
+    const cleanedConcepts = Array.from(new Set(withMisplacedConcept)).filter(c => c !== finalType);
 
     if (cleanedConcepts.length !== concepts.length) {
       logger.debug('PARSER', 'Removed observation type from concepts array', {
         correlationId,
         type: finalType,
-        originalConcepts: concepts,
+        originalConcepts: withMisplacedConcept,
         cleanedConcepts
       });
     }
