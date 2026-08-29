@@ -139,9 +139,42 @@ function asText(value: unknown, limit = 4_000): string {
   }
 }
 
+/**
+ * The tool input as a record, whether it arrives as one or as JSON text.
+ *
+ * It arrives as TEXT in production: the ingest route queues
+ * `stripMemoryTagsFromJson(JSON.stringify(payload.toolInput))`
+ * (`http/shared.ts`), so everything the gate is handed carries `tool_input` as a
+ * string. Reading it as an object only — the previous behaviour — made
+ * `commandOf` and `pathsOf` return the empty string for EVERY live tool use, so
+ * `decisiveCommand` and `governancePath` were false for every batch that has
+ * ever reached this function. Nothing failed and nothing was logged: the
+ * remaining signals (a write tool by NAME, a failure word in the output, output
+ * length) still fired, so the gate went on answering, just never for the two
+ * reasons it was written for. Measured live afterwards on the running worker:
+ * `git tag --list` — a command DECISIVE_COMMAND matches — was dropped as
+ * `read_only`, while the same batch built by hand in a test compressed.
+ *
+ * That is also why the tests could not catch it. They pass objects, which is the
+ * shape the type allows and the production path never sends;
+ * `gate-json-tool-input.test.ts` now asserts both shapes decide alike.
+ */
+function inputRecord(toolInput: unknown): Record<string, unknown> | null {
+  if (!toolInput) return null;
+  if (typeof toolInput === 'string') {
+    try {
+      const parsed = JSON.parse(toolInput);
+      return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
+    } catch {
+      return null;
+    }
+  }
+  return typeof toolInput === 'object' ? toolInput as Record<string, unknown> : null;
+}
+
 function pathsOf(toolInput: unknown): string {
-  if (!toolInput || typeof toolInput !== 'object') return '';
-  const record = toolInput as Record<string, unknown>;
+  const record = inputRecord(toolInput);
+  if (!record) return '';
   const parts: string[] = [];
   for (const key of ['file_path', 'filePath', 'path', 'notebook_path']) {
     if (typeof record[key] === 'string') parts.push(record[key] as string);
@@ -153,8 +186,8 @@ function pathsOf(toolInput: unknown): string {
 }
 
 function commandOf(toolInput: unknown): string {
-  if (!toolInput || typeof toolInput !== 'object') return '';
-  const record = toolInput as Record<string, unknown>;
+  const record = inputRecord(toolInput);
+  if (!record) return '';
   const cmd = record.command ?? record.script;
   return typeof cmd === 'string' ? cmd : '';
 }
