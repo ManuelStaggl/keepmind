@@ -134,17 +134,45 @@ export function buildHardenedSdkOptions(input: HardenedSdkOptionsInput): Options
     // and is billed on top of a conversation prefix that already grows per turn
     // (upstream 09391a74). Behavior-only — outside the tool-lockdown boundary.
     //
+    // BOTH options are set, and `maxThinkingTokens` is the one that currently
+    // acts. `thinkingConfig: { type: 'disabled' }` is what the SDK types
+    // document ("takes precedence over the deprecated maxThinkingTokens"), but
+    // Claude Code 2.1.234 does not honour it. Measured on the REAL observer
+    // prompt pair (buildObserverSystemPrompt + buildStatelessObservationPrompt),
+    // claude-haiku-4-5, two runs per variant:
+    //
+    //   thinkingConfig alone   2 assistant messages, 4,788 in, $0.0107
+    //                          (one run of the four went to 3 messages after the
+    //                          CLI appended "[Your previous response had no
+    //                          visible output…]": 7,222 in, $0.0179)
+    //   thinkingConfig removed 2 assistant messages, 4,788 in, $0.0093
+    //   maxThinkingTokens: 0   1 assistant message,  2,364 in, $0.0050
+    //
+    // So every observation was paid for TWICE: a thinking-only message with no
+    // text, then the answer. `maxThinkingTokens: 0` collapsed every run to one
+    // message carrying the XML — on haiku-4-5, sonnet-5 and opus-5 alike. The
+    // note that used to stand here, that Haiku has no adaptive thinking to
+    // disable, was wrong: it has one, and it was using it. Keep both options —
+    // they say the same thing, and the documented one takes over on its own once
+    // the CLI honours it.
+    //
+    // The split turn is also a CORRECTNESS trap, which is why ClaudeProvider
+    // defers an assistant message with no text instead of parsing it: an empty
+    // response reads as "nothing worth recording" and closes the claimed batch
+    // as `skipped` while the real answer is still in flight.
+    //
     // Model interaction, verified against the model docs 2026-07-29: on the
-    // default (Haiku 4.5) this is simply the old thinking-off path — Haiku has no
-    // adaptive thinking to disable. On the thinking-capable models a user may
-    // select instead, disabling thinking makes the model occasionally leak
-    // internal XML into the visible response, which would reach the observation
-    // parser. buildObserverSystemPrompt therefore forbids internal/system tags
-    // generically; do NOT name thinking tags there and do NOT add a
-    // "don't reason" instruction — both measurably worsen the leak. Disabling
-    // thinking is also rejected above effort `high` on Opus 5, which is safe
-    // here only because keepmind never raises effort (the API default is high).
-    ...(input.source === 'Observer' ? { thinkingConfig: { type: 'disabled' as const } } : {}),
+    // thinking-capable models a user may select, disabling thinking makes the
+    // model occasionally leak internal XML into the visible response, which
+    // would reach the observation parser. buildObserverSystemPrompt therefore
+    // forbids internal/system tags generically; do NOT name thinking tags there
+    // and do NOT add a "don't reason" instruction — both measurably worsen the
+    // leak. Disabling thinking is also rejected above effort `high` on Opus 5,
+    // which is safe here only because keepmind never raises effort (the API
+    // default is high) — the opus-5 run above returned normally.
+    ...(input.source === 'Observer'
+      ? { thinkingConfig: { type: 'disabled' as const }, maxThinkingTokens: 0 }
+      : {}),
 
     // === Tool lockdown (defense-in-depth) ===
     tools: [],                                        // belt: disable ALL built-in tools

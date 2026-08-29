@@ -81,6 +81,32 @@ describe('Observer/KnowledgeAgent SDK tool enforcement (hardened-options)', () =
     });
   });
 
+  // Not a security property but a COST one, kept here because it rides on the
+  // same option object and was measured the same way. Numbers and method are in
+  // hardened-options.ts: with `thinkingConfig` alone the observer paid for TWO
+  // turns per observation (a thinking-only message with no text, then the XML) —
+  // 4,788 input tokens and $0.0107 against 2,364 and $0.0050 with
+  // `maxThinkingTokens: 0`. The split turn also closed the claimed batch as
+  // `skipped` off the empty message; that consequence is pinned in
+  // tests/worker/agents/response-processor.test.ts ('model_returned_nothing').
+  describe('thinking is actually off for the Observer (cost invariant)', () => {
+    it('sets maxThinkingTokens to 0 — the option Claude Code actually honours', () => {
+      const opts = buildHardenedSdkOptions({ ...BASE_INPUT });
+      expect(opts.maxThinkingTokens).toBe(0);
+    });
+
+    it('keeps the documented thinkingConfig too, so the fix survives the CLI catching up', () => {
+      const opts = buildHardenedSdkOptions({ ...BASE_INPUT });
+      expect(opts.thinkingConfig).toEqual({ type: 'disabled' });
+    });
+
+    it('leaves the KnowledgeAgent untouched — it reasons over a primed conversation', () => {
+      const opts = buildHardenedSdkOptions({ ...BASE_INPUT, source: 'KnowledgeAgent' });
+      expect(opts.maxThinkingTokens).toBeUndefined();
+      expect(opts.thinkingConfig).toBeUndefined();
+    });
+  });
+
   describe('canUseTool denies every invocation and audit-logs it', () => {
     beforeEach(() => {
       rmSync(AUDIT_PATH, { force: true });
